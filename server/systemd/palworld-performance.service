@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply Palworld performance tuning
+After=multi-user.target palworld.service
+
+[Service]
+Type=oneshot
+ExecStart=/srv/storage/steam/bin/palworld-performance-tune.sh
+
+[Install]
+WantedBy=multi-user.target

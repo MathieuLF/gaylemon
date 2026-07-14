@@ -1,0 +1,163 @@
+{
+  "version": 3,
+  "projection": {"version": 2},
+  "ok": true,
+  "updatedAt": "2026-07-12T09:00:00-04:00",
+  "source": {
+    "type": "palworld-built-in-backup",
+    "backup": "2026.07.12-08.55.00"
+  },
+  "parser": {
+    "name": "PalworldSaveTools",
+    "commit": "0123456789ab"
+  },
+  "summary": {
+    "players": 1,
+    "pals": 1,
+    "guilds": 1,
+    "bases": 1
+  },
+  "world": {
+    "paldexSpecies": 288,
+    "fastTravelPoints": 174,
+    "discoverableAreas": 123,
+    "knownBosses": 99
+  },
+  "bases": [],
+  "guilds": [
+    {
+      "name": "Les Testeurs",
+      "players": 1,
+      "bases": 1,
+      "campLevel": 3
+    }
+  ],
+  "players": [
+    {
+      "name": "Aventurière",
+      "level": 12,
+      "guild": "Les Testeurs",
+      "guildBases": 1,
+      "campLevel": 3,
+      "position": {
+        "mapX": 42,
+        "mapY": -17,
+        "leftPercent": 52.1,
+        "topPercent": 50.85
+      },
+      "character": {
+        "experience": 12000,
+        "hp": 850.0,
+        "shield": 100.0,
+        "hunger": 95.0,
+        "unusedStatusPoints": 2,
+        "allocations": []
+      },
+      "pals": {
+        "total": 1,
+        "party": 1,
+        "palbox": 0,
+        "uniqueSpecies": 1,
+        "highestLevel": 10,
+        "favorites": [],
+        "collection": [
+          {
+            "name": "Copain",
+            "species": "Lamball",
+            "icon": "assets/game/icons/pals/T_SheepBall_icon_normal.webp",
+            "level": 10,
+            "experience": 2500,
+            "gender": "Female",
+            "container": "party",
+            "hp": 500.0,
+            "maxHp": 650,
+            "hunger": 80.0,
+            "sanity": null,
+            "friendship": 500,
+            "rank": null,
+            "lucky": false,
+            "boss": false,
+            "awakening": false,
+            "favorite": true,
+            "imported": false,
+            "talents": {"hp": 50, "attack": 60, "defense": 55},
+            "souls": {"hp": 0, "attack": 0, "defense": 0, "workSpeed": 0},
+            "computedStats": {"attack": 90, "defense": 85, "workSpeed": 70},
+            "passives": [],
+            "activeSkills": [],
+            "learnedSkills": [],
+            "workSuitabilityBonuses": [],
+            "healthStatus": null,
+            "ownedAt": "2026-07-10T04:00:00+00:00",
+            "position": null
+          }
+        ]
+      },
+      "inventory": [],
+      "progress": {
+        "technologyPoints": 4,
+        "bossTechnologyPoints": 1,
+        "unlockedTechnologies": 12,
+        "completedQuests": 3,
+        "quests": {"completedCount": 3, "completed": [], "activeCount": 0, "active": []},
+        "challenges": {"completedCount": 0, "completed": []},
+        "records": {
+          "treasuresFound": 0,
+          "normalDungeonsCleared": 0,
+          "fixedDungeonsCleared": 0,
+          "oilRigsCleared": 0,
+          "campsConquered": 0,
+          "fishCaught": 0,
+          "fishSpecies": 0,
+          "itemsCrafted": 0,
+          "craftedItemTypes": 0,
+          "uniqueItemsPickedUp": 0
+        },
+        "paldex": {
+          "encounteredSpecies": 2,
+          "capturedSpecies": 1,
+          "totalSpecies": 288,
+          "totalCaptures": 2,
+          "captureChallengesCompleted": 0,
+          "completionPercent": 0.3,
+          "species": [
+            {
+              "index": 1,
+              "name": "Lamball",
+              "icon": "assets/game/icons/pals/T_SheepBall_icon_normal.webp",
+              "encountered": false,
+              "captured": false,
+              "captureCount": 0,
+              "challengeCount": 0,
+              "challengeTarget": 5,
+              "challengeComplete": false
+            }
+          ]
+        },
+        "bosses": {
+          "defeated": 1,
+          "normalDefeated": 1,
+          "normalKnownTotal": 99,
+          "towerDefeated": 0,
+          "known": []
+        },
+        "exploration": {
+          "fastTravelUnlocked": 4,
+          "fastTravelTotal": 174,
+          "areasDiscovered": 3,
+          "areasTotal": 123,
+          "worldMapsUnlocked": 1,
+          "completionPercent": 2.4,
+          "fastTravelPoints": []
+        },
+        "technologies": [],
+        "relics": {
+          "totalRanks": 1,
+          "maximumRanks": 15,
+          "completionPercent": 6.7,
+          "categories": []
+        }
+      }
+    }
+  ]
+}

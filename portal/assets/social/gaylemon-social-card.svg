@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">Gaylémon Palworld</title>
+  <desc id="description">Carte sociale illustrée du serveur communautaire Gaylémon.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#063243"/>
+      <stop offset="0.58" stop-color="#126d6b"/>
+      <stop offset="1" stop-color="#43b77d"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffdf4"/>
+      <stop offset="1" stop-color="#e5f8ee"/>
+    </linearGradient>
+    <linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b4054"/>
+      <stop offset="1" stop-color="#061b29"/>
+    </linearGradient>
+    <linearGradient id="islandA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9ed67c"/>
+      <stop offset="1" stop-color="#4ca36e"/>
+    </linearGradient>
+    <linearGradient id="islandB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1ca73"/>
+      <stop offset="1" stop-color="#df8268"/>
+    </linearGradient>
+    <pattern id="texture" width="28" height="28" patternUnits="userSpaceOnUse" patternTransform="rotate(22)">
+      <path d="M0 0V28" stroke="#c9f4e4" stroke-opacity=".09" stroke-width="2"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#031c29" flood-opacity=".28"/>
+    </filter>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <clipPath id="worldClip">
+      <rect x="770" y="55" width="380" height="520" rx="54"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#background)"/>
+  <rect width="1200" height="630" fill="url(#texture)"/>
+  <circle cx="1090" cy="72" r="240" fill="#75e8bd" opacity=".1"/>
+  <circle cx="86" cy="616" r="270" fill="#f2c45b" opacity=".08"/>
+
+  <g filter="url(#shadow)">
+    <rect x="55" y="55" width="680" height="520" rx="46" fill="url(#panel)"/>
+  </g>
+
+  <g font-family="Trebuchet MS, Arial, sans-serif">
+    <g transform="translate(95 92)">
+      <rect width="262" height="38" rx="19" fill="#d8f4e5"/>
+      <circle cx="22" cy="19" r="6" fill="#34bd72"/>
+      <text x="38" y="25" fill="#156c55" font-size="16" font-weight="700" letter-spacing="1.4">SERVEUR PALWORLD PRIVÉ</text>
+    </g>
+
+    <text x="92" y="225" fill="#102a46" font-size="72" font-weight="800" letter-spacing="-3">Gaylémon</text>
+    <text x="92" y="298" fill="#102a46" font-size="72" font-weight="800" letter-spacing="-3">Palworld</text>
+    <text x="96" y="348" fill="#3c536c" font-size="25" font-weight="600">L'aventure continue sur Palpagos.</text>
+
+    <g transform="translate(94 388)" font-size="15" font-weight="700" fill="#145f63">
+      <rect width="174" height="42" rx="21" fill="#dff5ea"/>
+      <text x="22" y="27">État du serveur</text>
+      <rect x="184" width="202" height="42" rx="21" fill="#dff5ea"/>
+      <text x="206" y="27">Carte des joueurs</text>
+      <rect x="396" width="210" height="42" rx="21" fill="#dff5ea"/>
+      <text x="418" y="27">Chroniques du monde</text>
+    </g>
+
+    <g transform="translate(95 476)">
+      <g transform="translate(0)">
+        <circle cx="34" cy="34" r="34" fill="#fff"/>
+        <path d="M34 14c9 7 14 15 14 24 0 9-6 16-14 16s-14-7-14-16c0-9 5-17 14-24Z" fill="#56bb7a"/>
+        <path d="M34 24v22M26 35l8 7 9-11" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+      </g>
+      <g transform="translate(58)">
+        <circle cx="34" cy="34" r="34" fill="#fff"/>
+        <path d="m34 12 18 13-7 22H23l-7-22Z" fill="#4ea6cf"/>
+        <circle cx="34" cy="31" r="8" fill="#fff" opacity=".92"/>
+        <path d="M27 47c2-7 12-7 14 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+      </g>
+      <g transform="translate(116)">
+        <circle cx="34" cy="34" r="34" fill="#fff"/>
+        <path d="M19 43 25 23l13-9 11 10-4 23-15 7Z" fill="#f0b85a"/>
+        <path d="m26 34 7 5 10-12" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text x="210" y="29" fill="#102a46" font-size="19" font-weight="800">Rejoins l'aventure avec nous</text>
+      <text x="210" y="54" fill="#587087" font-size="16" font-weight="600">gaylemon.mathieu.pro</text>
+    </g>
+  </g>
+
+  <g clip-path="url(#worldClip)" filter="url(#shadow)">
+    <rect x="770" y="55" width="380" height="520" rx="54" fill="url(#ocean)"/>
+    <g opacity=".17" stroke="#8edfd1" fill="none">
+      <path d="M760 155c100 32 217 25 405-10M758 278c132 25 270 18 412-20M760 409c125-16 272-10 415 28"/>
+      <path d="M854 40c-25 160-17 354 30 550M1002 35c-39 166-32 364 12 560"/>
+    </g>
+
+    <g stroke="#d9ffed" stroke-opacity=".24" stroke-width="3">
+      <path d="M901 109c26-19 61-12 73 15 8 19-4 35 9 52 12 16 40 20 41 46 1 30-36 42-56 30-20-11-23-39-44-45-23-7-48 12-68-2-20-15-9-43 7-56 15-12 20-29 38-40Z" fill="url(#islandA)"/>
+      <path d="M1047 268c20-11 47-2 53 20 5 17-8 30-4 45 6 20 33 25 31 48-3 27-35 34-53 20-14-11-13-31-29-39-21-10-51 5-66-14-15-20 2-44 21-52 17-7 30-19 47-28Z" fill="url(#islandB)"/>
+      <path d="M861 345c18-18 48-16 63 2 14 18 2 38 11 55 10 19 36 24 35 47-2 26-33 36-53 24-17-11-20-35-39-40-19-6-39 11-57 0-20-13-15-41 1-55 14-13 24-20 39-33Z" fill="#7ebbc1"/>
+      <path d="M1012 113c16-10 37-2 41 15 4 14-8 24-3 37 5 13 23 18 20 34-4 18-26 21-38 10-11-10-7-28-20-34-13-6-30 4-40-7-11-13 1-29 13-36 10-6 17-13 27-19Z" fill="#d7e8d2"/>
+    </g>
+
+    <g fill="#a9f3df" opacity=".85">
+      <circle cx="838" cy="170" r="4"/>
+      <circle cx="1093" cy="146" r="5"/>
+      <circle cx="814" cy="304" r="3"/>
+      <circle cx="1110" cy="474" r="4"/>
+      <circle cx="954" cy="528" r="4"/>
+    </g>
+    <g fill="#f7d56a" filter="url(#glow)" opacity=".55">
+      <circle cx="942" cy="189" r="10"/>
+      <circle cx="1065" cy="337" r="10"/>
+      <circle cx="890" cy="416" r="10"/>
+    </g>
+    <g fill="#fff" stroke="#143b4b" stroke-width="5">
+      <circle cx="942" cy="189" r="9"/>
+      <circle cx="1065" cy="337" r="9"/>
+      <circle cx="890" cy="416" r="9"/>
+    </g>
+    <rect x="770" y="55" width="380" height="520" rx="54" fill="none" stroke="#8ee7d0" stroke-opacity=".55" stroke-width="3"/>
+  </g>
+
+  <g transform="translate(1062 510)" font-family="Trebuchet MS, Arial, sans-serif">
+    <circle r="42" fill="#ef745f" stroke="#fff" stroke-width="8"/>
+    <path d="M0-16 15 11 0 5-15 11Z" fill="#fff" opacity=".94"/>
+  </g>
+</svg>

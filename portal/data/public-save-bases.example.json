@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "ok": true,
+  "updatedAt": "2026-07-12T09:42:27-04:00",
+  "parser": {
+    "name": "PalworldSaveTools",
+    "commit": "example"
+  },
+  "summary": {
+    "bases": 1,
+    "workers": 1,
+    "structures": 12,
+    "storageUnits": 2,
+    "productionUnits": 1,
+    "guildStorageUnits": 1,
+    "activeJobs": 0,
+    "busyWorkers": 1
+  },
+  "bases": [
+    {
+      "name": "Base 1 · Explorateurs",
+      "guild": "Explorateurs",
+      "players": ["Aventurière"],
+      "campLevel": 8,
+      "position": {
+        "mapX": 100,
+        "mapY": 50,
+        "leftPercent": 55,
+        "topPercent": 47.5
+      },
+      "areaRange": 3500,
+      "state": "active",
+      "workers": {
+        "assigned": 1,
+        "busy": 1,
+        "healthy": 1,
+        "unwell": 0,
+        "list": []
+      },
+      "structures": {
+        "total": 12,
+        "damaged": 0,
+        "unfinished": 0,
+        "categories": [{ "name": "Production", "count": 4 }],
+        "highlights": [{ "name": "Workbench", "count": 2 }]
+      },
+      "storage": {
+        "units": 2,
+        "capacity": 40,
+        "used": 12,
+        "fillPercent": 30,
+        "itemTypes": 1,
+        "categories": [{ "name": "Material", "count": 250 }],
+        "topItems": [{ "name": "Wood", "count": 200, "icon": null, "category": "Material" }]
+      },
+      "production": {
+        "units": 1,
+        "capacity": 20,
+        "used": 2,
+        "fillPercent": 10,
+        "itemTypes": 1,
+        "categories": [{ "name": "Material", "count": 12 }],
+        "topItems": [{ "name": "Ingot", "count": 12, "icon": null, "category": "Material" }]
+      },
+      "work": {
+        "total": 4,
+        "active": 0,
+        "assignedWorkers": 1,
+        "bufferedItems": 2,
+        "jobs": []
+      },
+      "research": {
+        "current": null,
+        "completed": 3
+      }
+    }
+  ],
+  "guildStorage": [
+    {
+      "guild": "Explorateurs",
+      "players": ["Aventurière"],
+      "units": 1,
+      "capacity": 80,
+      "used": 10,
+      "fillPercent": 12.5,
+      "itemTypes": 1,
+      "categories": [{ "name": "Material", "count": 50 }],
+      "topItems": [{ "name": "Stone", "count": 50, "icon": null, "category": "Material" }]
+    }
+  ]
+}

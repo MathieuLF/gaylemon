@@ -1,0 +1,34 @@
+name: Proposer une amélioration
+description: Proposer une fonctionnalité ou une simplification.
+title: "[Amélioration] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Besoin
+      description: Quel problème concret cette proposition résout-elle?
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+      description: Décrivez le comportement souhaité.
+    validations:
+      required: true
+  - type: dropdown
+    id: composant
+    attributes:
+      label: Composant principal
+      options:
+        - Microsite
+        - Console Windows
+        - Collecteurs Ubuntu
+        - Sauvegardes
+        - Documentation
+        - Infrastructure
+  - type: textarea
+    id: risques
+    attributes:
+      label: Risques ou données concernées

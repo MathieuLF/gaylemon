@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Palworld dedicated server update
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+Persistent=true
+Unit=palworld-update.service
+
+[Install]
+WantedBy=timers.target

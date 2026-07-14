@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "ok": true,
+  "revision": "2:4:4",
+  "updatedAt": "2026-07-12T12:00:00-04:00",
+  "summary": {
+    "events": 4,
+    "firstAt": "2026-07-12T10:00:00-04:00",
+    "lastAt": "2026-07-12T11:45:00-04:00",
+    "types": {
+      "capture": 1,
+      "challenge": 1,
+      "join": 1,
+      "maintenance": 1
+    },
+    "reconciledReconnects": 0
+  },
+  "events": [
+    {
+      "id": 4,
+      "occurredAt": "2026-07-12T11:50:00-04:00",
+      "type": "challenge",
+      "player": "Aventurier",
+      "title": "Défi de capture réussi",
+      "message": "Aventurier complète le défi de Lamball: 5 captures enregistrées.",
+      "icon": "assets/game/icons/pals/example.webp",
+      "source": "save"
+    },
+    {
+      "id": 3,
+      "occurredAt": "2026-07-12T11:45:00-04:00",
+      "type": "maintenance",
+      "player": null,
+      "title": "Maintenance dans 5 minutes",
+      "message": "Une sauvegarde du monde et une mise à jour sont planifiées.",
+      "icon": null,
+      "source": "update"
+    },
+    {
+      "id": 2,
+      "occurredAt": "2026-07-12T11:30:00-04:00",
+      "type": "capture",
+      "player": "Aventurier",
+      "title": "Capture réussie",
+      "message": "Aventurier capture 2 Lamball. Total enregistré: 5.",
+      "icon": "assets/game/icons/pals/example.webp",
+      "source": "save"
+    },
+    {
+      "id": 1,
+      "occurredAt": "2026-07-12T10:00:00-04:00",
+      "type": "join",
+      "player": "Aventurier",
+      "title": "Arrivée sur Palpagos",
+      "message": "Aventurier rejoint l'aventure.",
+      "icon": null,
+      "source": "journal"
+    }
+  ]
+}

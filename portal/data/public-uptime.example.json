@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "ok": true,
+  "source": "uptime-kuma",
+  "updatedAt": "2026-01-01T12:00:00Z",
+  "updatedAtLocal": "2026-01-01 07:00:00",
+  "title": "Palworld",
+  "monitors": [
+    {
+      "id": 1,
+      "name": "Serveur Palworld",
+      "type": "push",
+      "status": "up",
+      "statusCode": 1,
+      "lastHeartbeatAt": "2026-01-01T12:00:00Z",
+      "ping": 16.7,
+      "uptime24h": 100,
+      "beats": [
+        {
+          "status": "up",
+          "statusCode": 1,
+          "time": "2026-01-01T12:00:00Z",
+          "ping": 16.7,
+          "message": null
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "up": 1,
+    "down": 0,
+    "maintenance": 0,
+    "status": "up",
+    "uptime24hAverage": 100
+  }
+}

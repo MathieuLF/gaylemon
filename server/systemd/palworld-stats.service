@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect Palworld local statistics
+After=palworld.service
+
+[Service]
+Type=oneshot
+User=steam
+Group=steam
+ExecStart=/srv/storage/steam/bin/palworld-stats-collect.py
+

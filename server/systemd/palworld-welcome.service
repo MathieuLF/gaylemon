@@ -1,0 +1,17 @@
+[Unit]
+Description=Palworld welcome announcement watcher
+After=palworld.service
+Requires=palworld.service
+
+[Service]
+Type=simple
+User=steam
+Group=steam
+ExecStart=/srv/storage/steam/bin/palworld-welcome-watch.sh
+Restart=always
+RestartSec=15
+Environment=PALWORLD_WELCOME_INTERVAL=15
+Environment=PALWORLD_WELCOME_MIN_GAP_SECONDS=1800
+
+[Install]
+WantedBy=multi-user.target
