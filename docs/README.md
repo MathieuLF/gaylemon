@@ -1,35 +1,32 @@
-# Documentation Gaylémon
+# Documentation
 
-Ce sommaire distingue les guides d'installation, les procédures d'exploitation, les contrats de données et les documents historiques.
+Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette page sert d'index.
 
-## Comprendre et installer
+## Comprendre
 
-- [Architecture](ARCHITECTURE.md): composants, flux de données et frontières de responsabilité.
-- [Configuration locale](CONFIGURATION-LOCALE.md): variables `.env`, secrets et chemins propres à une installation.
-- [Développement](DEVELOPPEMENT.md): initialisation d'un clone, tests et contrats JSON.
-- [Déploiement prudent](DEPLOIEMENT.md): mise en scène, installation atomique et politiques de redémarrage.
-- [Source de vérité](SOURCE-DE-VERITE.md): correspondance entre Git, Windows et les fichiers Ubuntu actifs.
+- [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, Kuma et cloudflared.
+- [Source de vérité](SOURCE-DE-VERITE.md): quels fichiers Git représentent les fichiers actifs sur Ubuntu.
+- [Sources](SOURCES.md): références externes utiles.
 
-## Exploiter le serveur
+## Installer et travailler
 
-- [Opérations](OPERATIONS.md): console, journaux, mises à jour, sauvegardes, statistiques et microsite.
-- [Accès LAN](LAN-ACCESS.md): connexion SSH depuis un autre poste de confiance.
-- [Uptime Kuma](UPTIME-KUMA.md): intégration avec l'instance externe de surveillance.
-- [Personnalisation](CUSTOMIZATION.md): annonces, messages de bienvenue et profil de difficulté.
-- [Profil de configuration](CONFIGURATION-AUDIT.md): valeurs PvE fournies et points à évaluer.
+- [Configuration locale](CONFIGURATION-LOCALE.md): `.env`, chemins et secrets.
+- [Développement](DEVELOPPEMENT.md): clone local, validation et tests.
+- [Déploiement](DEPLOIEMENT.md): stage, installation et règles de redémarrage.
+- [Accès LAN](LAN-ACCESS.md): connexion depuis un autre poste de confiance.
 
-## Contrats de données
+## Exploiter
 
-- [Snapshot public v3](SAVE-SNAPSHOT-V3.md): données joueurs, confidentialité et compatibilité.
-- [Bases publiques v1](SAVE-BASES-V1.md): campements, travailleurs, structures et stocks agrégés.
-- [Plan d'enrichissement](PLAN-ENRICHISSEMENT-SAUVEGARDES.md): décisions historiques, critères d'acceptation et travaux futurs.
+- [Opérations](OPERATIONS.md): console, sauvegardes, mises à jour, stats et microsite.
+- [Uptime Kuma](UPTIME-KUMA.md): intégration avec l'instance externe.
+- [Personnalisation](CUSTOMIZATION.md): annonces, bienvenue et profil de difficulté.
+- [Profil de configuration](CONFIGURATION-AUDIT.md): réglages PvE fournis.
 
-## Publier et attribuer
+## Données publiques
 
-- [Publication du dépôt](PUBLIC-REPOSITORY.md): fichiers inclus, exclusions et contrôles avant le premier push.
-- [Sources](SOURCES.md): documentation officielle et références techniques.
-- [Avis sur les composants tiers](../THIRD_PARTY_NOTICES.md): marques, polices et dépendances externes.
+- [Snapshot public v3](SAVE-SNAPSHOT-V3.md): contrat des données joueurs.
+- [Bases publiques v1](SAVE-BASES-V1.md): contrat des bases et stocks agrégés.
+- [Plan d'enrichissement](PLAN-ENRICHISSEMENT-SAUVEGARDES.md): historique des choix et reste à faire.
+- [Publication du dépôt](PUBLIC-REPOSITORY.md): quoi publier, quoi garder local.
 
-## Autorité des documents
-
-Les contrats versionnés et le manifeste de déploiement décrivent le comportement attendu du code. Le plan d'enrichissement conserve le raisonnement historique; son état d'implémentation en tête de document prévaut sur ses anciennes listes d'actions. Les informations propres à une instance réelle doivent rester dans `.env`, `config/local/` ou les données d'exploitation ignorées par Git.
+Les données propres à l'instance réelle restent dans `.env`, `config/local/`, `runtime/` ou les fichiers ignorés sous `portal/data/`.

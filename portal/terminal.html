@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="fr-CA">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Terminal des échos | Gaylémon Palworld</title>
+    <meta name="description" content="Explore le terminal complet des échos Gaylémon Palworld: constructions, productions, captures, recherches, bases et aventures des joueurs.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="theme-color" content="#176d70">
+    <meta name="color-scheme" content="light">
+    <link rel="canonical" href="https://gaylemon.mathieu.pro/terminal">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="fr_CA">
+    <meta property="og:site_name" content="Gaylémon Palworld">
+    <meta property="og:title" content="Terminal des échos | Gaylémon Palworld">
+    <meta property="og:description" content="Le journal complet et filtrable des aventures du serveur Gaylémon Palworld.">
+    <meta property="og:url" content="https://gaylemon.mathieu.pro/terminal">
+    <meta property="og:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png?v=20260713.2">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Terminal des échos | Gaylémon Palworld">
+    <meta name="twitter:description" content="Le journal complet et filtrable des aventures du serveur Gaylémon Palworld.">
+    <meta name="twitter:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png?v=20260713.2">
+    <link rel="icon" href="/assets/favicon.svg?v=20260712.1" type="image/svg+xml">
+    <link rel="manifest" href="/site.webmanifest?v=20260712.1">
+    <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260714.11">
+    <script src="/assets/app.js?v=20260714.12" defer></script>
+
+    <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-3G8E2NE95B', { send_page_view: false });
+      function loadGoogleAnalytics() {
+        if (document.querySelector('script[data-google-analytics]')) return;
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=G-3G8E2NE95B';
+        script.dataset.googleAnalytics = '';
+        document.head.appendChild(script);
+      }
+      ['pointerdown', 'keydown'].forEach((eventName) => {
+        window.addEventListener(eventName, loadGoogleAnalytics, { once: true, passive: true });
+      });
+      window.addEventListener('load', () => setTimeout(loadGoogleAnalytics, 8000), { once: true });
+    </script>
+  </head>
+  <body class="terminal-view">
+    <div class="world-glow" aria-hidden="true"></div>
+    <header class="site-header" aria-label="Navigation principale">
+      <div class="site-header__inner">
+        <a class="site-brand" href="/" aria-label="Retour à l'accueil Gaylémon Palworld">
+          <span class="site-brand__emblem" aria-hidden="true">G</span>
+          <span><strong>Gaylémon</strong><small>Palworld</small></span>
+        </a>
+        <nav class="site-nav" aria-label="Sections du microsite">
+          <a href="/#accueil" data-section-link="accueil">Accueil</a>
+          <a href="/#chroniques" data-section-link="chroniques">Aventuriers</a>
+          <a href="/#classements" data-section-link="classements">Classements</a>
+          <a href="/#carte" data-section-link="carte">Carte</a>
+          <a href="/#evenements" data-section-link="evenements" class="is-active" aria-current="page">Échos</a>
+          <a class="site-nav__discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="header">Discord <span aria-hidden="true">↗</span></a>
+        </nav>
+        <div class="site-header__telemetry">
+          <div class="site-header__players" id="header-players" aria-label="Joueurs actuellement en ligne">
+            <i aria-hidden="true"></i>
+            <strong data-metric="players-current">--</strong>
+            <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
+            <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
+          </div>
+          <div class="site-header__updated">
+            <small>Dernières données</small>
+            <time id="site-last-updated"><span class="site-last-updated__full">En attente</span><span class="site-last-updated__short" aria-hidden="true">--:--</span></time>
+          </div>
+          <div class="site-header__refresh" aria-label="Actualisation automatique" data-state="countdown">
+            <span id="next-update" role="status" aria-live="polite" aria-atomic="true">Dans 00:30</span>
+            <span class="refresh-track" aria-hidden="true"><span id="refresh-progress"></span></span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel events-panel disclosure" id="evenements" aria-labelledby="events-title">
+        <header class="terminal-page-heading panel__header">
+          <div>
+            <p class="eyebrow">Journal de Palpagos</p>
+            <h1 id="events-title">Terminal des échos</h1>
+          </div>
+          <a class="button button--secondary" href="/#evenements">Retour au tableau de bord</a>
+        </header>
+        <div class="events-disclosure__content disclosure__content">
+          <div class="event-console" aria-label="Historique public des événements Palworld">
+            <div class="event-console__topbar">
+              <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
+              <strong>palpagos://journal/public</strong>
+            </div>
+            <div class="event-toolbar">
+              <label class="event-search">
+                <span>Rechercher dans l'historique</span>
+                <span class="event-search__field">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
+                  <input id="event-search" type="search" placeholder="Joueur, Pal, production..." autocomplete="off">
+                </span>
+              </label>
+              <label>
+                <span>Type</span>
+                <select id="event-type-filter"><option value="all">Tous les événements</option></select>
+              </label>
+              <label>
+                <span>Aventurier</span>
+                <select id="event-player-filter"><option value="all">Tous les aventuriers</option></select>
+              </label>
+            </div>
+            <div class="event-console__summary">
+              <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
+              <time id="event-sync-status">Synchronisation en attente</time>
+            </div>
+            <ol class="event-stream" id="event-stream" aria-live="polite">
+              <li class="event-stream__empty">Les premiers échos arrivent...</li>
+            </ol>
+            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique" hidden></nav>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <button class="back-to-top" id="back-to-top" type="button" tabindex="-1" aria-label="Retourner en haut de la page" data-tooltip="Retour en haut" data-tooltip-placement="left">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+    </button>
+    <div class="context-tooltip" id="context-tooltip" role="tooltip" hidden></div>
+    <footer class="site-footer">
+      <div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>L'aventure continue!</span></div>
+      <nav class="site-footer__links" aria-label="Liens communautaires">
+        <a class="social-link social-link--github" href="/github" data-analytics-link="github" data-analytics-location="footer" aria-label="Lire la page technique Gaylémon Ops et GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a9.7 9.7 0 0 0-3.1 18.9v-2.2c-2.4.5-2.9-1-2.9-1-.4-1-.9-1.3-.9-1.3-.8-.5 0-.5 0-.5.8.1 1.3.9 1.3.9.7 1.3 1.8.9 2.3.7.1-.5.3-.9.5-1.1-1.9-.2-3.9-1-3.9-4.3 0-1 .4-1.8 1-2.4-.1-.2-.4-1.1.1-2.3 0 0 .8-.3 2.7.9a9.3 9.3 0 0 1 4.9 0c1.9-1.2 2.7-.9 2.7-.9.5 1.2.2 2.1.1 2.3.6.7 1 1.5 1 2.4 0 3.4-2 4.1-3.9 4.3.3.3.6.8.6 1.5v3.2A9.7 9.7 0 0 0 12 2.5Z"/></svg>
+          <span><strong>GitHub</strong><small>Dépôt et Gaylemon Ops</small></span><b aria-hidden="true">→</b>
+        </a>
+        <a class="social-link social-link--discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="footer" aria-label="Rejoindre le serveur Discord Gaylémon dans un nouvel onglet">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.1a13 13 0 0 1 9.6 0c1.5 2.2 2.4 4.7 2.6 7.3a12.6 12.6 0 0 1-3.7 1.9l-.9-1.2c.7-.3 1.3-.6 1.9-1.1a9.6 9.6 0 0 1-9.4 0c.6.5 1.2.8 1.9 1.1l-.9 1.2a12.6 12.6 0 0 1-3.7-1.9c.2-2.6 1.1-5.1 2.6-7.3ZM9.4 13c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6S8 10.5 8 11.4 8.6 13 9.4 13Zm5.2 0c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6-1.4.7-1.4 1.6.6 1.6 1.4 1.6Z"/></svg>
+          <span><strong>Discord</strong><small>Rejoindre la communauté</small></span><b aria-hidden="true">↗</b>
+        </a>
+        <button class="social-link social-link--top" id="footer-back-to-top" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+          <span><strong>Retour en haut</strong><small>Revenir au début de la page</small></span>
+        </button>
+      </nav>
+    </footer>
+  </body>
+</html>

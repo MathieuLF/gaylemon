@@ -11,7 +11,7 @@ sysctl -w vm.swappiness=10 >/dev/null
 
 pid="$(pidof PalServer-Linux-Shipping 2>/dev/null || true)"
 if [ -n "$pid" ]; then
-  renice -n -5 -p "$pid" >/dev/null || true
+  renice -n -10 -p "$pid" >/dev/null || true
   ionice -c 2 -n 0 -p "$pid" >/dev/null || true
 fi
 

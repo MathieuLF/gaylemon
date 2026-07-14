@@ -1,6 +1,6 @@
 param(
-    [int]$IntervalSeconds = 10,
-    [int]$UpdateTimeoutSeconds = 30
+    [int]$IntervalSeconds = 60,
+    [int]$UpdateTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = "Continue"
@@ -42,24 +42,54 @@ function Stop-ProcessTree {
     }
 }
 
+function Write-InterestingChildOutput {
+    param(
+        [string]$OutputPath,
+        [string]$ErrorPath
+    )
+
+    $interesting = "(?i)(warning|avertissement|failed|erreur|error|echou|échou)"
+    if ($ErrorPath -and (Test-Path -LiteralPath $ErrorPath)) {
+        Get-Content -LiteralPath $ErrorPath -ErrorAction SilentlyContinue |
+            Where-Object { $_ -and $_.Trim() } |
+            ForEach-Object { Write-WatcherLog "Metrics update stderr: $_" }
+    }
+
+    if ($OutputPath -and (Test-Path -LiteralPath $OutputPath)) {
+        Get-Content -LiteralPath $OutputPath -ErrorAction SilentlyContinue |
+            Where-Object { $_ -and $_.Trim() -match $interesting } |
+            ForEach-Object { Write-WatcherLog "Metrics update output: $_" }
+    }
+}
+
 function Invoke-MetricsUpdate {
     $updateScript = Join-Path $PSScriptRoot "update-microsite-metrics.ps1"
     $powerShellHost = Get-PowerShellHost
-    $process = Start-Process -FilePath $powerShellHost -ArgumentList @(
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        $updateScript
-    ) -WindowStyle Hidden -PassThru
+    $runId = [Guid]::NewGuid().ToString("N")
+    $outputPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-metrics-$runId.out.log"
+    $errorPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-metrics-$runId.err.log"
 
-    if (-not $process.WaitForExit([Math]::Max(5, $UpdateTimeoutSeconds) * 1000)) {
-        Stop-ProcessTree -RootPid $process.Id
-        throw "Metrics update timed out after $UpdateTimeoutSeconds seconds."
+    try {
+        $process = Start-Process -FilePath $powerShellHost -ArgumentList @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $updateScript
+        ) -WindowStyle Hidden -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -PassThru
+
+        if (-not $process.WaitForExit([Math]::Max(5, $UpdateTimeoutSeconds) * 1000)) {
+            Stop-ProcessTree -RootPid $process.Id
+            throw "Metrics update timed out after $UpdateTimeoutSeconds seconds."
+        }
+
+        if ($process.ExitCode -ne 0) {
+            throw "Metrics update failed with exit code $($process.ExitCode)."
+        }
     }
-
-    if ($process.ExitCode -ne 0) {
-        throw "Metrics update failed with exit code $($process.ExitCode)."
+    finally {
+        Write-InterestingChildOutput -OutputPath $outputPath -ErrorPath $errorPath
+        Remove-Item -LiteralPath $outputPath, $errorPath -Force -ErrorAction SilentlyContinue
     }
 }
 

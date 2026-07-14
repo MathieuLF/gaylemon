@@ -1,0 +1,59 @@
+{
+  "version": 3,
+  "ok": true,
+  "revision": "3:2:5",
+  "updatedAt": "2026-07-12T12:00:00-04:00",
+  "recent": true,
+  "summary": {
+    "events": 2,
+    "firstAt": "2026-07-12T11:50:00-04:00",
+    "lastAt": "2026-07-12T11:55:00-04:00",
+    "types": {
+      "build": 1,
+      "production": 1
+    },
+    "reconciledReconnects": 0
+  },
+  "events": [
+    {
+      "key": "evt_example_build_1",
+      "id": 5,
+      "occurredAt": "2026-07-12T11:55:00-04:00",
+      "type": "build",
+      "player": "Mathieu",
+      "guild": "Explorateurs",
+      "base": "Base principale",
+      "title": "Base agrandie",
+      "message": "Mathieu agrandit Base principale (+20 murs, +4 fondations et +2 portes).",
+      "display": {
+        "headline": "Mathieu agrandit la base principale",
+        "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+        "bullets": ["+20 murs", "+4 fondations", "+2 portes"]
+      },
+      "details": {},
+      "confidence": "confirmed",
+      "icon": null,
+      "source": "save"
+    },
+    {
+      "key": "evt_example_production_1",
+      "id": 4,
+      "occurredAt": "2026-07-12T11:50:00-04:00",
+      "type": "production",
+      "player": "Brian",
+      "guild": "Explorateurs",
+      "base": "Atelier du nord",
+      "title": "Production terminée",
+      "message": "Brian termine une nouvelle chaîne de production: 40 Lingot.",
+      "display": {
+        "headline": "Brian termine une nouvelle chaîne de production",
+        "body": "40 ressources confirmées dans les tampons de production.",
+        "bullets": ["+40 Lingot"]
+      },
+      "details": {},
+      "confidence": "confirmed",
+      "icon": "assets/game/icons/items/example.webp",
+      "source": "save"
+    }
+  ]
+}

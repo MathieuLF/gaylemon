@@ -6,7 +6,9 @@ param(
     [string]$PlayerPagesRoot = (Join-Path $PSScriptRoot "..\portal\joueur"),
     [string]$RemoteSnapshotPath = "",
     [string]$RemoteDiagnosticsPath = "",
-    [string]$RemoteBasesPath = ""
+    [string]$RemoteBasesPath = "",
+    [int]$DiagnosticsRefreshHour = 4,
+    [switch]$ForceDiagnostics
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +18,24 @@ $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if (-not $RemoteSnapshotPath) { $RemoteSnapshotPath = "$($config.RemoteProjectRoot)/runtime/public-save-snapshot.json" }
 if (-not $RemoteDiagnosticsPath) { $RemoteDiagnosticsPath = "$($config.RemoteProjectRoot)/runtime/public-save-diagnostics.json" }
 if (-not $RemoteBasesPath) { $RemoteBasesPath = "$($config.RemoteProjectRoot)/runtime/public-save-bases.json" }
+
+function Test-DiagnosticsRefreshDue {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [int]$RefreshHour,
+        [switch]$Force
+    )
+
+    if ($Force) { return $true }
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+
+    $now = Get-Date
+    $dueAt = [datetime]::new($now.Year, $now.Month, $now.Day, $RefreshHour, 0, 0, $now.Kind)
+    if ($now -lt $dueAt) { return $false }
+
+    $item = Get-Item -LiteralPath $Path
+    return $item.LastWriteTime -lt $dueAt
+}
 
 function Expand-GzipBase64 {
     param([Parameter(Mandatory)] [string]$Value)
@@ -70,9 +90,30 @@ function Write-JsonAtomic {
     Move-Item -LiteralPath $temporary -Destination $resolved -Force
 }
 
+function Read-LocalJson {
+    param([Parameter(Mandatory)] [string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+
+    return ($text | ConvertFrom-Json)
+}
+
 function Get-NullableInt($Value) {
     if ($null -eq $Value) { return $null }
     return [int]$Value
+}
+
+function Get-OptionalInt($Value, [string]$Name, [int]$Default = 0) {
+    $property = Get-OptionalProperty $Value $Name
+    if ($null -eq $property) { return $Default }
+    return [int]$property
 }
 
 function Get-NullableDouble($Value) {
@@ -80,14 +121,21 @@ function Get-NullableDouble($Value) {
     return [double]$Value
 }
 
+function Get-OptionalProperty($Value, [string]$Name) {
+    if ($null -eq $Value) { return $null }
+    if ($Value.PSObject.Properties.Name -notcontains $Name) { return $null }
+    return $Value.$Name
+}
+
 function Convert-PublicPosition($Position) {
     if ($null -eq $Position) { return $null }
+    $mapVisible = Get-OptionalProperty $Position "mapVisible"
     return [ordered]@{
         mapX = [int]$Position.mapX
         mapY = [int]$Position.mapY
         leftPercent = [double]$Position.leftPercent
         topPercent = [double]$Position.topPercent
-        mapVisible = if ($null -eq $Position.mapVisible) { $true } else { [bool]$Position.mapVisible }
+        mapVisible = if ($null -eq $mapVisible) { $true } else { [bool]$mapVisible }
     }
 }
 
@@ -148,7 +196,8 @@ function Convert-PublicPal($Pal) {
         ownedAt = if ($Pal.ownedAt) { [string]$Pal.ownedAt } else { $null }
         position = Convert-PublicPosition $Pal.position
     }
-    if ($Pal.task) { $result.task = [string]$Pal.task }
+    $task = Get-OptionalProperty $Pal "task"
+    if ($task) { $result.task = [string]$task }
     return $result
 }
 
@@ -250,6 +299,10 @@ function Convert-PublicProgress($Progress, [switch]$SummaryOnly) {
     $bosses = $Progress.bosses
     $exploration = $Progress.exploration
     $relics = $Progress.relics
+    $quests = Get-OptionalProperty $Progress "quests"
+    $challenges = Get-OptionalProperty $Progress "challenges"
+    $records = Get-OptionalProperty $Progress "records"
+    $technologies = Get-OptionalProperty $Progress "technologies"
     $result = [ordered]@{
         technologyPoints = [int]$Progress.technologyPoints
         bossTechnologyPoints = [int]$Progress.bossTechnologyPoints
@@ -263,7 +316,7 @@ function Convert-PublicProgress($Progress, [switch]$SummaryOnly) {
         capturedSpecies = [int]$paldex.capturedSpecies
         totalSpecies = [int]$paldex.totalSpecies
         totalCaptures = [int]$paldex.totalCaptures
-        captureChallengesCompleted = [int]$paldex.captureChallengesCompleted
+        captureChallengesCompleted = Get-OptionalInt $paldex "captureChallengesCompleted"
         completionPercent = Get-NullableDouble $paldex.completionPercent
     }
     $result.bosses = [ordered]@{
@@ -286,7 +339,8 @@ function Convert-PublicProgress($Progress, [switch]$SummaryOnly) {
         completionPercent = Get-NullableDouble $relics.completionPercent
     }
     if (-not $SummaryOnly) {
-        $result.paldex.species = @($paldex.species | ForEach-Object {
+        $paldexSpecies = Get-OptionalProperty $paldex "species"
+        $result.paldex.species = @($paldexSpecies | Where-Object { $null -ne $_ } | ForEach-Object {
             [ordered]@{
                 index = [int]$_.index
                 name = [string]$_.name
@@ -294,24 +348,24 @@ function Convert-PublicProgress($Progress, [switch]$SummaryOnly) {
                 encountered = [bool]$_.encountered
                 captured = [bool]$_.captured
                 captureCount = [int]$_.captureCount
-                challengeCount = [int]$_.challengeCount
-                challengeTarget = if ($_.challengeTarget) { [int]$_.challengeTarget } else { 5 }
-                challengeComplete = [bool]$_.challengeComplete
+                challengeCount = Get-OptionalInt $_ "challengeCount"
+                challengeTarget = Get-OptionalInt $_ "challengeTarget" 5
+                challengeComplete = [bool](Get-OptionalProperty $_ "challengeComplete")
             }
         })
         $result.quests = [ordered]@{
-            completedCount = [int]$Progress.quests.completedCount
-            completed = @($Progress.quests.completed | ForEach-Object {
+            completedCount = Get-OptionalInt $quests "completedCount"
+            completed = @((Get-OptionalProperty $quests "completed") | Where-Object { $null -ne $_ } | ForEach-Object {
                 [ordered]@{ name = [string]$_.name }
             })
-            activeCount = [int]$Progress.quests.activeCount
-            active = @($Progress.quests.active | ForEach-Object {
+            activeCount = Get-OptionalInt $quests "activeCount"
+            active = @((Get-OptionalProperty $quests "active") | Where-Object { $null -ne $_ } | ForEach-Object {
                 [ordered]@{ name = [string]$_.name }
             })
         }
         $result.challenges = [ordered]@{
-            completedCount = [int]$Progress.challenges.completedCount
-            completed = @($Progress.challenges.completed | ForEach-Object {
+            completedCount = Get-OptionalInt $challenges "completedCount"
+            completed = @((Get-OptionalProperty $challenges "completed") | Where-Object { $null -ne $_ } | ForEach-Object {
                 [ordered]@{
                     name = [string]$_.name
                     category = [string]$_.category
@@ -320,22 +374,22 @@ function Convert-PublicProgress($Progress, [switch]$SummaryOnly) {
             })
         }
         $result.records = [ordered]@{
-            treasuresFound = [int]$Progress.records.treasuresFound
-            normalDungeonsCleared = [int]$Progress.records.normalDungeonsCleared
-            fixedDungeonsCleared = [int]$Progress.records.fixedDungeonsCleared
-            oilRigsCleared = [int]$Progress.records.oilRigsCleared
-            campsConquered = [int]$Progress.records.campsConquered
-            fishCaught = [int]$Progress.records.fishCaught
-            fishSpecies = [int]$Progress.records.fishSpecies
-            itemsCrafted = [long]$Progress.records.itemsCrafted
-            craftedItemTypes = [int]$Progress.records.craftedItemTypes
-            uniqueItemsPickedUp = [int]$Progress.records.uniqueItemsPickedUp
+            treasuresFound = Get-OptionalInt $records "treasuresFound"
+            normalDungeonsCleared = Get-OptionalInt $records "normalDungeonsCleared"
+            fixedDungeonsCleared = Get-OptionalInt $records "fixedDungeonsCleared"
+            oilRigsCleared = Get-OptionalInt $records "oilRigsCleared"
+            campsConquered = Get-OptionalInt $records "campsConquered"
+            fishCaught = Get-OptionalInt $records "fishCaught"
+            fishSpecies = Get-OptionalInt $records "fishSpecies"
+            itemsCrafted = [long](Get-OptionalInt $records "itemsCrafted")
+            craftedItemTypes = Get-OptionalInt $records "craftedItemTypes"
+            uniqueItemsPickedUp = Get-OptionalInt $records "uniqueItemsPickedUp"
         }
-        $result.bosses.known = @($bosses.known | ForEach-Object {
+        $result.bosses.known = @((Get-OptionalProperty $bosses "known") | Where-Object { $null -ne $_ } | ForEach-Object {
             [ordered]@{ name = [string]$_.name; icon = if ($_.icon) { [string]$_.icon } else { $null } }
         })
-        $result.exploration.fastTravelPoints = @($exploration.fastTravelPoints | ForEach-Object { [string]$_ })
-        $result.technologies = @($Progress.technologies | ForEach-Object {
+        $result.exploration.fastTravelPoints = @((Get-OptionalProperty $exploration "fastTravelPoints") | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ })
+        $result.technologies = @($technologies | Where-Object { $null -ne $_ } | ForEach-Object {
             [ordered]@{
                 name = [string]$_.name
                 icon = if ($_.icon) { [string]$_.icon } else { $null }
@@ -434,7 +488,7 @@ function Write-PlayerSharePages($Players, [string]$DestinationRoot) {
     <meta http-equiv="refresh" content="0; url=$appRoute">
     <script>location.replace("$appRoute");</script>
   </head>
-  <body><p>Ouverture de la fiche de $name… <a href="$appRoute">Continuer</a></p></body>
+  <body><p>Ouverture de la fiche de ${name}... <a href="$appRoute">Continuer</a></p></body>
 </html>
 "@
             [IO.File]::WriteAllText((Join-Path $directory "index.html"), $html.Trim() + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
@@ -467,8 +521,20 @@ $source = Read-RemoteJson -RemotePath $RemoteSnapshotPath
 if (-not $source.ok -or [int]$source.version -notin @(2, 3)) {
     throw "Le snapshot public distant est invalide ou incompatible."
 }
-$sourceDiagnostics = Read-RemoteJson -RemotePath $RemoteDiagnosticsPath -Optional
+$shouldSyncDiagnostics = Test-DiagnosticsRefreshDue -Path $DiagnosticsOutputPath -RefreshHour $DiagnosticsRefreshHour -Force:$ForceDiagnostics
+$sourceDiagnostics = if ($shouldSyncDiagnostics) { Read-RemoteJson -RemotePath $RemoteDiagnosticsPath -Optional } else { $null }
 $sourceBases = Read-RemoteJson -RemotePath $RemoteBasesPath -Optional
+$projectionVersion = if (
+    $source.PSObject.Properties.Name -contains "projection" -and
+    $null -ne $source.projection -and
+    $source.projection.PSObject.Properties.Name -contains "version" -and
+    $null -ne $source.projection.version
+) {
+    [int]$source.projection.version
+}
+else {
+    [int]$source.version
+}
 
 $public = [ordered]@{
     version = [int]$source.version
@@ -476,7 +542,7 @@ $public = [ordered]@{
     updatedAt = [string]$source.updatedAt
     source = [ordered]@{ type = [string]$source.source.type; backup = [string]$source.source.backup }
     parser = [ordered]@{ name = "PalworldSaveTools"; commit = [string]$source.parser.commit }
-    projection = [ordered]@{ version = [int]$source.projection.version }
+    projection = [ordered]@{ version = $projectionVersion }
     summary = [ordered]@{
         players = [int]$source.summary.players
         pals = [int]$source.summary.pals
@@ -612,6 +678,17 @@ if ($sourceBases -and $sourceBases.ok -and [int]$sourceBases.version -eq 1) {
 if ($sourceDiagnostics) {
     $worldMap = Join-Path $PSScriptRoot "..\portal\assets\game\maps\T_WorldMap.webp"
     $treeMap = Join-Path $PSScriptRoot "..\portal\assets\game\maps\T_TreeMap.webp"
+    $eventsPath = Join-Path (Split-Path -Parent $OutputPath) "public-events.json"
+    $eventsPayload = Read-LocalJson -Path $eventsPath
+    $eventsCount = if ($eventsPayload -and $eventsPayload.summary) {
+        [int]$eventsPayload.summary.events
+    }
+    elseif ($eventsPayload -and $eventsPayload.events) {
+        @($eventsPayload.events).Count
+    }
+    else {
+        0
+    }
     $publicDiagnostics = [ordered]@{
         version = 1
         ok = [bool]$sourceDiagnostics.ok
@@ -642,6 +719,14 @@ if ($sourceDiagnostics) {
             historyArchiveBytes = Get-NullableInt $sourceDiagnostics.output.historyArchiveBytes
         }
         parser = [ordered]@{ name = "PalworldSaveTools"; commit = [string]$sourceDiagnostics.parser.commit }
+        events = [ordered]@{
+            version = if ($eventsPayload -and $eventsPayload.version) { [int]$eventsPayload.version } else { $null }
+            updatedAt = if ($eventsPayload -and $eventsPayload.updatedAt) { [string]$eventsPayload.updatedAt } else { $null }
+            revision = if ($eventsPayload -and $eventsPayload.revision) { [string]$eventsPayload.revision } else { $null }
+            count = $eventsCount
+            firstAt = if ($eventsPayload -and $eventsPayload.summary -and $eventsPayload.summary.firstAt) { [string]$eventsPayload.summary.firstAt } else { $null }
+            lastAt = if ($eventsPayload -and $eventsPayload.summary -and $eventsPayload.summary.lastAt) { [string]$eventsPayload.summary.lastAt } else { $null }
+        }
         publicOutput = [ordered]@{
             indexBytes = (Get-Item -LiteralPath $indexPath).Length
             snapshotBytes = (Get-Item -LiteralPath $OutputPath).Length
@@ -661,4 +746,5 @@ if ($sourceDiagnostics) {
 Write-Host "Snapshot v$($public.version) synchronisé vers $OutputPath"
 Write-Host "Index léger synchronisé vers $indexPath"
 if ($sourceDiagnostics) { Write-Host "Diagnostics publics synchronisés vers $DiagnosticsOutputPath" }
+elseif (-not $shouldSyncDiagnostics) { Write-Host "Diagnostics publics conservés jusqu'au prochain passage quotidien de 04:00." }
 Write-Host "Pages de partage joueurs générées dans $PlayerPagesRoot"

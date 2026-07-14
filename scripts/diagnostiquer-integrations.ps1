@@ -43,6 +43,14 @@ if ($docker) {
             Add-DiagnosticResult "Microsite Docker" "warning" "conteneur non detecte; aucune action effectuee"
         }
 
+        $apiTunnel = (& $docker.Source ps --filter "name=gaylemon-palworld-api-tunnel" --format "{{.Names}}|{{.Status}}" 2>$null | Select-Object -First 1)
+        if ($apiTunnel) {
+            Add-DiagnosticResult "Tunnel API Docker" "ok" $apiTunnel
+        }
+        else {
+            Add-DiagnosticResult "Tunnel API Docker" "warning" "conteneur non detecte; le bot Discord ne pourra pas lire l'API REST Palworld"
+        }
+
         $cloudflared = @(& $docker.Source ps --format "{{.Names}}|{{.Status}}" 2>$null | Where-Object { $_ -like "*$($config.CloudflaredContainerPattern)*" })
         if ($cloudflared.Count -gt 0) {
             Add-DiagnosticResult "cloudflared externe" "ok" ($cloudflared -join ", ")

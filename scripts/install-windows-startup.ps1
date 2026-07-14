@@ -31,7 +31,7 @@ try {
         -Trigger $trigger `
         -Settings $settings `
         -Principal $principal `
-        -Description "Demarre le tunnel SSH Palworld et le microsite Gaylemon a l'ouverture de session." `
+        -Description "Demarre les services locaux Gaylemon a l'ouverture de session." `
         -Force `
         -ErrorAction Stop | Out-Null
 }

@@ -94,9 +94,16 @@ else {
 
 $localClone = Join-Path $PSScriptRoot "..\vendor\PalworldSaveTools"
 if ((Test-Path -LiteralPath (Join-Path $localClone ".git")) -and ($SyncFork -or $UpdateRemote)) {
-    & git -C $localClone pull --ff-only origin main
+    $pullOutput = & git -C $localClone pull --ff-only origin main 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "La copie locale de PalworldSaveTools n'a pas pu être mise à jour en fast-forward."
+    }
+    $pullText = ($pullOutput | Out-String).Trim()
+    if ($pullText -match "Already up to date") {
+        Write-Host "Copie locale PalworldSaveTools déjà à jour."
+    }
+    else {
+        Write-Host "Copie locale PalworldSaveTools synchronisée en fast-forward."
     }
     & (Join-Path $PSScriptRoot "sync-palworld-game-assets.ps1") | Out-Null
 }

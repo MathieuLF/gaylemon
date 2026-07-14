@@ -85,7 +85,11 @@ function Get-GaylemonConfig {
     $apiLocalPort = ConvertTo-GaylemonInt "GAYLEMON_API_LOCAL_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_API_LOCAL_PORT" "8212") 1 65535
     $apiRemotePort = ConvertTo-GaylemonInt "GAYLEMON_API_REMOTE_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_API_REMOTE_PORT" "8212") 1 65535
     $gamePort = ConvertTo-GaylemonInt "GAYLEMON_GAME_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_GAME_PORT" "8211") 1 65535
-    $metricInterval = ConvertTo-GaylemonInt "GAYLEMON_METRIC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_INTERVAL_SECONDS" "10") 5 3600
+    $metricInterval = ConvertTo-GaylemonInt "GAYLEMON_METRIC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_INTERVAL_SECONDS" "60") 5 3600
+    $metricUpdateTimeout = ConvertTo-GaylemonInt "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" "120") 30 3600
+    $uptimeKumaMonitorId = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_KUMA_MONITOR_ID" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_MONITOR_ID" "1") 1 ([int]::MaxValue)
+    $uptimeHistoryDays = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_HISTORY_DAYS" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_HISTORY_DAYS" "90") 1 3650
+    $recoveryStaleSeconds = ConvertTo-GaylemonInt "GAYLEMON_RECOVERY_STALE_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_RECOVERY_STALE_SECONDS" "90") 30 86400
 
     return [pscustomobject][ordered]@{
         ProjectRoot = $resolvedRoot
@@ -103,9 +107,16 @@ function Get-GaylemonConfig {
         DockerMicrositeContainer = Get-GaylemonSetting $fileValues "GAYLEMON_DOCKER_MICROSITE_CONTAINER" "gaylemon-microsite"
         ApiLocalPort = $apiLocalPort
         ApiRemotePort = $apiRemotePort
+        MetricUpdateTimeoutSeconds = $metricUpdateTimeout
         UptimeKumaBaseUrl = (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_BASE_URL" "").TrimEnd("/")
         UptimeKumaStatusSlug = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_STATUS_SLUG" "palworld"
         UptimeKumaPublicUrl = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_PUBLIC_URL" ""
+        UptimeKumaApiKey = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_API_KEY" ""
+        UptimeKumaContainer = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_CONTAINER" "uptime-kuma"
+        UptimeKumaDbPath = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_DB_PATH" "/app/data/kuma.db"
+        UptimeKumaMonitorId = $uptimeKumaMonitorId
+        UptimeHistoryDays = $uptimeHistoryDays
+        RecoveryStaleSeconds = $recoveryStaleSeconds
         CloudflaredContainerPattern = Get-GaylemonSetting $fileValues "GAYLEMON_CLOUDFLARED_CONTAINER_PATTERN" "cloudflared"
         GameHost = Get-GaylemonSetting $fileValues "GAYLEMON_GAME_HOST" "palworld.example.com"
         GamePort = $gamePort

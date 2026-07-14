@@ -24,6 +24,6 @@ Notes importantes:
 
 - Le fichier actif sur Linux SteamCMD est `Pal/Saved/Config/LinuxServer/PalWorldSettings.ini`.
 - La REST API doit rester locale ou limitée au réseau de confiance. Ici, Palworld écoute sur `8212/tcp`, mais UFW bloque explicitement ce port en entrée et les scripts passent par SSH ou par des appels locaux.
-- Les statistiques historiques locales utilisent `/metrics` et `/players`. Le point de terminaison `/game-data` est tenté pour l'enrichissement, mais le serveur actuel répond `404` avec `PalGameDataBridge GameData API is not enabled`; le collecteur doit donc rester robuste sans ce point de terminaison.
+- Les statistiques historiques locales utilisent `/metrics` et `/players`. Le point de terminaison `/game-data` est tenté pour l'enrichissement, mais le serveur actuel répond `404` avec `PalGameDataBridge GameData API is not enabled`; le collecteur doit donc fonctionner sans ce point de terminaison.
 - Le binaire Palworld 1.0 contient des chaînes comme `EnableGameDataAPI`, `SetGameDataAPIEnabled` et `GameDataKey`, mais la documentation officielle de configuration ne liste aucun paramètre public pour activer ce pont.
 - Pour un message de bienvenue automatique, Palworld ne fournit pas un simple paramètre de configuration dédié: on utilise donc un watcher local basé sur `/players` et `/announce`.

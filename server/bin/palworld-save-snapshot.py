@@ -39,7 +39,7 @@ DEFAULT_DIAGNOSTICS = Path(
 )
 DEFAULT_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-snapshot-history")
 DEFAULT_LOCK = Path("/home/gaylemon/Gaylemon/runtime/palworld-save-snapshot.lock")
-PROJECTION_VERSION = 2
+PROJECTION_VERSION = 3
 
 RECORD_ALIASES = (
     "RecordData",
@@ -302,9 +302,33 @@ def player_challenges(sections):
     return {"completedCount": len(completed), "completed": completed}
 
 
-def player_records(sections):
+def public_catalog_item(asset, catalogs):
+    key = str(asset or "")
+    info = (catalogs or {}).get("items", {}).get(key.casefold(), {}) if catalogs else {}
+    return {
+        "asset": key,
+        "name": str(info.get("name") or key.replace("_", " ") or "Objet inconnu"),
+        "icon": web_icon(info.get("icon")),
+        "category": info.get("type_a_display") or info.get("type_b_display"),
+    }
+
+
+def counted_catalog_rows(values, catalogs):
+    rows = []
+    for asset, count in values.items():
+        amount = max(0, to_int(count, 0))
+        if amount <= 0:
+            continue
+        rows.append({**public_catalog_item(asset, catalogs), "count": amount})
+    rows.sort(key=lambda row: (-row["count"], row["name"].casefold()))
+    return rows
+
+
+def player_records(sections, catalogs=None):
     fishing = integer_map(record_property(sections, "FishingCountMap"))
     crafted = integer_map(record_property(sections, "CraftItemCount"))
+    fish_rows = counted_catalog_rows(fishing, catalogs)
+    crafted_rows = counted_catalog_rows(crafted, catalogs)
     return {
         "treasuresFound": to_int(scalar(record_property(sections, "FoundTreasureCount")), 0),
         "normalDungeonsCleared": to_int(
@@ -317,8 +341,10 @@ def player_records(sections):
         "campsConquered": to_int(scalar(record_property(sections, "CampConqueredCount")), 0),
         "fishCaught": sum(max(0, count) for count in fishing.values()),
         "fishSpecies": sum(1 for count in fishing.values() if count > 0),
+        "fish": fish_rows,
         "itemsCrafted": sum(max(0, count) for count in crafted.values()),
         "craftedItemTypes": sum(1 for count in crafted.values() if count > 0),
+        "craftedItems": crafted_rows,
         "uniqueItemsPickedUp": len(
             true_map_keys(record_property(sections, "ItemPickupObtainForInstanceFlag"))
         ),
@@ -1671,7 +1697,7 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
         technologies = player_technologies(player_data, catalogs, counters)
         quests = player_quests(player_data)
         challenges = player_challenges(sections)
-        records = player_records(sections)
+        records = player_records(sections, catalogs)
         public_players.append(
             {
                 "name": str(scalar(params.get("NickName"), "Joueur")),

@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "projection": {"version": 2},
+  "projection": {"version": 3},
   "ok": true,
   "updatedAt": "2026-07-12T09:00:00-04:00",
   "source": {

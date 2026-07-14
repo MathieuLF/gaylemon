@@ -39,16 +39,16 @@ const eventsDisclosure = document.querySelector("#evenements");
 const eventSearch = document.querySelector("#event-search");
 const eventTypeFilter = document.querySelector("#event-type-filter");
 const eventPlayerFilter = document.querySelector("#event-player-filter");
-const eventPageSizeControl = document.querySelector("#event-page-size");
 const eventResultCount = document.querySelector("#event-result-count");
 const eventStream = document.querySelector("#event-stream");
 const eventPagination = document.querySelector("#event-pagination");
+const eventSyncStatus = document.querySelector("#event-sync-status");
 const globalPlayerMarkers = document.querySelector("#global-player-markers");
 const globalPlayerLegend = document.querySelector("#global-player-legend");
 const globalMapCaption = document.querySelector("#global-map-caption");
 const globalMapViewport = document.querySelector("#global-map-viewport");
 const globalMapScene = document.querySelector("#global-map-scene");
-const globalMapImage = globalMapScene.querySelector("img[data-src]");
+const globalMapImage = globalMapScene?.querySelector("img[data-src]");
 const globalMapZoom = document.querySelector("#global-map-zoom");
 const mapBaseToggle = document.querySelector("#map-base-toggle");
 const mapBaseCount = document.querySelector("#map-base-count");
@@ -89,7 +89,7 @@ const footerBackToTop = document.querySelector("#footer-back-to-top");
 const contextTooltip = document.querySelector("#context-tooltip");
 const siteFooter = document.querySelector(".site-footer");
 
-const refreshEveryMs = 15000;
+const refreshEveryMs = 75000;
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let nextRefreshAt = Date.now() + refreshEveryMs;
 let refreshPending = false;
@@ -98,6 +98,7 @@ let refreshMessageUntil = 0;
 let refreshMessageState = "updated";
 let clockTimer;
 let saveSnapshot = null;
+let saveDiagnosticsSnapshot = null;
 let statsSnapshot = null;
 let fullSaveSnapshot = null;
 let fullSaveSnapshotPromise = null;
@@ -120,10 +121,10 @@ const paldexPageSize = 30;
 let playerActivityByName = new Map();
 let eventsSnapshot = null;
 let eventCurrentPage = 1;
-const allowedTerminalPageSizes = new Set([25, 50, 100, 250]);
-let terminalEventPageSize = Number(localStorage.getItem("gaylemon-terminal-page-size") || 25);
-if (!allowedTerminalPageSizes.has(terminalEventPageSize)) terminalEventPageSize = 25;
-eventPageSizeControl.value = String(terminalEventPageSize);
+let eventsFullLoaded = false;
+let lastEventRecentRefreshAt = 0;
+const dashboardEventPageSize = 5;
+let terminalEventPageSize = 8;
 let leaderboardSortKey = "level";
 let leaderboardSortDirection = "desc";
 let backgroundScrollY = 0;
@@ -156,6 +157,32 @@ const globalMapView = {
 
 const globalMapViewStorageKey = "gaylemon:map-view";
 const gameAssetVersion = "20260712.1";
+const worldDiagnosticWarningMs = 26 * 60 * 60 * 1000;
+const worldDiagnosticStaleMs = 48 * 60 * 60 * 1000;
+
+function isTerminalRoute() {
+  return location.pathname.replace(/\/+$/, "") === "/terminal";
+}
+
+function isGitHubRoute() {
+  return location.pathname.replace(/\/+$/, "") === "/github";
+}
+
+function isDashboardRoute() {
+  return Boolean(document.getElementById("accueil") && savePlayers);
+}
+
+function isHeaderOnlyRoute() {
+  return !isDashboardRoute() && !isTerminalRoute();
+}
+
+function isLegacyTerminalHash() {
+  return location.pathname === "/" && location.hash === "#terminal";
+}
+
+if (isLegacyTerminalHash()) {
+  location.replace("/terminal");
+}
 
 function versionedGameAsset(path) {
   const value = String(path || "");
@@ -394,6 +421,12 @@ function setupGlobalMapInteractions() {
 setupGlobalMapInteractions();
 
 function currentDocumentTitle() {
+  if (isTerminalRoute()) {
+    return "Terminal des échos | Gaylémon Palworld";
+  }
+  if (isGitHubRoute()) {
+    return "Dépôt, Ops et pipeline | Gaylémon Palworld";
+  }
   if (selectedPlayer && location.hash.startsWith("#joueur/")) {
     const tab = location.hash.match(/\/(profile|paldex|pals|inventory|bases)$/)?.[1] || "profile";
     const section = tab === "paldex"
@@ -413,15 +446,15 @@ function currentDocumentTitle() {
   if (location.hash === "#classements") {
     return "Classements des aventuriers | Gaylémon Palworld";
   }
-  if (location.hash === "#terminal") {
-    return "Journal des échos | Gaylémon Palworld";
-  }
   return "Gaylémon Palworld | Progression, statistiques et serveur";
 }
 
 function currentDocumentDescription() {
-  if (location.hash === "#terminal") {
-    return "Le journal complet des arrivées, captures, défis, quêtes et aventures du serveur Gaylémon Palworld.";
+  if (isTerminalRoute()) {
+    return "Le terminal complet des échos, productions, constructions, captures, recherches et aventures du serveur Gaylémon Palworld.";
+  }
+  if (isGitHubRoute()) {
+    return "Structure technique de Gaylémon: Gaylemon Ops, scripts Windows, services Ubuntu, projections JSON publiques, validation et limites de publication.";
   }
   if (!selectedPlayer) {
     return "État du serveur, classements des joueurs, statistiques, progression, carte de Palpagos, bases et collections de Pals.";
@@ -556,6 +589,26 @@ function parseDate(value) {
     return null;
   }
 
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const slashDate = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (slashDate) {
+      const first = Number(slashDate[1]);
+      const second = Number(slashDate[2]);
+      const month = first > 12 ? second : first;
+      const day = first > 12 ? first : second;
+      const date = new Date(
+        Number(slashDate[3]),
+        month - 1,
+        day,
+        Number(slashDate[4] || 0),
+        Number(slashDate[5] || 0),
+        Number(slashDate[6] || 0),
+      );
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+
   const normalized = typeof value === "string" && /^\d{4}-\d{2}-\d{2} /.test(value)
     ? value.replace(" ", "T")
     : value;
@@ -573,6 +626,19 @@ function formatDateTime(value) {
     dateStyle: "short",
     timeStyle: "medium",
   });
+}
+
+function formatRelativeAge(value) {
+  const date = parseDate(value);
+  if (!date) return "--";
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "à l'instant";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return `il y a ${days} j`;
 }
 
 function registerDataUpdate(source, value) {
@@ -597,14 +663,28 @@ function registerDataUpdate(source, value) {
   siteLastUpdated.title = `Dernières données reçues le ${formatDateTime(latest)}`;
 }
 
+function latestDateValue(...values) {
+  return values
+    .map((value) => parseDate(value))
+    .filter(Boolean)
+    .sort((left, right) => right - left)[0] || null;
+}
+
 function updateActiveNavigation() {
   navUpdatePending = false;
-  if (location.hash === "#terminal") {
+  if (isTerminalRoute()) {
     siteNavLinks.forEach((link) => {
       const isActive = link.dataset.sectionLink === "evenements";
       link.classList.toggle("is-active", isActive);
       if (isActive) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
+    });
+    return;
+  }
+  if (!isDashboardRoute()) {
+    siteNavLinks.forEach((link) => {
+      link.classList.remove("is-active");
+      link.removeAttribute("aria-current");
     });
     return;
   }
@@ -625,7 +705,7 @@ function updateActiveNavigation() {
 }
 
 function syncTerminalView(scrollToTop = false) {
-  const active = location.hash === "#terminal";
+  const active = isTerminalRoute();
   document.body.classList.toggle("terminal-view", active);
   if (active) {
     eventsDisclosure.open = true;
@@ -716,8 +796,34 @@ function setWorldDataNote(name, value) {
   setTextIfChanged(worldDataGrid?.querySelector(`[data-world-data-note="${name}"]`), value);
 }
 
+function setWorldDataQuality(name, state) {
+  const card = worldDataGrid?.querySelector(`[data-world-data-card="${name}"]`);
+  if (!card) return;
+  if (state) card.dataset.quality = state;
+  else delete card.dataset.quality;
+}
+
+function renderWorldContractStatus() {
+  if (!worldDataGrid) return;
+  const publicOutput = saveDiagnosticsSnapshot?.publicOutput || {};
+  const contracts = [
+    ["diagnostic", saveDiagnosticsSnapshot?.version != null ? `v${saveDiagnosticsSnapshot.version}` : ""],
+    ["index", saveSnapshot?.version != null ? `v${saveSnapshot.version}` : ""],
+    ["snapshot", publicOutput.snapshotBytes || fullSaveSnapshot?.version ? "prêt" : ""],
+    ["bases", publicOutput.basesBytes ? "prêt" : basesSnapshot?.version != null ? `v${basesSnapshot.version}` : ""],
+    ["échos", eventsSnapshot?.version != null ? `v${eventsSnapshot.version}` : ""],
+  ];
+  const loaded = contracts.filter(([, value]) => value);
+  setWorldData("contracts", loaded.length ? `${loaded.length}/${contracts.length}` : "--");
+  setWorldDataNote("contracts", loaded.length
+    ? loaded.map(([label, value]) => `${label} ${value}`).join(" · ")
+    : "Versions chargées au fil des exports");
+  setWorldDataQuality("contracts", loaded.length === contracts.length ? "up" : "warning");
+}
+
 function renderSaveDiagnostics(payload) {
   if (!payload?.ok || !worldDataGrid) return;
+  saveDiagnosticsSnapshot = payload;
   registerDataUpdate("diagnostics", payload.updatedAt);
   const save = payload.save || {};
   const parse = payload.parse || {};
@@ -732,14 +838,49 @@ function renderSaveDiagnostics(payload) {
   setWorldData("bases", formatBytes(publicOutput.basesBytes || output.basesBytes));
   setWorldDataNote("bases", `${formatBytes(output.basesGzipBytes)} compressées · chargées dans la section Bases`);
   setWorldData("index", formatBytes(publicOutput.indexBytes));
+  const updatedAt = parseDate(payload.updatedAt);
+  const exportAgeMs = updatedAt ? Date.now() - updatedAt.getTime() : 0;
+  const freshnessState = exportAgeMs > worldDiagnosticStaleMs ? "stale" : exportAgeMs > worldDiagnosticWarningMs ? "warning" : "up";
+  setWorldData("freshness", formatRelativeAge(payload.updatedAt));
+  setWorldDataNote("freshness-status", `Export du ${formatDateTime(payload.updatedAt)}`);
+  setWorldDataQuality("freshness", freshnessState);
+  const playersParsed = Number(parse.playersParsed || 0);
+  const playerFiles = Number(save.playerFiles || playersParsed || 0);
+  setWorldData("coverage", playerFiles ? `${playersParsed}/${playerFiles}` : "--");
+  setWorldDataNote("coverage", `${Number(parse.palsParsed || 0).toLocaleString("fr-CA")} Pals · ${Number(parse.basesParsed || 0).toLocaleString("fr-CA")} bases`);
+  setWorldDataQuality("coverage", playerFiles && playersParsed >= playerFiles ? "up" : "warning");
+  const warningCount = Number(parse.warnings || 0);
+  setWorldData("warnings", parse.status === "ok" ? "OK" : "À vérifier");
+  setWorldDataNote("warnings", `${warningCount.toLocaleString("fr-CA")} avertissement${warningCount > 1 ? "s" : ""} non bloquant${warningCount > 1 ? "s" : ""}`);
+  setWorldDataQuality("warnings", parse.status === "ok" ? "up" : "warning");
   setWorldData("duration", parse.durationMs == null ? "--" : `${(Number(parse.durationMs) / 1000).toLocaleString("fr-CA", { maximumFractionDigits: 2 })} s`);
   const age = Number(save.backupAgeSeconds || 0);
   setWorldDataNote("freshness", age < 60 ? `Sauvegarde âgée de ${age} s lors de l'analyse` : `Sauvegarde âgée de ${Math.round(age / 60)} min lors de l'analyse`);
   setWorldData("map", `${Number(assets.worldMapWidth || 8192).toLocaleString("fr-CA")} × ${Number(assets.worldMapHeight || 8192).toLocaleString("fr-CA")}`);
   setWorldData("parser", String(payload.parser?.commit || "--").slice(0, 12));
   setWorldDataNote("parser", "PalworldSaveTools · catalogue synchronisé");
-  worldDataState.textContent = parse.status === "ok" ? "Analyse saine" : "Analyse à surveiller";
-  worldDataState.dataset.state = parse.status === "ok" ? "up" : "warning";
+  const diagnosticEvents = payload.events || {};
+  const eventTotal = Number(diagnosticEvents.count || 0);
+  const lastEventAt = diagnosticEvents.lastAt || diagnosticEvents.updatedAt;
+  if (eventTotal || diagnosticEvents.updatedAt || diagnosticEvents.lastAt) {
+    setWorldData("events", eventTotal ? eventTotal.toLocaleString("fr-CA") : "--");
+    setWorldDataNote("events", diagnosticEvents.firstAt && diagnosticEvents.lastAt
+      ? `${formatDateTime(diagnosticEvents.firstAt)} → ${formatDateTime(diagnosticEvents.lastAt)}`
+      : "Échos publics chargés");
+    setWorldDataQuality("events", eventTotal ? "up" : "warning");
+    setWorldData("last-event", formatRelativeAge(lastEventAt));
+    setWorldDataNote("last-event", lastEventAt
+      ? `${formatDateTime(lastEventAt)} · flux vérifié ${formatRelativeAge(diagnosticEvents.updatedAt)}`
+      : `Journal public · flux vérifié ${formatRelativeAge(diagnosticEvents.updatedAt)}`);
+    const lastEventDate = parseDate(lastEventAt);
+    const feedUpdatedDate = parseDate(diagnosticEvents.updatedAt);
+    const eventFreshnessDate = feedUpdatedDate || lastEventDate;
+    const eventFreshnessAgeMs = eventFreshnessDate ? Date.now() - eventFreshnessDate.getTime() : Number.POSITIVE_INFINITY;
+    setWorldDataQuality("last-event", eventFreshnessAgeMs > worldDiagnosticStaleMs ? "stale" : eventFreshnessAgeMs > worldDiagnosticWarningMs ? "warning" : "up");
+  }
+  worldDataState.textContent = parse.status === "ok" && freshnessState === "up" ? "Snapshot vérifié" : parse.status === "ok" ? "Snapshot ancien" : "Analyse à surveiller";
+  worldDataState.dataset.state = parse.status === "ok" && freshnessState === "up" ? "up" : "warning";
+  renderWorldContractStatus();
 }
 
 function getPlayersCollection(payload) {
@@ -955,20 +1096,20 @@ function renderNextUpdate() {
 
   if (refreshPending) {
     nextUpdate.textContent = "Synchronisation...";
-    refreshStatus.dataset.state = "syncing";
-    refreshProgress.style.transform = "scaleX(1)";
+    if (refreshStatus) refreshStatus.dataset.state = "syncing";
+    if (refreshProgress) refreshProgress.style.transform = "scaleX(1)";
     return;
   }
 
   if (refreshMessage && Date.now() < refreshMessageUntil) {
     nextUpdate.textContent = refreshMessage;
-    refreshStatus.dataset.state = refreshMessageState;
-    refreshProgress.style.transform = "scaleX(1)";
+    if (refreshStatus) refreshStatus.dataset.state = refreshMessageState;
+    if (refreshProgress) refreshProgress.style.transform = "scaleX(1)";
     return;
   }
 
   refreshMessage = "";
-  refreshStatus.dataset.state = "countdown";
+  if (refreshStatus) refreshStatus.dataset.state = "countdown";
   const remainingMs = Math.max(0, nextRefreshAt - Date.now());
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -993,8 +1134,8 @@ function startRefreshClock() {
 
 function renderMetrics(payload) {
   if (!payload?.ok) {
-    playersList.textContent = payload?.error || "Les données du serveur ne sont pas encore disponibles.";
-    headerPlayers.title = playersList.textContent;
+    if (playersList) playersList.textContent = payload?.error || "Les données du serveur ne sont pas encore disponibles.";
+    if (headerPlayers) headerPlayers.title = playersList?.textContent || "";
     registerDataUpdate("metrics", payload?.updatedAt);
     return;
   }
@@ -1010,11 +1151,14 @@ function renderMetrics(payload) {
 
   registerDataUpdate("metrics", payload.updatedAt);
   const players = Array.isArray(payload.players) ? payload.players : [];
-  playersList.textContent = players.length
+  const playerLabel = players.length
     ? players.map((player) => player.name || "Joueur").join(", ")
     : "Aucun joueur connecté.";
-  headerPlayers.title = playersList.textContent;
-  headerPlayers.dataset.state = players.length ? "online" : "empty";
+  if (playersList) playersList.textContent = playerLabel;
+  if (headerPlayers) {
+    headerPlayers.title = playerLabel;
+    headerPlayers.dataset.state = players.length ? "online" : "empty";
+  }
 }
 
 function renderUptime(payload) {
@@ -1317,6 +1461,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
   saveSnapshot = { ...payload, players };
   saveState.textContent = "Données synchronisées";
   registerDataUpdate("save", payload.updatedAt);
+  renderWorldContractStatus();
   const summaryValues = {
     players: players.length,
     pals: Number(summary.pals || 0),
@@ -1750,6 +1895,7 @@ function renderBaseSnapshot(payload) {
   }
   basesSnapshot = payload;
   registerDataUpdate("bases", payload.updatedAt);
+  renderWorldContractStatus();
   if (selectedPlayer) renderSelectedPlayerBases();
   renderGlobalPlayerMap(saveSnapshot?.players || [], payload.bases);
 }
@@ -1764,6 +1910,14 @@ const eventTypeMeta = {
   loot: { label: "Trésors", token: "◆", color: "#e59d4d" },
   adventure: { label: "Expéditions", token: "⚑", color: "#58b99b" },
   collection: { label: "Collections", token: "PAL", color: "#4da2dd" },
+  craft: { label: "Fabrications", token: "CRA", color: "#f18b55" },
+  build: { label: "Constructions", token: "BLD", color: "#68b35d" },
+  production: { label: "Productions", token: "PRD", color: "#4cc3b2" },
+  hatch: { label: "Éclosions", token: "EGG", color: "#e58ccf" },
+  fishing: { label: "Pêche", token: "FSH", color: "#4aa8dd" },
+  research: { label: "Recherches", token: "LAB", color: "#8b92e8" },
+  base: { label: "Bases", token: "BAS", color: "#79b85a" },
+  repair: { label: "Réparations", token: "REP", color: "#d99b4a" },
   level: { label: "Niveaux", token: "LVL", color: "#f1b94f" },
   progress: { label: "Progression", token: "XP", color: "#b88bdd" },
   camp: { label: "Camps et bases", token: "BASE", color: "#79b85a" },
@@ -1788,51 +1942,176 @@ function formatEventTime(value) {
   };
 }
 
+function dedupeSessionFallbackEvents(events) {
+  const sourceEvents = Array.isArray(events) ? events : [];
+  const journalTransitions = sourceEvents
+    .filter((event) => event?.source === "journal" && ["join", "leave"].includes(event.type) && event.player)
+    .map((event) => ({
+      player: String(event.player).toLocaleLowerCase("fr-CA"),
+      type: event.type,
+      occurredAt: parseDate(event.occurredAt),
+    }))
+    .filter((event) => event.occurredAt);
+
+  return sourceEvents.filter((event) => {
+    if (event?.source !== "players" || !["join", "leave"].includes(event.type) || !event.player) return true;
+    const occurredAt = parseDate(event.occurredAt);
+    if (!occurredAt) return true;
+    const player = String(event.player).toLocaleLowerCase("fr-CA");
+    return !journalTransitions.some((journalEvent) => (
+      journalEvent.player === player &&
+      journalEvent.type === event.type &&
+      Math.abs(journalEvent.occurredAt.getTime() - occurredAt.getTime()) <= 120000
+    ));
+  });
+}
+
 function renderEventFilters(events) {
-  const selectedType = eventTypeFilter.value || "all";
-  const selectedPlayer = eventPlayerFilter.value || "all";
+  events = dedupeSessionFallbackEvents(events);
+  const selectedType = eventTypeFilter?.value || "all";
+  const selectedPlayer = eventPlayerFilter?.value || "all";
   const types = [...new Set(events.map((event) => event.type).filter(Boolean))];
   const players = [...new Set(events.map((event) => event.player).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "fr-CA"));
 
-  eventTypeFilter.innerHTML = [
+  if (eventTypeFilter) eventTypeFilter.innerHTML = [
     '<option value="all">Tous les événements</option>',
     ...types.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(eventTypeMeta[type]?.label || type)}</option>`),
   ].join("");
-  eventPlayerFilter.innerHTML = [
+  if (eventPlayerFilter) eventPlayerFilter.innerHTML = [
     '<option value="all">Tous les aventuriers</option>',
     ...players.map((player) => `<option value="${escapeHtml(player)}">${escapeHtml(player)}</option>`),
   ].join("");
-  if (types.includes(selectedType)) eventTypeFilter.value = selectedType;
-  if (players.includes(selectedPlayer)) eventPlayerFilter.value = selectedPlayer;
+  if (eventTypeFilter && types.includes(selectedType)) eventTypeFilter.value = selectedType;
+  if (eventPlayerFilter && players.includes(selectedPlayer)) eventPlayerFilter.value = selectedPlayer;
 }
 
 function eventPageNumbers(current, total) {
-  const pages = new Set([1, total, current - 2, current - 1, current, current + 1, current + 2]);
-  return [...pages].filter((page) => page >= 1 && page <= total).sort((left, right) => left - right);
+  const visibleCount = Math.min(3, total);
+  const start = clamp(current - 1, 1, Math.max(1, total - visibleCount + 1));
+  return Array.from({ length: visibleCount }, (_, index) => start + index);
 }
 
-function renderEvents() {
-  const events = Array.isArray(eventsSnapshot?.events) ? eventsSnapshot.events : [];
-  const query = normalizeEventSearch(eventSearch.value);
-  const type = eventTypeFilter.value;
-  const player = eventPlayerFilter.value;
+function estimateTerminalEventRowHeight() {
+  const renderedLine = eventStream?.querySelector(".event-line");
+  if (renderedLine) {
+    return clamp(renderedLine.getBoundingClientRect().height + 1, 62, 148);
+  }
+  if (window.innerWidth <= 650) return 94;
+  if (window.innerWidth <= 980) return 78;
+  return 68;
+}
+
+function calculateTerminalPageSize() {
+  if (!isTerminalRoute() || !eventStream) return terminalEventPageSize;
+  const streamHeight = eventStream.getBoundingClientRect().height || 0;
+  const paginationHeight = eventPagination?.getBoundingClientRect().height || 64;
+  const availableFromViewport = Math.max(240, window.innerHeight - eventStream.getBoundingClientRect().top - paginationHeight - 18);
+  const availableHeight = streamHeight || availableFromViewport;
+  return clamp(Math.floor(availableHeight / estimateTerminalEventRowHeight()), 4, 18);
+}
+
+function updateTerminalPageSize(preserveFirstItem = false) {
+  if (!isTerminalRoute()) return false;
+  const previous = terminalEventPageSize;
+  const firstVisibleIndex = Math.max(0, (eventCurrentPage - 1) * previous);
+  terminalEventPageSize = calculateTerminalPageSize();
+  if (preserveFirstItem && previous !== terminalEventPageSize) {
+    eventCurrentPage = Math.floor(firstVisibleIndex / terminalEventPageSize) + 1;
+  }
+  return previous !== terminalEventPageSize;
+}
+
+function refineRenderedTerminalPageSize() {
+  if (!isTerminalRoute() || !eventStream) return false;
+  const rows = [...eventStream.querySelectorAll(".event-line")];
+  if (!rows.length) return false;
+  const streamHeight = eventStream.getBoundingClientRect().height || 0;
+  const averageRowHeight = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0) / rows.length;
+  const next = clamp(Math.floor(streamHeight / Math.max(averageRowHeight, 1)), 4, 18);
+  if (next === terminalEventPageSize) return false;
+  terminalEventPageSize = next;
+  return true;
+}
+
+function readTerminalState() {
+  if (!isTerminalRoute()) return;
+  const saved = JSON.parse(localStorage.getItem("gaylemon-terminal-filters") || "{}");
+  const params = new URLSearchParams(location.search);
+  const values = {
+    q: params.get("q") ?? saved.q ?? "",
+    type: params.get("type") ?? saved.type ?? "all",
+    player: params.get("player") ?? saved.player ?? "all",
+    page: Number(params.get("page") || saved.page || 1),
+  };
+  if (eventSearch) eventSearch.value = values.q;
+  if (eventTypeFilter) eventTypeFilter.value = values.type;
+  if (eventPlayerFilter) eventPlayerFilter.value = values.player;
+  eventCurrentPage = Math.max(1, values.page || 1);
+  updateTerminalPageSize();
+}
+
+function writeTerminalState() {
+  if (!isTerminalRoute()) return;
+  const state = {
+    q: eventSearch?.value || "",
+    type: eventTypeFilter?.value || "all",
+    player: eventPlayerFilter?.value || "all",
+    page: eventCurrentPage,
+  };
+  localStorage.setItem("gaylemon-terminal-filters", JSON.stringify(state));
+  const params = new URLSearchParams();
+  if (state.q) params.set("q", state.q);
+  for (const key of ["type", "player"]) {
+    if (state[key] && state[key] !== "all") params.set(key, state[key]);
+  }
+  if (state.page > 1) params.set("page", String(state.page));
+  const query = params.toString();
+  history.replaceState(null, "", `/terminal${query ? `?${query}` : ""}`);
+}
+
+function updateTerminalEvents() {
+  renderEvents();
+  writeTerminalState();
+}
+
+function renderEvents(refinePageSize = true) {
+  const events = dedupeSessionFallbackEvents(eventsSnapshot?.events);
+  const query = normalizeEventSearch(eventSearch?.value);
+  const type = eventTypeFilter?.value || "all";
+  const player = eventPlayerFilter?.value || "all";
   const filtered = events.filter((event) => {
     if (type !== "all" && event.type !== type) return false;
     if (player !== "all" && event.player !== player) return false;
     if (!query) return true;
-    return normalizeEventSearch([event.player, event.title, event.message, event.type].filter(Boolean).join(" ")).includes(query);
+    return normalizeEventSearch([
+      event.player,
+      event.guild,
+      event.base,
+      event.title,
+      event.message,
+      event.display?.headline,
+      event.display?.body,
+      ...(event.display?.bullets || []),
+      event.type,
+    ].filter(Boolean).join(" ")).includes(query);
   });
-  const pageSize = location.hash === "#terminal" ? terminalEventPageSize : 5;
+  const terminal = isTerminalRoute();
+  if (terminal) updateTerminalPageSize();
+  const pageSize = terminal ? terminalEventPageSize : dashboardEventPageSize;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
   const start = (eventCurrentPage - 1) * pageSize;
   const visible = filtered.slice(start, start + pageSize);
 
   const resultLabel = filtered.length === events.length
-    ? `${events.length} événement${events.length > 1 ? "s" : ""} dans l'historique`
+    ? `${events.length} écho${events.length > 1 ? "s" : ""} archivé${events.length > 1 ? "s" : ""}`
     : `${filtered.length} résultat${filtered.length > 1 ? "s" : ""} sur ${events.length}`;
-  eventResultCount.textContent = `${resultLabel} · page ${eventCurrentPage} sur ${pageCount}`;
+  if (eventResultCount) {
+    eventResultCount.textContent = pageCount > 1
+      ? `${resultLabel} · page ${eventCurrentPage} sur ${pageCount}`
+      : resultLabel;
+  }
 
   if (!visible.length) {
     eventStream.innerHTML = '<li class="event-stream__empty">Aucun écho ne correspond à cette recherche.</li>';
@@ -1841,6 +2120,9 @@ function renderEvents() {
       const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
       const timestamp = formatEventTime(event.occurredAt);
       const accent = event.player ? playerColor(event.player) : meta.color;
+      const headline = event.display?.headline || event.title;
+      const body = event.display?.body || event.message;
+      const bullets = Array.isArray(event.display?.bullets) ? event.display.bullets : [];
       const visual = event.icon
         ? gameImage(event.icon, "", "event-line__portrait")
         : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
@@ -1850,18 +2132,27 @@ function renderEvents() {
           <span class="event-line__rail" aria-hidden="true"><i></i></span>
           <span class="event-line__visual">${visual}</span>
           <span class="event-line__content">
-            <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em>${escapeHtml(event.player)}</em>` : ""}</span>
-            <strong>${escapeHtml(event.title)}</strong>
-            <span>${escapeHtml(event.message)}</span>
+            <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em>${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em>${escapeHtml(event.base)}</em>` : ""}</span>
+            <strong>${escapeHtml(headline)}</strong>
+            <span>${escapeHtml(body)}</span>
+            ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
           </span>
         </li>`;
     }).join("");
+    if (terminal && refinePageSize && refineRenderedTerminalPageSize()) {
+      renderEvents(false);
+      return;
+    }
   }
 
   if (pageCount <= 1) {
-    eventPagination.innerHTML = "";
+    if (eventPagination) {
+      eventPagination.innerHTML = "";
+      eventPagination.hidden = true;
+    }
     return;
   }
+  eventPagination.hidden = false;
   const pages = eventPageNumbers(eventCurrentPage, pageCount);
   let previousPage = 0;
   const pageButtons = pages.map((page) => {
@@ -1875,16 +2166,52 @@ function renderEvents() {
     <button type="button" data-event-page="${eventCurrentPage + 1}" ${eventCurrentPage === pageCount ? "disabled" : ""}>Suivante</button>`;
 }
 
-function renderEventSnapshot(payload) {
-  eventsSnapshot = payload;
-  const events = Array.isArray(payload?.events) ? payload.events : [];
-  eventsState.textContent = `${events.length} écho${events.length > 1 ? "s" : ""} surveillé${events.length > 1 ? "s" : ""}`;
-  eventsState.dataset.state = "live";
+function renderEventSummaryCards(payload) {
+  const events = dedupeSessionFallbackEvents(payload?.events);
+  if (eventsState) {
+    eventsState.textContent = `${events.length} écho${events.length > 1 ? "s" : ""} archivé${events.length > 1 ? "s" : ""}`;
+    eventsState.dataset.state = "live";
+  }
   registerDataUpdate("events", payload.updatedAt);
+  renderWorldContractStatus();
+}
+
+function renderEventSnapshot(payload) {
+  const events = dedupeSessionFallbackEvents(payload?.events);
+  eventsSnapshot = {
+    ...payload,
+    events,
+    summary: {
+      ...(payload?.summary || {}),
+      events: events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+  };
+  renderEventSummaryCards(eventsSnapshot);
+  renderEventSyncStatus(new Date(), payload.updatedAt);
   if (eventsDisclosure?.open) {
     renderEventFilters(events);
     renderEvents();
   }
+}
+
+function renderEventSyncStatus(value, dataUpdatedAt = eventsSnapshot?.updatedAt) {
+  if (!eventSyncStatus) return;
+  const date = parseDate(value);
+  if (!date) {
+    eventSyncStatus.textContent = "Synchronisation en attente";
+    return;
+  }
+  eventSyncStatus.textContent = `Synchro ${date.toLocaleTimeString("fr-CA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+  eventSyncStatus.dateTime = date.toISOString();
+  const dataDate = parseDate(dataUpdatedAt);
+  eventSyncStatus.title = dataDate
+    ? `Derniers échos publiés le ${formatDateTime(dataDate)}`
+    : "Flux des échos synchronisé";
 }
 
 function gameImage(path, alt, className = "game-icon") {
@@ -2767,7 +3094,8 @@ function clearSearchOnEscape(event) {
 }
 
 async function readJson(path) {
-  const response = await fetch(`${path}?ts=${Date.now()}`, { cache: "no-store" });
+  const source = path.startsWith("/") ? path : `/${path}`;
+  const response = await fetch(`${source}?ts=${Date.now()}`, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
@@ -2888,6 +3216,7 @@ async function loadEvents(silent = false) {
   try {
     const payload = await readJson("data/public-events.json");
     const changed = isNewDataRevision("events", payload);
+    eventsFullLoaded = true;
     if (changed) renderEventSnapshot(payload);
     return { ok: true, changed };
   } catch {
@@ -2900,11 +3229,102 @@ async function loadEvents(silent = false) {
   }
 }
 
+function mergeEventPayload(payload) {
+  const current = dedupeSessionFallbackEvents(eventsSnapshot?.events);
+  const incoming = dedupeSessionFallbackEvents(payload?.events);
+  const byKey = new Map();
+  for (const event of current) {
+    const key = event.key || `${event.source}:${event.id}`;
+    byKey.set(key, event);
+  }
+  for (const event of incoming) {
+    const key = event.key || `${event.source}:${event.id}`;
+    byKey.set(key, event);
+  }
+  const events = dedupeSessionFallbackEvents([...byKey.values()]).sort((left, right) => {
+    const rightDate = parseDate(right.occurredAt)?.getTime() || 0;
+    const leftDate = parseDate(left.occurredAt)?.getTime() || 0;
+    if (rightDate !== leftDate) return rightDate - leftDate;
+    return Number(right.id || 0) - Number(left.id || 0);
+  });
+  return {
+    ...(eventsSnapshot || {}),
+    version: Math.max(Number(eventsSnapshot?.version || 0), Number(payload?.version || 0)),
+    ok: true,
+    revision: payload?.revision || eventsSnapshot?.revision || "",
+    updatedAt: latestDateValue(eventsSnapshot?.updatedAt, payload?.updatedAt)?.toISOString() || new Date().toISOString(),
+    summary: {
+      ...(eventsSnapshot?.summary || {}),
+      events: events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+    events,
+  };
+}
+
+async function loadEventsRecent(silent = true) {
+  if (!eventsFullLoaded) return loadEvents(silent);
+  if (Date.now() - lastEventRecentRefreshAt < refreshEveryMs - 500) {
+    return { ok: true, changed: false };
+  }
+  try {
+    const payload = await readJson("data/public-events-recent.json");
+    lastEventRecentRefreshAt = Date.now();
+    const previousRevision = eventsSnapshot?.revision || "";
+    const merged = mergeEventPayload(payload);
+    const changed = merged.revision !== previousRevision || merged.events.length !== (eventsSnapshot?.events || []).length;
+    const scrollY = window.scrollY;
+    eventsSnapshot = merged;
+    renderEventSummaryCards(merged);
+    renderEventSyncStatus(new Date(), merged.updatedAt);
+    if (eventsDisclosure?.open) {
+      renderEventFilters(merged.events || []);
+      if (!isTerminalRoute() || eventCurrentPage === 1) {
+        renderEvents();
+        window.scrollTo({ top: scrollY, behavior: "auto" });
+      }
+    }
+    return { ok: true, changed };
+  } catch {
+    return { ok: !silent, changed: false };
+  }
+}
+
 async function refreshDataInBackground() {
   if (refreshPending) return;
 
   refreshPending = true;
   renderNextUpdate();
+  if (isHeaderOnlyRoute()) {
+    const result = await loadMetrics(true);
+    nextRefreshAt = Date.now() + refreshEveryMs;
+    refreshPending = false;
+    refreshMessageState = result.ok ? "updated" : "error";
+    const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
+    refreshMessage = result.ok ? (result.changed ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`) : "Nouvel essai bientôt";
+    refreshMessageUntil = Date.now() + 6500;
+    renderNextUpdate();
+    return;
+  }
+  if (isTerminalRoute()) {
+    const results = await Promise.all([
+      loadMetrics(true),
+      loadEventsRecent(true),
+    ]);
+    const synchronizedSources = results.filter((result) => result.ok).length;
+    const changedSources = results.filter((result) => result.changed).length;
+    nextRefreshAt = Date.now() + refreshEveryMs;
+    refreshPending = false;
+    refreshMessageState = synchronizedSources ? "updated" : "error";
+    const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
+    refreshMessage = synchronizedSources
+      ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
+      : "Nouvel essai bientôt";
+    refreshMessageUntil = Date.now() + 6500;
+    renderNextUpdate();
+    return;
+  }
   const results = await Promise.all([
     loadMetrics(true),
     loadStats(true),
@@ -2912,7 +3332,7 @@ async function refreshDataInBackground() {
     loadSaveSnapshot(true, false),
     basesSnapshot ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
     loadSaveDiagnostics(true),
-    loadEvents(true),
+    loadEventsRecent(true),
   ]);
   const synchronizedSources = results.filter((result) => result.ok).length;
   const changedSources = results.filter((result) => result.changed).length;
@@ -2928,29 +3348,50 @@ async function refreshDataInBackground() {
   renderNextUpdate();
 }
 
+readTerminalState();
 syncTerminalView();
-if (location.hash === "#carte" && mapDisclosure) mapDisclosure.open = true;
-if (location.hash === "#classements" && leaderboardDisclosure) leaderboardDisclosure.open = true;
-if (location.hash === "#evenements" && eventsDisclosure) eventsDisclosure.open = true;
+if (isTerminalRoute()) {
+  if (eventsDisclosure) eventsDisclosure.open = true;
+  Promise.all([
+    loadMetrics(),
+    loadEvents(),
+  ]).then(() => {
+    document.documentElement.classList.add("data-loaded");
+    if (eventsSnapshot) {
+      renderEventFilters(eventsSnapshot.events || []);
+      readTerminalState();
+      renderEvents();
+      writeTerminalState();
+    }
+  });
+} else if (isHeaderOnlyRoute()) {
+  loadMetrics().then(() => {
+    document.documentElement.classList.add("data-loaded");
+  });
+} else {
+  if (location.hash === "#carte" && mapDisclosure) mapDisclosure.open = true;
+  if (location.hash === "#classements" && leaderboardDisclosure) leaderboardDisclosure.open = true;
+  if (location.hash === "#evenements" && eventsDisclosure) eventsDisclosure.open = true;
 
-const initialBaseLoad = location.hash === "#carte"
-  ? loadBases()
-  : Promise.resolve({ ok: true, changed: false });
+  const initialBaseLoad = location.hash === "#carte"
+    ? loadBases()
+    : Promise.resolve({ ok: true, changed: false });
 
-Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), loadEvents()]).then(() => {
-  document.documentElement.classList.add("data-loaded");
-  setupLazyBaseData();
-  const initialSection = ["chroniques", "classements", "carte", "evenements"]
-    .find((section) => location.hash === `#${section}`);
-  if (initialSection) {
-    if (initialSection === "carte" && mapDisclosure) mapDisclosure.open = true;
-    if (initialSection === "evenements" && eventsDisclosure) eventsDisclosure.open = true;
-    window.requestAnimationFrame(() => {
-      document.getElementById(initialSection)?.scrollIntoView({ behavior: "auto", block: "start" });
-    });
-  }
-});
-renderServerRealDays();
+  Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), loadEvents()]).then(() => {
+    document.documentElement.classList.add("data-loaded");
+    setupLazyBaseData();
+    const initialSection = ["chroniques", "classements", "carte", "evenements"]
+      .find((section) => location.hash === `#${section}`);
+    if (initialSection) {
+      if (initialSection === "carte" && mapDisclosure) mapDisclosure.open = true;
+      if (initialSection === "evenements" && eventsDisclosure) eventsDisclosure.open = true;
+      window.requestAnimationFrame(() => {
+        document.getElementById(initialSection)?.scrollIntoView({ behavior: "auto", block: "start" });
+      });
+    }
+  });
+  renderServerRealDays();
+}
 renderNextUpdate();
 startRefreshClock();
 trackVirtualPageView();
@@ -2974,6 +3415,7 @@ window.addEventListener("pageshow", (event) => {
 
 window.addEventListener("pagehide", () => window.clearInterval(clockTimer));
 
+if (isDashboardRoute()) {
 savePlayers.addEventListener("click", (event) => {
   const link = event.target.closest("[data-player-index]");
   if (link) {
@@ -3190,36 +3632,31 @@ palContainerFilter.addEventListener("change", () => { palVisibleLimit = 24; rend
 palSort.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palLoadMore.addEventListener("click", () => { palVisibleLimit += 24; renderPalCollection(); });
 inventorySearch.addEventListener("input", () => renderInventory(selectedPlayer));
-eventSearch.addEventListener("input", () => { eventCurrentPage = 1; renderEvents(); });
-eventTypeFilter.addEventListener("change", () => { eventCurrentPage = 1; renderEvents(); });
-eventPlayerFilter.addEventListener("change", () => { eventCurrentPage = 1; renderEvents(); });
-eventPageSizeControl.addEventListener("change", () => {
-  const requested = Number(eventPageSizeControl.value);
-  terminalEventPageSize = allowedTerminalPageSizes.has(requested) ? requested : 25;
-  eventPageSizeControl.value = String(terminalEventPageSize);
-  localStorage.setItem("gaylemon-terminal-page-size", String(terminalEventPageSize));
-  eventCurrentPage = 1;
-  renderEvents();
-});
-eventPagination.addEventListener("click", (event) => {
+}
+eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; updateTerminalEvents(); });
+eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; updateTerminalEvents(); });
+eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; updateTerminalEvents(); });
+eventPagination?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-event-page]");
   if (!button || button.disabled) return;
   eventCurrentPage = Number(button.dataset.eventPage) || 1;
   renderEvents();
+  writeTerminalState();
   document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
 });
-palSearch.addEventListener("keydown", clearSearchOnEscape);
-inventorySearch.addEventListener("keydown", clearSearchOnEscape);
-eventSearch.addEventListener("keydown", clearSearchOnEscape);
+palSearch?.addEventListener("keydown", clearSearchOnEscape);
+inventorySearch?.addEventListener("keydown", clearSearchOnEscape);
+eventSearch?.addEventListener("keydown", clearSearchOnEscape);
 stockSearch?.addEventListener("keydown", clearSearchOnEscape);
-inventorySectionFilter.addEventListener("change", () => renderInventory(selectedPlayer));
-backToTop.addEventListener("click", () => {
+inventorySectionFilter?.addEventListener("change", () => renderInventory(selectedPlayer));
+backToTop?.addEventListener("click", () => {
   window.scrollTo({ top: 0, behavior: prefersReducedMotion.matches ? "auto" : "smooth" });
 });
-footerBackToTop.addEventListener("click", () => {
+footerBackToTop?.addEventListener("click", () => {
   window.scrollTo({ top: 0, behavior: prefersReducedMotion.matches ? "auto" : "smooth" });
 });
 function syncBackToTop() {
+  if (!backToTop || !siteFooter) return;
   const isVisible = window.scrollY > 520;
   const footerIsVisible = siteFooter.getBoundingClientRect().top < window.innerHeight;
   backToTop.classList.toggle("is-visible", isVisible);
@@ -3254,6 +3691,10 @@ document.addEventListener("focusout", (event) => {
 window.addEventListener("resize", () => {
   if (activeTooltipTarget) positionContextTooltip(activeTooltipTarget);
   syncBackToTop();
+  if (isTerminalRoute() && eventsSnapshot && updateTerminalPageSize(true)) {
+    renderEvents();
+    writeTerminalState();
+  }
   scheduleActiveNavigationUpdate();
 });
 document.addEventListener("click", (event) => {
@@ -3261,6 +3702,10 @@ document.addEventListener("click", (event) => {
   if (communityLink) trackCommunityLink(communityLink);
 });
 window.addEventListener("hashchange", () => {
+  if (isLegacyTerminalHash()) {
+    location.replace("/terminal");
+    return;
+  }
   syncTerminalView(true);
   if (location.hash === "#classements" && leaderboardDisclosure) leaderboardDisclosure.open = true;
   if (location.hash === "#evenements" && eventsDisclosure) eventsDisclosure.open = true;
