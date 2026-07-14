@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect Palworld local statistics every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=1s
+Unit=palworld-stats.service
+
+[Install]
+WantedBy=timers.target

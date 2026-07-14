@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "ok": true,
+  "updatedAt": "2026-01-01T12:00:00Z",
+  "updatedAtLocal": "2026-01-01 07:00:00",
+  "collection": {
+    "source": "exemple",
+    "firstSampleAt": "2026-01-01T11:00:00Z",
+    "lastSampleAt": "2026-01-01T12:00:00Z",
+    "sampleCount": 3,
+    "gameDataAvailable": false,
+    "gameDataStatus": "disabled",
+    "note": null
+  },
+  "server": {
+    "totalObservedSeconds": 3600,
+    "totalObserved": "1h 0m",
+    "peakPlayers": 2,
+    "playerSamples": 3,
+    "playerTotal": 4,
+    "averagePlayers": 1.33,
+    "averageFps": 60,
+    "lastPlayers": 1,
+    "maxPlayers": 12,
+    "lastFps": 60,
+    "lastFrameMs": 16.7,
+    "lastBaseCamps": 2,
+    "lastDays": 10,
+    "lastUptimeSeconds": 3600,
+    "lastUptime": "1h 0m"
+  },
+  "actors": {
+    "lastSnapshotAt": null,
+    "total": 0,
+    "players": 0,
+    "palBoxes": 0,
+    "baseCampPals": 0,
+    "otomoPals": 0,
+    "wildPals": 0,
+    "npcs": 0
+  },
+  "guilds": [],
+  "players": [
+    {
+      "name": "Aventuriere",
+      "isOnline": true,
+      "sessionCount": 2,
+      "totalOnlineSeconds": 1800,
+      "totalOnline": "30m",
+      "level": 12,
+      "buildingCount": null,
+      "ping": 32.4,
+      "position": null,
+      "guildName": "Explorateurs",
+      "activePalCount": 0,
+      "basePalCount": 0,
+      "lastSeenAt": "2026-01-01T12:00:00Z",
+      "lastOnlineAt": "2026-01-01T12:00:00Z"
+    }
+  ]
+}

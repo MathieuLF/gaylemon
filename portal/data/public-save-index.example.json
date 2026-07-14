@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "ok": true,
+  "updatedAt": "2026-07-11T12:00:00-04:00",
+  "summary": { "players": 1, "pals": 12, "guilds": 1, "bases": 2 },
+  "world": { "paldexSpecies": 288, "fastTravelPoints": 174, "discoverableAreas": 123, "knownBosses": 99 },
+  "guilds": [
+    { "name": "Explorateurs", "players": 1, "bases": 2, "campLevel": 18 }
+  ],
+  "players": [
+    {
+      "name": "Aventuriere",
+      "level": 18,
+      "guild": "Explorateurs",
+      "guildBases": 2,
+      "campLevel": 18,
+      "position": {
+        "mapX": 274,
+        "mapY": 31,
+        "leftPercent": 63.7,
+        "topPercent": 48.45
+      },
+      "pals": {
+        "total": 12,
+        "party": 5,
+        "palbox": 7,
+        "uniqueSpecies": 9,
+        "highestLevel": 17,
+        "favorites": [
+          { "name": "Lamball", "count": 2, "icon": "assets/game/icons/pals/T_SheepBall_icon_normal.webp" }
+        ]
+      },
+      "progress": {
+        "technologyPoints": 6,
+        "bossTechnologyPoints": 1,
+        "unlockedTechnologies": 42,
+        "completedQuests": 8,
+        "paldex": { "encounteredSpecies": 48, "capturedSpecies": 42, "totalSpecies": 288, "totalCaptures": 96, "completionPercent": 14.6 },
+        "bosses": { "defeated": 5, "normalDefeated": 4, "normalKnownTotal": 99, "towerDefeated": 1 },
+        "exploration": { "fastTravelUnlocked": 22, "fastTravelTotal": 174, "areasDiscovered": 18, "areasTotal": 123, "worldMapsUnlocked": 1, "completionPercent": 13.5 },
+        "relics": { "totalRanks": 4, "maximumRanks": 120, "completionPercent": 3.3 }
+      }
+    }
+  ]
+}

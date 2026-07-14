@@ -1,0 +1,11 @@
+[Unit]
+Description=Push Palworld health to Uptime Kuma every 30 seconds
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=30
+AccuracySec=1
+Unit=palworld-kuma-push.service
+
+[Install]
+WantedBy=timers.target

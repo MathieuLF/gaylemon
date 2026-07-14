@@ -1,0 +1,366 @@
+{
+  "version": 1,
+  "backupRoot": "/var/backups/gaylemon-deploy",
+  "entries": [
+    {
+      "source": "server/bin/cloudflare-update-dns.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/cloudflare-update-dns.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-announce.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-announce.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-api.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-api.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-backup.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-backup.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-configure-balanced.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-configure-balanced.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-events-collect.py",
+      "destination": "{{REMOTE_PROJECT_ROOT}}/server/bin/palworld-events-collect.py",
+      "owner": "{{REMOTE_PROJECT_USER}}",
+      "group": "{{REMOTE_PROJECT_USER}}",
+      "mode": "0750",
+      "validation": "python",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-install-steamcmd.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-install-steamcmd.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-kuma-push.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-kuma-push.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-performance-tune.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-performance-tune.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-save-profile.py",
+      "destination": "{{REMOTE_PROJECT_ROOT}}/server/bin/palworld-save-profile.py",
+      "owner": "{{REMOTE_PROJECT_USER}}",
+      "group": "{{REMOTE_PROJECT_USER}}",
+      "mode": "0750",
+      "validation": "python",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-save-snapshot.py",
+      "destination": "{{REMOTE_PROJECT_ROOT}}/server/bin/palworld-save-snapshot.py",
+      "owner": "{{REMOTE_PROJECT_USER}}",
+      "group": "{{REMOTE_PROJECT_USER}}",
+      "mode": "0750",
+      "validation": "python",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-save-tools-update.sh",
+      "destination": "{{REMOTE_PROJECT_ROOT}}/server/bin/palworld-save-tools-update.sh",
+      "owner": "{{REMOTE_PROJECT_USER}}",
+      "group": "{{REMOTE_PROJECT_USER}}",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-start.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-start.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": "palworld.service",
+      "restartPolicy": "game"
+    },
+    {
+      "source": "server/bin/palworld-stats-collect.py",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-stats-collect.py",
+      "owner": "steam",
+      "group": "steam",
+      "mode": "0750",
+      "validation": "python",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-update.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-update.sh",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/bin/palworld-welcome-watch.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-welcome-watch.sh",
+      "owner": "steam",
+      "group": "steam",
+      "mode": "0750",
+      "validation": "bash",
+      "restartUnit": "palworld-welcome.service",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/cloudflare-update-dns.service",
+      "destination": "/etc/systemd/system/cloudflare-update-dns.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/cloudflare-update-dns.timer",
+      "destination": "/etc/systemd/system/cloudflare-update-dns.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "cloudflare-update-dns.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-backup.service",
+      "destination": "/etc/systemd/system/palworld-backup.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-backup.timer",
+      "destination": "/etc/systemd/system/palworld-backup.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-backup.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-events.service",
+      "destination": "/etc/systemd/system/palworld-events.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-events.timer",
+      "destination": "/etc/systemd/system/palworld-events.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-events.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-kuma-push.service",
+      "destination": "/etc/systemd/system/palworld-kuma-push.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-kuma-push.timer",
+      "destination": "/etc/systemd/system/palworld-kuma-push.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-kuma-push.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-performance.service",
+      "destination": "/etc/systemd/system/palworld-performance.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-save-snapshot.service",
+      "destination": "/etc/systemd/system/palworld-save-snapshot.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-save-snapshot.timer",
+      "destination": "/etc/systemd/system/palworld-save-snapshot.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-save-snapshot.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-stats.service",
+      "destination": "/etc/systemd/system/palworld-stats.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-stats.timer",
+      "destination": "/etc/systemd/system/palworld-stats.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-stats.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-update.service",
+      "destination": "/etc/systemd/system/palworld-update.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/palworld-update.timer",
+      "destination": "/etc/systemd/system/palworld-update.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-update.timer",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld-welcome.service",
+      "destination": "/etc/systemd/system/palworld-welcome.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld-welcome.service",
+      "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/systemd/palworld.service",
+      "destination": "/etc/systemd/system/palworld.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": "palworld.service",
+      "restartPolicy": "game"
+    },
+    {
+      "source": "server/sysctl/99-palworld-performance.conf",
+      "destination": "/etc/sysctl.d/99-palworld-performance.conf",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "sysctl",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/sudoers/palworld-console",
+      "destination": "/etc/sudoers.d/palworld-console",
+      "owner": "root",
+      "group": "root",
+      "mode": "0440",
+      "validation": "sudoers",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/sudoers/palworld-stats",
+      "destination": "/etc/sudoers.d/palworld-stats",
+      "owner": "root",
+      "group": "root",
+      "mode": "0440",
+      "validation": "sudoers",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    }
+  ]
+}
