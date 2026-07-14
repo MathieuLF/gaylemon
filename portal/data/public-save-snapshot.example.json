@@ -1,0 +1,140 @@
+{
+  "version": 3,
+  "projection": { "version": 2 },
+  "ok": true,
+  "updatedAt": "2026-07-11T12:00:00-04:00",
+  "source": { "type": "palworld-built-in-backup", "backup": "2026.07.11-12.00.00" },
+  "parser": { "name": "PalworldSaveTools", "commit": "example" },
+  "summary": { "players": 2, "pals": 24, "guilds": 2, "bases": 3 },
+  "world": { "paldexSpecies": 288, "fastTravelPoints": 174, "discoverableAreas": 123, "knownBosses": 99 },
+  "bases": [],
+  "guilds": [
+    { "name": "Explorateurs", "players": 1, "bases": 2, "campLevel": 18 }
+  ],
+  "players": [
+    {
+      "name": "Aventuriere",
+      "level": 18,
+      "guild": "Explorateurs",
+      "guildBases": 2,
+      "campLevel": 18,
+      "position": {
+        "mapX": 274,
+        "mapY": 31,
+        "leftPercent": 63.7,
+        "topPercent": 48.45
+      },
+      "character": {
+        "experience": 42500,
+        "hp": 1250,
+        "shield": 300,
+        "hunger": 87,
+        "unusedStatusPoints": 2,
+        "allocations": [{ "name": "Endurance", "points": 5 }]
+      },
+      "pals": {
+        "total": 12,
+        "party": 5,
+        "palbox": 7,
+        "uniqueSpecies": 9,
+        "highestLevel": 17,
+        "favorites": [{ "name": "Lamball", "count": 2, "icon": "assets/game/icons/pals/T_SheepBall_icon_normal.webp" }],
+        "collection": [
+          {
+            "name": "Lamball",
+            "species": "Lamball",
+            "icon": "assets/game/icons/pals/T_SheepBall_icon_normal.webp",
+            "level": 17,
+            "experience": 8400,
+            "gender": "Female",
+            "container": "party",
+            "hp": 940,
+            "maxHp": 1120,
+            "hunger": 72,
+            "sanity": null,
+            "friendship": 7000,
+            "rank": 2,
+            "lucky": false,
+            "boss": false,
+            "awakening": false,
+            "favorite": true,
+            "imported": false,
+            "talents": { "hp": 72, "attack": 64, "defense": 81 },
+            "souls": { "hp": 1, "attack": 0, "defense": 2, "workSpeed": 0 },
+            "computedStats": { "attack": 165, "defense": 171, "workSpeed": 74 },
+            "passives": [{ "name": "Ferocious", "description": "Attack +20%", "rank": 3 }],
+            "activeSkills": [{ "name": "Air Cannon", "description": null, "rank": 0 }],
+            "learnedSkills": [],
+            "workSuitabilityBonuses": [{ "name": "Travail manuel", "level": 1, "bonus": 0 }],
+            "healthStatus": null,
+            "ownedAt": "2026-07-10T08:20:00+00:00",
+            "position": null
+          }
+        ]
+      },
+      "inventory": [
+        {
+          "key": "common",
+          "label": "Sac",
+          "items": [{ "name": "Gold Coin", "count": 1200, "slot": 0, "icon": "assets/game/icons/items/T_itemicon_Money.webp", "rarity": 0, "category": "Material" }]
+        }
+      ],
+      "progress": {
+        "technologyPoints": 6,
+        "bossTechnologyPoints": 1,
+        "unlockedTechnologies": 42,
+        "completedQuests": 8,
+        "quests": {
+          "completedCount": 8,
+          "completed": [{ "name": "Capturer un Pal" }],
+          "activeCount": 1,
+          "active": [{ "name": "Mission de l'agriculteur · chapitre 1" }]
+        },
+        "challenges": {
+          "completedCount": 2,
+          "completed": [
+            { "name": "Captures de Pals · palier 1", "category": "Captures de Pals", "tier": 1 },
+            { "name": "Progression du Paldex · palier 1", "category": "Progression du Paldex", "tier": 1 }
+          ]
+        },
+        "records": {
+          "treasuresFound": 3,
+          "normalDungeonsCleared": 4,
+          "fixedDungeonsCleared": 2,
+          "oilRigsCleared": 0,
+          "campsConquered": 1,
+          "fishCaught": 8,
+          "fishSpecies": 4,
+          "itemsCrafted": 325,
+          "craftedItemTypes": 28,
+          "uniqueItemsPickedUp": 5
+        },
+        "paldex": {
+          "encounteredSpecies": 48,
+          "capturedSpecies": 42,
+          "totalSpecies": 288,
+          "totalCaptures": 96,
+          "captureChallengesCompleted": 31,
+          "completionPercent": 14.6,
+          "species": [
+            {
+              "index": 1,
+              "name": "Lamball",
+              "icon": "assets/game/icons/pals/T_SheepBall_icon_normal.webp",
+              "encountered": true,
+              "captured": true,
+              "captureCount": 5,
+              "challengeCount": 5,
+              "challengeTarget": 5,
+              "challengeComplete": true
+            }
+          ]
+        },
+        "bosses": { "defeated": 5, "normalDefeated": 4, "normalKnownTotal": 99, "towerDefeated": 1, "known": [] },
+        "exploration": { "fastTravelUnlocked": 22, "fastTravelTotal": 174, "areasDiscovered": 18, "areasTotal": 123, "worldMapsUnlocked": 1, "completionPercent": 13.5, "fastTravelPoints": [] },
+        "technologies": [],
+        "relics": { "totalRanks": 4, "maximumRanks": 120, "completionPercent": 3.3, "categories": [] }
+      }
+    }
+  ]
+}

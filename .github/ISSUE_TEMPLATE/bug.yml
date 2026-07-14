@@ -1,0 +1,30 @@
+name: Signaler un bogue
+description: Signaler un comportement reproductible sans joindre de données privées.
+title: "[Bogue] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Ne joignez jamais de mot de passe, jeton, sauvegarde réelle ou identifiant joueur."
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Décrivez le comportement observé et le comportement attendu.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Donnez les étapes minimales avec des données fictives.
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Version ou révision
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validations exécutées

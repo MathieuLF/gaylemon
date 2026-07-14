@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup Palworld save data
+
+[Service]
+Type=oneshot
+User=steam
+Group=steam
+EnvironmentFile=-/etc/palworld/palworld.env
+ExecStart=/srv/storage/steam/bin/palworld-backup.sh
