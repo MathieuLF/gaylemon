@@ -171,6 +171,23 @@ class SaveSnapshotContractTests(unittest.TestCase):
         self.assertEqual(challenges["completedCount"], 1)
         self.assertEqual(challenges["completed"][0]["name"], "Progression du Paldex · palier 2")
 
+    def test_records_include_public_craft_and_fishing_details(self):
+        sections = [{
+            "CraftItemCount": {"value": [{"key": "Wood", "value": 12}]},
+            "FishingCountMap": {"value": [{"key": "Kelpsea", "value": 3}]},
+        }]
+        catalogs = {
+            "items": {
+                "wood": {"name": "Bois", "icon": "/icons/items/wood.webp", "type_a_display": "Matériau"},
+                "kelpsea": {"name": "Kelpsea", "icon": "/icons/items/fish.webp", "type_a_display": "Pêche"},
+            }
+        }
+        records = snapshot.player_records(sections, catalogs)
+        self.assertEqual(records["itemsCrafted"], 12)
+        self.assertEqual(records["craftedItems"][0]["name"], "Bois")
+        self.assertEqual(records["fishCaught"], 3)
+        self.assertEqual(records["fish"][0]["icon"], "assets/game/icons/items/fish.webp")
+
     def test_existing_snapshot_source_supports_fast_duplicate_detection(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory) / "snapshot.json"

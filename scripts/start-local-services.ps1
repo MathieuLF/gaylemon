@@ -1,7 +1,8 @@
 param(
     [int]$MicrositePort = 0,
     [int]$ApiLocalPort = 0,
-    [int]$MetricIntervalSeconds = 0
+    [int]$MetricIntervalSeconds = 0,
+    [int]$UpdateTimeoutSeconds = 0
 )
 
 $ErrorActionPreference = "Continue"
@@ -12,6 +13,7 @@ $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if ($MicrositePort -le 0) { $MicrositePort = $config.MicrositePort }
 if ($ApiLocalPort -le 0) { $ApiLocalPort = $config.ApiLocalPort }
 if ($MetricIntervalSeconds -le 0) { $MetricIntervalSeconds = $config.MetricIntervalSeconds }
+if ($UpdateTimeoutSeconds -le 0) { $UpdateTimeoutSeconds = $config.MetricUpdateTimeoutSeconds }
 $LogDirectory = Join-Path $ProjectRoot "portal\data"
 $LogPath = Join-Path $LogDirectory "local-services.log"
 
@@ -37,7 +39,7 @@ catch {
 }
 
 try {
-    & (Join-Path $PSScriptRoot "open-microsite.ps1") -Port $MicrositePort -MetricIntervalSeconds $MetricIntervalSeconds -NoOpen | ForEach-Object {
+    & (Join-Path $PSScriptRoot "open-microsite.ps1") -Port $MicrositePort -MetricIntervalSeconds $MetricIntervalSeconds -UpdateTimeoutSeconds $UpdateTimeoutSeconds -NoOpen | ForEach-Object {
         Write-LocalLog $_
     }
 }

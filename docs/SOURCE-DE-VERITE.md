@@ -1,32 +1,30 @@
-# Source de vérité Ubuntu et GitHub
+# Source de vérité
 
-## Règle
+Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute des copies installées explicitement.
 
-Le dépôt Gaylémon est la source de vérité de tout code et toute configuration non secrète que nous maintenons.
+## À versionner
 
-Doivent être versionnés:
+- scripts actifs sous `server/bin/`;
+- unités et minuteries `systemd`;
+- règles `sysctl` et modèles `sudoers`;
+- collecteurs, analyseurs, tests et fixtures fictives;
+- scripts Windows;
+- exemples de configuration;
+- verrous de dépendances externes.
 
-- tous les scripts actifs sous `/srv/storage/steam/bin`;
-- les collecteurs et analyseurs exécutés depuis le projet Ubuntu;
-- toutes les unités et minuteries `systemd` Palworld;
-- les règles `sysctl` et modèles `sudoers`;
-- les scripts Windows, watchers, synchroniseurs et outils Docker;
-- les schémas, tests, fixtures fictives et exemples de variables;
-- les manifestes des dépendances externes.
+## À garder hors Git
 
-Ne doivent pas être versionnés:
-
-- mots de passe, jetons, clés SSH et URLs Push privées;
+- mots de passe, jetons, clés SSH et URLs privées;
 - sauvegardes Palworld, bases SQLite, journaux et données joueurs;
-- fichiers d'état ou copies `.bak`, `.new`, `.previous`;
+- fichiers `.bak`, `.new`, `.previous`;
 - binaires Palworld et SteamCMD;
 - ressources du jeu générées;
 - volumes Uptime Kuma et configuration cloudflared;
 - clones complets de dépendances tierces.
 
-## Emplacements actifs
+## Fichiers Ubuntu actifs
 
-| Source Git | Emplacement Ubuntu actif |
+| Dans Git | Sur Ubuntu |
 |---|---|
 | `server/bin/*` | `/srv/storage/steam/bin/*` ou `GAYLEMON_REMOTE_PROJECT_ROOT/server/bin/*` |
 | `server/systemd/*` | `/etc/systemd/system/*` |
@@ -34,54 +32,35 @@ Ne doivent pas être versionnés:
 | `server/sudoers/*` | `/etc/sudoers.d/*` |
 | `server/*.env.example` | modèles pour `/etc/palworld/*.env` |
 
-Les fichiers secrets réels sous `/etc/palworld` ne sont jamais rapatriés dans Git.
+Les vrais fichiers secrets sous `/etc/palworld` ne sont jamais copiés dans le dépôt.
 
-La correspondance exacte ne doit pas être dupliquée dans les scripts. Elle est déclarée dans `server/deployment-manifest.json`, avec le propriétaire, le groupe, le mode, le validateur et la politique de redémarrage de chaque fichier actif. Tout nouveau fichier actif doit être ajouté à ce manifeste; la validation du dépôt échoue sinon.
+La table complète vit dans `server/deployment-manifest.json`. Un nouveau fichier actif doit y être ajouté avec sa destination, ses permissions et sa politique de redémarrage.
 
-## Audit de dérive
+## Audit
 
 ```powershell
 .\scripts\auditer-source-ubuntu.ps1
 ```
 
-L'audit:
+L'audit compare les fichiers suivis avec les fichiers actifs sur Ubuntu. Il vérifie les empreintes, tailles, propriétaires, groupes, modes et la révision PalworldSaveTools quand c'est possible.
 
-1. construit le manifeste à partir des fichiers suivis localement;
-2. calcule les empreintes SHA-256 distantes lorsque l'utilisateur SSH peut lire le fichier;
-3. compare la taille pour les fichiers protégés;
-4. compare aussi le propriétaire, le groupe et le mode Unix;
-5. vérifie la révision active de PalworldSaveTools;
-6. ne lit aucun secret;
-7. n'utilise ni `sudo`, ni `systemctl`;
-8. ne modifie aucun fichier distant.
+Il ne lit pas les secrets, n'utilise pas `sudo`, n'appelle pas `systemctl` et ne modifie rien.
 
-Un rapport JSON local et ignoré peut être produit:
+Pour garder un rapport local:
 
 ```powershell
 .\scripts\auditer-source-ubuntu.ps1 `
   -Rapport .\runtime\validation\source-ubuntu.json
 ```
 
+`runtime/` est ignoré par Git.
+
 ## PalworldSaveTools
 
-PalworldSaveTools reste un dépôt GitHub séparé parce qu'il conserve son propre historique et plusieurs licences. Gaylémon versionne plutôt un verrou contenant le fork et la révision validée:
+PalworldSaveTools reste dans son propre dépôt. Gaylémon versionne seulement le fork et la révision validée dans:
 
 ```text
 dependencies/palworld-save-tools.lock.json
 ```
 
-Après une mise à jour validée du fork, le verrou doit être actualisé dans la même contribution.
-
-Le script de maintenance distingue les trois révisions:
-
-- `Upstream`: dernière révision amont;
-- `Fork`: dernière révision disponible dans le fork GitHub;
-- `Locked` et `ActiveAfter`: révision validée sur Ubuntu et enregistrée par Gaylémon.
-
-Il n'actualise le verrou qu'après la réussite des tests du parseur et la bascule atomique de la version Ubuntu.
-
-## Copies de secours sur Ubuntu
-
-Les fichiers `.bak`, `.backup-*`, `.new` et `.previous` peuvent exister temporairement sur Ubuntu pour un retour arrière. Ils ne constituent jamais la source canonique et ne doivent pas être ajoutés au dépôt.
-
-Une ancienne copie dans `/home/.../Gaylemon/server` ne remplace pas une unité active sous `/etc/systemd/system`. L'audit compare toujours l'emplacement réellement utilisé.
+Après une mise à jour validée, mettre ce verrou à jour dans la même contribution.

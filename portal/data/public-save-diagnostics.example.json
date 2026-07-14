@@ -31,6 +31,14 @@
     "name": "PalworldSaveTools",
     "commit": "0123456789ab"
   },
+  "events": {
+    "version": 3,
+    "updatedAt": "2026-07-12T09:00:00-04:00",
+    "revision": "3:128:128",
+    "count": 128,
+    "firstAt": "2026-07-10T20:15:00-04:00",
+    "lastAt": "2026-07-12T08:55:00-04:00"
+  },
   "publicOutput": {
     "indexBytes": 14055,
     "snapshotBytes": 3721861,

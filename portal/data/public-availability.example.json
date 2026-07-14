@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "ok": true,
+  "source": "gaylemon-local-recovery",
+  "updatedAt": "2026-07-14T12:00:00.0000000-04:00",
+  "updatedAtLocal": "2026-07-14 12:00:00",
+  "localTimeZone": {
+    "id": "Eastern Standard Time",
+    "displayName": "(UTC-05:00) Est (E.-U. et Canada)"
+  },
+  "status": "up",
+  "summary": {
+    "monitorStatus": "up",
+    "monitorFresh": true,
+    "heartbeatAgeSeconds": 18,
+    "staleOrMissingDataSets": 0,
+    "downtimeWindowCount": 1,
+    "uptimeLast24h": 99.7685,
+    "unavailableSecondsLast24h": 200,
+    "uptimeAll": 99.7685,
+    "unavailableSecondsAll": 200
+  },
+  "dataFreshness": [
+    {
+      "name": "metrics",
+      "status": "fresh",
+      "path": "portal/data/public-metrics.json",
+      "updatedAt": "2026-07-14T11:59:50.0000000-04:00",
+      "contentUpdatedAt": "2026-07-14T11:59:50.0000000-04:00",
+      "fileUpdatedAt": "2026-07-14T15:59:50.0000000+00:00",
+      "ageSeconds": 10,
+      "maxAgeSeconds": 180,
+      "ok": true,
+      "error": null
+    }
+  ],
+  "downtimeWindows": [
+    {
+      "id": "kuma-window-0001",
+      "status": "resolved",
+      "startedAt": "2026-07-14T10:00:00.0000000+00:00",
+      "startedAtLocal": "2026-07-14 06:00:00 -04:00",
+      "endedAt": "2026-07-14T10:03:20.0000000+00:00",
+      "endedAtLocal": "2026-07-14 06:03:20 -04:00",
+      "durationSeconds": 200,
+      "measuredUnavailableSeconds": 200,
+      "lastNominalAt": "2026-07-14T10:00:00.0000000+00:00",
+      "lastNominalAtLocal": "2026-07-14 06:00:00 -04:00",
+      "unavailableStartedAt": "2026-07-14T10:00:30.0000000+00:00",
+      "unavailableStartedAtLocal": "2026-07-14 06:00:30 -04:00",
+      "unavailableEndedAt": "2026-07-14T10:03:00.0000000+00:00",
+      "unavailableEndedAtLocal": "2026-07-14 06:03:00 -04:00",
+      "firstFunctionalAt": "2026-07-14T10:03:20.0000000+00:00",
+      "firstFunctionalAtLocal": "2026-07-14 06:03:20 -04:00",
+      "lastHeartbeatId": 42,
+      "statusCounts": {
+        "pending": 2
+      },
+      "messages": [
+        "No heartbeat in the time window"
+      ]
+    }
+  ]
+}

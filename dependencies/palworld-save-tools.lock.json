@@ -4,9 +4,10 @@
   "upstream": "https://github.com/deafdudecomputers/PalworldSaveTools.git",
   "repository": "https://github.com/MathieuLF/PalworldSaveTools.git",
   "branch": "main",
-  "commit": "8cb429ae3b1460a6a6a0c31c9964ca8cedb65cc5",
+  "commit": "ea6592ebfbb79389b6f4570002c71f9b25040641",
   "localPath": "vendor/PalworldSaveTools",
   "serverCurrentPath": "vendor/PalworldSaveTools-current",
   "vendored": false,
-  "licenseNote": "Depot separe non redistribue: projet principal MIT, src/palsav GPL-3.0 et src/palworld_xgp_import Unlicense a la revision verrouillee."
+  "licenseNote": "Depot separe non redistribue: projet principal MIT, src/palsav GPL-3.0 et src/palworld_xgp_import Unlicense a la revision verrouillee.",
+  "validatedAt": "2026-07-14T08:21:33.9196062-04:00"
 }
