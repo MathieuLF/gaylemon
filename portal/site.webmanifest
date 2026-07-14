@@ -1,0 +1,18 @@
+{
+  "name": "Gaylémon Palworld",
+  "short_name": "Gaylémon",
+  "description": "Progression, statistiques, état du serveur, carte de Palpagos et chroniques des aventuriers Gaylémon.",
+  "lang": "fr-CA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#e7f7ee",
+  "theme_color": "#176d70",
+  "icons": [
+    {
+      "src": "/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

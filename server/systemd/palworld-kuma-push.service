@@ -1,0 +1,10 @@
+[Unit]
+Description=Push Palworld health to Uptime Kuma
+After=network-online.target palworld.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=steam
+Group=steam
+ExecStart=/srv/storage/steam/bin/palworld-kuma-push.sh

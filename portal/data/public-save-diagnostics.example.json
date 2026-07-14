@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "ok": true,
+  "updatedAt": "2026-07-12T09:00:01-04:00",
+  "save": {
+    "levelBytes": 1367458,
+    "playerFiles": 7,
+    "playersBytes": 63493,
+    "generationBytes": 1430951,
+    "backupAgeSeconds": 18
+  },
+  "parse": {
+    "durationMs": 1549,
+    "decodeDurationMs": 1052,
+    "projectionDurationMs": 296,
+    "status": "ok",
+    "warnings": 4,
+    "playersParsed": 7,
+    "palsParsed": 1216,
+    "basesParsed": 11
+  },
+  "output": {
+    "snapshotBytes": 3617271,
+    "snapshotGzipBytes": 234830,
+    "basesBytes": 384723,
+    "basesGzipBytes": 32690,
+    "privateBasesBytes": 417525,
+    "historyArchiveBytes": 230112
+  },
+  "parser": {
+    "name": "PalworldSaveTools",
+    "commit": "0123456789ab"
+  },
+  "publicOutput": {
+    "indexBytes": 14055,
+    "snapshotBytes": 3721861,
+    "basesBytes": 396690
+  },
+  "assets": {
+    "worldMapBytes": 1930246,
+    "worldMapWidth": 8192,
+    "worldMapHeight": 8192,
+    "treeMapBytes": 1275041
+  }
+}

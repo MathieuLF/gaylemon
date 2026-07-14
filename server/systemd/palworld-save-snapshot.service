@@ -1,0 +1,22 @@
+[Unit]
+Description=Build a privacy-filtered Palworld save snapshot
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=gaylemon
+Group=gaylemon
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=10
+IOWeight=10
+MemoryMax=768M
+TimeoutStartSec=120
+UMask=0077
+ExecStart=/home/gaylemon/Gaylemon/vendor/PalworldSaveTools-current/.venv/bin/python /home/gaylemon/Gaylemon/server/bin/palworld-save-snapshot.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/srv/storage/steam/servers/palworld/game/Pal/Saved/SaveGames /home/gaylemon/Gaylemon/vendor
+ReadWritePaths=/home/gaylemon/Gaylemon/runtime

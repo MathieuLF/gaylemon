@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Palworld dedicated server
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/palworld/palworld.env
+ExecStart=/srv/storage/steam/bin/palworld-update.sh

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "ok": true,
+  "updatedAt": "2026-01-01T12:00:00Z",
+  "updatedAtLocal": "2026-01-01 07:00:00",
+  "server": {
+    "name": "Archipel Palworld",
+    "description": "Serveur communautaire Palworld",
+    "version": "v1.0.0"
+  },
+  "metrics": {
+    "players": 1,
+    "maxPlayers": 12,
+    "fps": 60,
+    "fpsAverage": 60,
+    "frameMs": 16.7,
+    "days": 10,
+    "baseCamps": 2,
+    "uptimeSeconds": 3600,
+    "uptime": "1h 0m"
+  },
+  "players": [
+    { "name": "Aventuriere" }
+  ]
+}

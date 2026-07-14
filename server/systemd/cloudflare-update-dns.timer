@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic Cloudflare DNS refresh for Palworld
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=cloudflare-update-dns.service
+
+[Install]
+WantedBy=timers.target

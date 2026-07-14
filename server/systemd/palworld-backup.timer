@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Palworld save backup
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=palworld-backup.service
+
+[Install]
+WantedBy=timers.target
