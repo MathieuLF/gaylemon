@@ -1,134 +1,67 @@
-# Profil de configuration Palworld fourni
+# Profil Palworld fourni
 
-Ce document décrit le profil PvE codé dans `server/bin/palworld-configure-balanced.sh` et vérifié sur l'instance Gaylémon. Il ne contient aucun secret et ne prétend pas remplacer un audit de la configuration active d'une autre installation. Les valeurs réellement appliquées peuvent évoluer séparément.
+Ce document résume le profil PvE généré par `server/bin/palworld-configure-balanced.sh`. Il ne contient aucun secret et ne remplace pas une lecture de la configuration active sur une autre installation.
 
-Référence officielle Palworld 1.0:
+Référence officielle:
 
 ```text
 https://docs.palworldgame.com/settings-and-operation/configuration/
 ```
 
-## Verdict
+## Résumé
 
-Le profil fourni n'est pas une configuration par défaut brute. Les éléments importants sont fixés pour un serveur privé PvE:
+Le profil fourni est adapté à un serveur privé de 8 à 12 joueurs:
 
-- accès joueur protégé par mot de passe;
-- mot de passe admin défini, non documenté en clair;
+- mot de passe joueur et mot de passe admin définis hors documentation;
 - PvP désactivé;
 - mods client refusés;
-- liste des joueurs activée;
-- backups Palworld internes activés;
-- REST API activée localement pour annonces et monitoring;
 - RCON désactivé;
-- capacité réduite à `12` joueurs au lieu du défaut `32`;
-- profil de challenge léger déjà appliqué.
+- REST API active, mais gardée locale;
+- backups Palworld internes activés;
+- liste des joueurs visible;
+- difficulté légèrement plus exigeante que le défaut, sans devenir punitive.
 
-Aucun changement urgent du profil fourni n'est requis.
+Aucun changement urgent n'est requis.
 
-## Paramètres modifiés par rapport au défaut
+## Principaux écarts au défaut
 
-| Paramètre | Défaut | Profil fourni | Intention |
-| --- | --- | --- | --- |
-| `ServerPlayerMaxNum` | `32` | `12` | adapté au groupe de 8 à 10 joueurs |
-| `ServerPassword` | vide | défini | serveur privé |
-| `AdminPassword` | vide | défini | administration et API |
-| `ServerName` | `Default Palworld Server` | `Gaylemon Palworld 1.0` | nom lisible |
-| `ServerDescription` | vide | défini | description serveur |
+| Paramètre | Défaut | Profil | Intention |
+|---|---:|---:|---|
+| `ServerPlayerMaxNum` | `32` | `12` | groupe privé |
 | `bAllowClientMod` | `True` | `False` | éviter les clients moddés |
-| `RESTAPIEnabled` | `False` | `True` | monitoring, annonces, scripts |
+| `RESTAPIEnabled` | `False` | `True` | annonces et monitoring |
 | `bShowPlayerList` | `False` | `True` | confort joueurs |
-| `bIsStartLocationSelectByMap` | `False` | `True` | départ plus convivial |
-| `bBuildAreaLimit` | `False` | `True` | limiter les constructions problématiques |
-| `bEnableNonLoginPenalty` | `True` | `False` | éviter de punir les absences |
-| `BaseCampWorkerMaxNum` | `15` | `18` | bases un peu plus vivantes |
+| `BaseCampWorkerMaxNum` | `15` | `18` | bases plus vivantes |
 | `BaseCampMaxNumInGuild` | `4` | `5` | marge pour le groupe |
-| `GuildPlayerMaxNum` | `20` | `12` | cohérent avec le serveur |
-| `PalCaptureRate` | `1.0` | `0.95` | capture légèrement plus exigeante |
-| `CollectionDropRate` | `1.0` | `1.1` | collecte un peu moins punitive |
-| `PlayerStomachDecreaceRate` | `1.0` | `1.1` | survie légèrement plus présente |
-| `PlayerStaminaDecreaceRate` | `1.0` | `1.05` | effort légèrement plus coûteux |
-| `PalStomachDecreaceRate` | `1.0` | `1.05` | gestion des Pals un peu plus active |
-| `PalEggDefaultHatchingTime` | `1.0` | `0.75` | incubation plus agréable |
-| `EquipmentDurabilityDamageRate` | `1.0` | `1.05` | usure légèrement plus présente |
+| `PalCaptureRate` | `1.0` | `0.95` | captures un peu plus exigeantes |
+| `CollectionDropRate` | `1.0` | `1.1` | collecte moins lente |
+| `DeathPenalty` | variable | `Item` | compromis challenge/plaisir |
+| `PalEggDefaultHatchingTime` | `1.0` | `0.75` | incubation moins longue |
 | `BuildObjectDeteriorationDamageRate` | `1.0` | `0.4` | bases moins pénibles à maintenir |
 | `ChatPostLimitPerMinute` | `30` | `20` | anti-spam léger |
 
-## À évaluer avant de changer
+## À discuter avant changement
 
-Ces paramètres ne sont pas urgents. Ils doivent être choisis selon le groupe de joueurs.
+Ces choix dépendent du groupe:
 
-### Restreindre les plateformes
+- `CrossplayPlatforms`: limiter à Steam seulement si tout le monde joue sur Steam.
+- `BaseCampMaxNum`: réduire si les bases deviennent trop nombreuses.
+- `MaxBuildingLimitNum`: garder illimité tant que les performances tiennent.
+- `bEnableBuildingPlayerUIdDisplay`: utile pour modérer, moins immersif.
+- `bEnableVoiceChat`: inutile si le groupe reste sur Discord.
 
-Actuel:
+## À garder
 
-```ini
-CrossplayPlatforms=(Steam,Xbox,PS5,Mac)
-```
-
-Si tous les joueurs sont sur Steam, on peut envisager:
-
-```ini
-CrossplayPlatforms=(Steam)
-```
-
-Impact: surface d'accès plus limitée. À éviter si des amis jouent sur console ou Mac.
-
-### Limiter le nombre total de bases
-
-Actuel:
-
-```ini
-BaseCampMaxNum=128
-```
-
-Pour un serveur de 8 à 10 joueurs, une limite plus réaliste pourrait être `32`, `48` ou `64`.
-
-Impact: réduit le risque de surcharge si chacun construit partout. À choisir seulement après discussion du style de jeu.
-
-### Limiter les constructions par joueur
-
-Actuel:
-
-```ini
-MaxBuildingLimitNum=0
-```
-
-`0` signifie illimité. On peut laisser comme ça au début, puis limiter si les performances chutent ou si le monde devient trop chargé.
-
-### Afficher l'identité du constructeur
-
-Actuel:
-
-```ini
-bEnableBuildingPlayerUIdDisplay=False
-```
-
-Passer à `True` peut aider à modérer les constructions problématiques. À éviter si l'on préfère garder l'expérience plus immersive.
-
-### Voice chat
-
-Actuel:
-
-```ini
-bEnableVoiceChat=False
-```
-
-À garder désactivé si le groupe utilise Discord. À activer seulement si les joueurs veulent tester le vocal intégré.
-
-## À garder tel quel pour l'instant
-
-- `RCONEnabled=False`: bon choix, l'API REST locale suffit.
-- `RESTAPIEnabled=True`: utile pour scripts et monitoring, avec UFW qui bloque l'accès réseau.
-- `PublicIP=""`: pas nécessaire pour une connexion directe via DNS et port forward.
-- `DeathPenalty=Item`: bon compromis challenge/plaisir.
+- `RCONEnabled=False`: l'API locale suffit.
+- `RESTAPIEnabled=True`: utile, tant que le pare-feu bloque l'accès entrant.
+- `PublicIP=""`: pas nécessaire avec DNS et port forward.
 - `bAutoResetGuildNoOnlinePlayers=False`: évite de supprimer des bases pendant les absences.
-- `ServerReplicatePawnCullDistance=15000`: à ne réduire que si les performances deviennent un problème.
 
-## Processus recommandé pour un futur changement
+## Modifier proprement
 
 1. Faire un backup.
 2. Modifier `server/bin/palworld-configure-balanced.sh`.
-3. Déployer le fichier sur le serveur.
-4. Regénérer `PalWorldSettings.ini`.
-5. Redémarrer `palworld.service`.
-6. Valider avec `.\scripts\palworld-console.ps1 -Action Status` et `.\scripts\palworld-api.ps1 settings`.
+3. Déployer sur Ubuntu.
+4. Régénérer `PalWorldSettings.ini`.
+5. Redémarrer `palworld.service` seulement si nécessaire.
+6. Vérifier avec `.\scripts\palworld-console.ps1 -Action Status` et `.\scripts\palworld-api.ps1 settings`.

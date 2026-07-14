@@ -1,91 +1,83 @@
-# Sauvegardes publiques Palworld v3
+# Snapshot public v3
 
-## But
+`server/bin/palworld-save-snapshot.py` lit une copie terminée des sauvegardes Palworld et publie les données utiles au microsite. Il ne modifie jamais les saves et ne redémarre pas `palworld.service`.
 
-Le worker `server/bin/palworld-save-snapshot.py` lit une sauvegarde intégrée de Palworld en lecture seule, la copie dans un répertoire temporaire, puis produit deux fichiers:
+## Fichiers produits
+
+Sur Ubuntu:
 
 ```text
 /home/gaylemon/Gaylemon/runtime/public-save-snapshot.json
 /home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json
 ```
 
-Le premier contient uniquement les données publiques du microsite. Le second décrit la santé de l'analyse. Une erreur de collecte met à jour le diagnostic, mais ne remplace jamais le dernier snapshot public valide.
+Sur le microsite:
+
+```text
+portal/data/public-save-index.json
+portal/data/public-save-snapshot.json
+portal/data/public-save-diagnostics.json
+portal/data/players/{slug}.json
+```
+
+Le diagnostic peut être mis à jour même si le dernier snapshot valide est conservé.
 
 ## Exécution
 
-`palworld-save-snapshot.timer` lance le worker toutes les 15 secondes. Si la dernière génération de sauvegarde a déjà été traitée avec la même révision du parser, le worker termine immédiatement sans redécoder les données. Le service utilise:
+`palworld-save-snapshot.timer` vérifie les sauvegardes toutes les minutes.
 
-- une priorité CPU basse;
-- une priorité disque `idle`;
-- des poids CPU et I/O minimaux;
-- une limite mémoire de 768 Mio;
-- un délai maximal de 120 secondes;
-- un verrou exclusif dans `runtime` pour refuser tout chevauchement.
+La synchronisation Windows publie les données joueurs, profils, Pals, bases et index à la minute. Le diagnostic technique visible dans le bloc `Données du monde` du microsite, lui, est conservé entre deux passages et rafraîchi une fois par jour vers 04:00.
 
-Le worker n'écrit jamais dans les sauvegardes Palworld et ne nécessite aucun redémarrage de `palworld.service`.
+Le service utilise:
 
-## Contrat v3
+- priorité CPU basse;
+- I/O idle;
+- verrou exclusif;
+- limite mémoire;
+- écriture atomique.
 
-Le snapshot expose les familles suivantes:
+Une génération déjà analysée avec la même révision du parseur est ignorée.
 
-- `summary`: joueurs, Pals, guildes et bases;
-- `world`: tailles des catalogues Paldex, voyage, zones et boss;
-- `guilds`: nom visible, membres, bases et niveau du camp;
-- `players[].character`: niveau, expérience, état et allocations;
-- `players[].progress.paldex`: catalogue complet des espèces avec numéro, image, état rencontré/capturé, nombre de captures et progression du défi 5/5;
-- `players[].progress.quests`: quêtes publiques terminées et quêtes actives, sans identifiants techniques;
-- `players[].progress.challenges`: paliers de défis Palworld dont la récompense a été enregistrée;
-- `players[].progress.records`: trésors, donjons, pêche, artisanat et autres compteurs persistants fiables;
-- `players[].progress.bosses`: victoires normales et tours;
-- `players[].progress.exploration`: voyages rapides, zones et cartes;
-- `players[].progress.technologies`: technologies résolues par le catalogue;
-- `players[].progress.relics`: rangs de bonus permanents;
+## Données publiques
 
-La sous-version `projection.version` force une nouvelle analyse lorsqu'un champ public est ajouté sans casser le contrat JSON v3.
-- `players[].pals.collection`: Pals, talents, passifs, attaques, condensation, âmes, statistiques calculées, aptitude au travail et état;
-- `players[].inventory`: inventaires personnels déjà décodés et allowlistés.
+Le contrat v3 expose:
 
-Une valeur inconnue reste `null`. Une valeur `0` signifie qu'elle a réellement été mesurée à zéro.
+- résumé du monde, joueurs, guildes et bases;
+- progression Paldex, boss, exploration, quêtes, technologies et reliques;
+- Pals possédés avec statistiques utiles, passifs, attaques et aptitudes;
+- inventaires personnels allowlistés;
+- bases, travailleurs, structures agrégées et ressources publiques;
+- diagnostics légers sur la fraîcheur et le poids des données.
+
+Les valeurs inconnues restent `null`. Un `0` signifie une vraie mesure à zéro.
 
 ## Confidentialité
 
-Deux allowlists successives sont appliquées:
+Deux projections filtrent les données:
 
-1. projection Python sur Ubuntu;
-2. reconstruction PowerShell dans `scripts/sync-palworld-save-snapshot.ps1`.
+1. Python sur Ubuntu;
+2. PowerShell dans `scripts/sync-palworld-save-snapshot.ps1`.
 
-Un test bloque les clés contenant `uid`, `guid`, `instance`, `container`, `account`, `steam`, `password`, `token` ou `dynamic_id`. La seule exception est `container`, dont les valeurs publiques sont limitées à `party`, `palbox` ou `other` et ne sont jamais des identifiants Unreal.
+Le public ne reçoit pas:
 
-Les coordonnées mondiales `x`, `y` et `z` ne sont plus publiées. Le microsite conserve seulement les coordonnées transformées nécessaires aux marqueurs de la carte. Les coordonnées extrêmes situées simultanément dans un coin hors de l'archipel sont marquées `mapVisible: false`: elles correspondent notamment à des zones instanciées ou intérieures et sont présentées comme « zone non cartographiée » plutôt que projetées à tort sur la carte extérieure.
+- GUID, UID, Steam ID ou identifiants de conteneur;
+- mots de passe, tokens, chemins système;
+- coordonnées Unreal brutes;
+- contenu exact des coffres privés.
 
-## Diagnostics
+Les marqueurs de carte utilisent seulement une position publique arrondie ou transformée.
 
-Le diagnostic Ubuntu mesure:
-
-- taille de `Level.sav`;
-- nombre et taille des fichiers joueurs;
-- taille totale de la génération;
-- âge du backup sélectionné;
-- durée et statut du parse;
-- nombres de joueurs, Pals et bases analysés;
-- compteurs de structures non résolues, sans leur contenu;
-- poids JSON et gzip du snapshot;
-- poids de l'archive horaire;
-- révision de PalworldSaveTools.
-
-La projection Windows ajoute le poids de l'index, du snapshot public et des cartes WebP. Le microsite affiche ces mesures dans le volet repliable « Données du monde ».
-
-## Chargement du microsite
-
-`public-save-index.json` demeure inférieur à 100 Kio et contient uniquement les résumés utiles à l'accueil. `public-save-snapshot.json` est téléchargé seulement lorsqu'un joueur ouvre une fiche. `public-save-diagnostics.json` est léger et chargé avec les autres résumés.
-
-## Validation locale
+## Validation
 
 ```powershell
 python -m py_compile .\server\bin\palworld-save-snapshot.py
 python -m unittest discover -s .\server\tests -v
 node --check .\portal\assets\app.js
+```
 
+Syntaxe PowerShell:
+
+```powershell
 $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile(
     (Resolve-Path '.\scripts\sync-palworld-save-snapshot.ps1'),
@@ -95,35 +87,9 @@ $errors = $null
 $errors
 ```
 
-Pour tester un candidat Ubuntu sans toucher aux sorties officielles:
-
-```bash
-nice -n 19 ionice -c3 \
-  /home/gaylemon/Gaylemon/vendor/PalworldSaveTools-current/.venv/bin/python \
-  /tmp/palworld-save-snapshot-v3.py \
-  --output /home/gaylemon/Gaylemon/runtime/public-save-snapshot.v3.test.json \
-  --diagnostics /home/gaylemon/Gaylemon/runtime/public-save-diagnostics.v3.test.json \
-  --lock /home/gaylemon/Gaylemon/runtime/palworld-save-snapshot.v3.test.lock \
-  --no-archive
-```
-
-Projection Windows du candidat:
-
-```powershell
-.\scripts\sync-palworld-save-snapshot.ps1 `
-  -RemoteSnapshotPath '/home/gaylemon/Gaylemon/runtime/public-save-snapshot.v3.test.json' `
-  -RemoteDiagnosticsPath '/home/gaylemon/Gaylemon/runtime/public-save-diagnostics.v3.test.json'
-```
-
-## Vérification en exploitation
+Vérification Ubuntu:
 
 ```powershell
 ssh gaylemon "systemctl status palworld-save-snapshot.service --no-pager"
-ssh gaylemon "systemctl list-timers palworld-save-snapshot.timer --no-pager"
 ssh gaylemon "journalctl -u palworld-save-snapshot.service -n 50 --no-pager"
-ssh gaylemon "python3 -m json.tool /home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json >/dev/null"
 ```
-
-## Extension Bases v1
-
-Les bases, travailleurs, coffres, productions et objets dynamiques sont maintenant décodés dans une sortie lourde distincte. La projection publique agrégée et le snapshot privé sont documentés dans `docs/SAVE-BASES-V1.md`. Les tendances historiques seront dérivées des archives horaires lorsque plusieurs jours de snapshots stables auront été observés.

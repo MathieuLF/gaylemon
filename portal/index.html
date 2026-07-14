@@ -33,8 +33,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/styles.css?v=20260713.1">
-  <script src="assets/app.js?v=20260713.3" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260714.11">
+  <script src="assets/app.js?v=20260714.12" defer></script>
 
     <script type="application/ld+json">
       {
@@ -196,7 +196,7 @@
 
         <details class="world-data" id="world-data">
           <summary>
-            <span><strong>Données du monde</strong><small>Dernière sauvegarde analysée et santé des chroniques</small></span>
+            <span><strong>Données du monde</strong><small>Snapshot analysé, fraîcheur et santé des chroniques</small></span>
             <span class="world-data__meta">
               <span class="world-data__state" id="world-data-state">En attente</span>
               <svg class="world-data__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 9.7 5.3 5.2 5.3-5.2 1.4 1.4-6.7 6.6-6.7-6.6 1.4-1.4Z"/></svg>
@@ -209,7 +209,13 @@
             <article><span>Snapshot du site</span><strong data-world-data="snapshot">--</strong><small>Chargé seulement à l'ouverture d'une fiche</small></article>
             <article><span>Données des bases</span><strong data-world-data="bases">--</strong><small data-world-data-note="bases">Chargées dans la section Bases</small></article>
             <article><span>Index initial</span><strong data-world-data="index">--</strong><small>Résumé léger de l'accueil</small></article>
+            <article data-world-data-card="freshness"><span>Fraîcheur</span><strong data-world-data="freshness">--</strong><small data-world-data-note="freshness-status">Dernier export analysé</small></article>
+            <article data-world-data-card="coverage"><span>Couverture</span><strong data-world-data="coverage">--</strong><small data-world-data-note="coverage">Profils, Pals et bases parsés</small></article>
+            <article data-world-data-card="warnings"><span>Santé parsing</span><strong data-world-data="warnings">--</strong><small data-world-data-note="warnings">Avertissements non bloquants</small></article>
             <article><span>Durée d'analyse</span><strong data-world-data="duration">--</strong><small data-world-data-note="freshness">Fraîcheur inconnue</small></article>
+            <article data-world-data-card="events"><span>Chroniques</span><strong data-world-data="events">--</strong><small data-world-data-note="events">Échos archivés</small></article>
+            <article data-world-data-card="last-event"><span>Dernier écho</span><strong data-world-data="last-event">--</strong><small data-world-data-note="last-event">Journal public</small></article>
+            <article data-world-data-card="contracts"><span>Contrats publics</span><strong data-world-data="contracts">--</strong><small data-world-data-note="contracts">Versions chargées</small></article>
             <article><span>Carte visuelle</span><strong data-world-data="map">--</strong><small>Image interactive de Palpagos</small></article>
             <article><span>Analyseur</span><strong data-world-data="parser">--</strong><small data-world-data-note="parser">PalworldSaveTools</small></article>
           </div>
@@ -348,6 +354,13 @@
             <p class="eyebrow">Journal de Palpagos</p>
             <h2 id="events-title">Les échos de l'aventure</h2>
           </div>
+          <a class="terminal-open-button" href="/terminal" target="_blank" rel="noopener" aria-label="Ouvrir la version plein écran du terminal dans un nouvel onglet">
+            <span class="terminal-open-button__icon" aria-hidden="true">▸</span>
+            <span class="terminal-open-button__copy">
+              <strong>Terminal plein écran</strong>
+              <small>Version complète des échos</small>
+            </span>
+          </a>
           <span class="events-panel__summary-meta">
             <span class="panel__status"><span id="events-state">Chargement...</span></span>
             <span class="disclosure__toggle"><span class="disclosure__label">Afficher les échos</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 9.7 5.3 5.2 5.3-5.2 1.4 1.4-6.7 6.6-6.7-6.6 1.4-1.4Z"/></svg></span>
@@ -359,10 +372,6 @@
           <div class="event-console__topbar">
             <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
             <strong>palpagos://journal/public</strong>
-            <span class="event-console__actions">
-              <a class="event-console__expand" href="#terminal"><span aria-hidden="true">⤢</span> Ouvrir le terminal en grand</a>
-              <a class="event-console__return" href="#evenements"><span aria-hidden="true">←</span> Retour au microsite</a>
-            </span>
           </div>
 
           <div class="event-toolbar">
@@ -370,7 +379,7 @@
               <span>Rechercher dans l'historique</span>
               <span class="event-search__field">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
-                <input id="event-search" type="search" placeholder="Joueur, Pal, niveau, événement..." autocomplete="off">
+                <input id="event-search" type="search" placeholder="Joueur, Pal, production..." autocomplete="off">
               </span>
             </label>
             <label>
@@ -385,24 +394,16 @@
                 <option value="all">Tous les aventuriers</option>
               </select>
             </label>
-            <label class="event-page-size">
-              <span>Par page</span>
-              <select id="event-page-size">
-                <option value="25">25 échos</option>
-                <option value="50">50 échos</option>
-                <option value="100">100 échos</option>
-                <option value="250">250 échos</option>
-              </select>
-            </label>
           </div>
 
           <div class="event-console__summary">
             <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
+            <time id="event-sync-status">Synchronisation en attente</time>
           </div>
           <ol class="event-stream" id="event-stream" aria-live="polite">
             <li class="event-stream__empty">Les premiers échos arrivent...</li>
           </ol>
-            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique"></nav>
+            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique" hidden></nav>
           </div>
         </div>
       </details>
@@ -595,9 +596,9 @@
     <footer class="site-footer">
       <div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>L'aventure continue!</span></div>
       <nav class="site-footer__links" aria-label="Liens communautaires">
-        <a class="social-link social-link--github" href="https://github.com/MathieuLF" target="_blank" rel="noopener noreferrer" data-analytics-link="github" data-analytics-location="footer" aria-label="Voir le profil GitHub de Mathieu dans un nouvel onglet">
+        <a class="social-link social-link--github" href="/github" data-analytics-link="github" data-analytics-location="footer" aria-label="Lire la page technique Gaylémon Ops et GitHub">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a9.7 9.7 0 0 0-3.1 18.9v-2.2c-2.4.5-2.9-1-2.9-1-.4-1-.9-1.3-.9-1.3-.8-.5 0-.5 0-.5.8.1 1.3.9 1.3.9.7 1.3 1.8.9 2.3.7.1-.5.3-.9.5-1.1-1.9-.2-3.9-1-3.9-4.3 0-1 .4-1.8 1-2.4-.1-.2-.4-1.1.1-2.3 0 0 .8-.3 2.7.9a9.3 9.3 0 0 1 4.9 0c1.9-1.2 2.7-.9 2.7-.9.5 1.2.2 2.1.1 2.3.6.7 1 1.5 1 2.4 0 3.4-2 4.1-3.9 4.3.3.3.6.8.6 1.5v3.2A9.7 9.7 0 0 0 12 2.5Z"/></svg>
-          <span><strong>GitHub</strong><small>Suivre Mathieu</small></span><b aria-hidden="true">↗</b>
+          <span><strong>GitHub</strong><small>Dépôt et Gaylemon Ops</small></span><b aria-hidden="true">→</b>
         </a>
         <a class="social-link social-link--discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="footer" aria-label="Rejoindre le serveur Discord Gaylémon dans un nouvel onglet">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.1a13 13 0 0 1 9.6 0c1.5 2.2 2.4 4.7 2.6 7.3a12.6 12.6 0 0 1-3.7 1.9l-.9-1.2c.7-.3 1.3-.6 1.9-1.1a9.6 9.6 0 0 1-9.4 0c.6.5 1.2.8 1.9 1.1l-.9 1.2a12.6 12.6 0 0 1-3.7-1.9c.2-2.6 1.1-5.1 2.6-7.3ZM9.4 13c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6S8 10.5 8 11.4 8.6 13 9.4 13Zm5.2 0c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6-1.4.7-1.4 1.6.6 1.6 1.4 1.6Z"/></svg>

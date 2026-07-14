@@ -11,6 +11,7 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 $LocalEventsPath = Join-Path $ProjectRoot "portal\data\public-events.json"
 $LocalSnapshotPath = Join-Path $ProjectRoot "portal\data\public-save-snapshot.json"
+$LocalAvailabilityPath = Join-Path $ProjectRoot "portal\data\public-availability.json"
 $RemoteEventsPath = "$($config.RemoteProjectRoot)/runtime/public-events.json"
 $RemoteRecoveryPath = "$($config.RemoteProjectRoot)/runtime/events/palworld-events-recovery.json"
 $LatestReportPath = Join-Path $ReportRoot "microsite-recovery-latest.json"
@@ -80,11 +81,35 @@ function Convert-ToIsoArray {
     return @($Values | Where-Object { $null -ne $_ } | ForEach-Object { Convert-ToIsoString $_ })
 }
 
+function Get-EventRevisionLastId {
+    param($Revision)
+
+    if ($null -eq $Revision -or -not [string]$Revision) { return $null }
+    $parts = ([string]$Revision).Split(":")
+    if ($parts.Count -lt 3) { return $null }
+    $parsed = 0L
+    if ([long]::TryParse($parts[$parts.Count - 1], [ref]$parsed)) { return $parsed }
+    return $null
+}
+
+function Get-DateLagSeconds {
+    param(
+        $LocalValue,
+        $RemoteValue
+    )
+
+    if (-not $LocalValue -or -not $RemoteValue) { return $null }
+    $lag = [int][Math]::Round(($RemoteValue.ToUniversalTime() - $LocalValue.ToUniversalTime()).TotalSeconds, 0)
+    if ($lag -lt 0) { return 0 }
+    return $lag
+}
+
 function Get-RecoveryState {
     $remoteEvents = Read-RemoteJson -Path $RemoteEventsPath
     $remoteRecovery = Read-RemoteJson -Path $RemoteRecoveryPath
     $localEvents = Read-JsonFile -Path $LocalEventsPath
     $localSnapshot = Read-JsonFile -Path $LocalSnapshotPath
+    $catchUpToleranceSeconds = [Math]::Max($config.RecoveryStaleSeconds, $config.MetricIntervalSeconds * 6)
 
     $remoteEventCount = [long]$remoteEvents.summary.events
     $localEventCount = [long]$localEvents.summary.events
@@ -95,12 +120,24 @@ function Get-RecoveryState {
         $remoteSnapshotAt = Convert-ToDate $remoteRecovery.lastSaveAt
     }
     $localSnapshotAt = Convert-ToDate $localSnapshot.updatedAt
+    $remoteRevisionLastId = Get-EventRevisionLastId $remoteEvents.revision
+    $localRevisionLastId = Get-EventRevisionLastId $localEvents.revision
+    $eventLagSeconds = Get-DateLagSeconds -LocalValue $localLastEventAt -RemoteValue $remoteLastEventAt
+    $snapshotLagSeconds = Get-DateLagSeconds -LocalValue $localSnapshotAt -RemoteValue $remoteSnapshotAt
 
-    $eventsCaughtUp = $localEventCount -ge $remoteEventCount
+    $eventsStrictCaughtUp = ($localEventCount -ge $remoteEventCount) -or (
+        $null -ne $remoteRevisionLastId -and
+        $null -ne $localRevisionLastId -and
+        $localRevisionLastId -ge $remoteRevisionLastId
+    )
     if ($remoteLastEventAt) {
-        $eventsCaughtUp = $eventsCaughtUp -and $localLastEventAt -and $localLastEventAt -ge $remoteLastEventAt
+        $eventsStrictCaughtUp = $eventsStrictCaughtUp -and $localLastEventAt -and $localLastEventAt -ge $remoteLastEventAt
     }
-    $snapshotCaughtUp = $localSnapshotAt -and $remoteSnapshotAt -and $localSnapshotAt -ge $remoteSnapshotAt
+    $eventsRecentEnough = $null -ne $eventLagSeconds -and $eventLagSeconds -le $catchUpToleranceSeconds
+    $eventsCaughtUp = $eventsStrictCaughtUp -or $eventsRecentEnough
+    $snapshotCaughtUp = ($localSnapshotAt -and $remoteSnapshotAt -and $localSnapshotAt -ge $remoteSnapshotAt) -or (
+        $null -ne $snapshotLagSeconds -and $snapshotLagSeconds -le $catchUpToleranceSeconds
+    )
 
     return [pscustomobject]@{
         RemoteEvents = $remoteEvents
@@ -109,10 +146,15 @@ function Get-RecoveryState {
         LocalSnapshot = $localSnapshot
         RemoteEventCount = $remoteEventCount
         LocalEventCount = $localEventCount
+        RemoteRevisionLastId = $remoteRevisionLastId
+        LocalRevisionLastId = $localRevisionLastId
         RemoteLastEventAt = $remoteLastEventAt
         LocalLastEventAt = $localLastEventAt
         RemoteSnapshotAt = $remoteSnapshotAt
         LocalSnapshotAt = $localSnapshotAt
+        EventLagSeconds = $eventLagSeconds
+        SnapshotLagSeconds = $snapshotLagSeconds
+        CatchUpToleranceSeconds = $catchUpToleranceSeconds
         EventsCaughtUp = [bool]$eventsCaughtUp
         SnapshotCaughtUp = [bool]$snapshotCaughtUp
     }
@@ -121,6 +163,11 @@ function Get-RecoveryState {
 function Repair-RecoveryState {
     & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") | Out-Null
     & (Join-Path $PSScriptRoot "sync-palworld-events.ps1") | Out-Null
+}
+
+function Refresh-AvailabilityState {
+    & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null
+    return (Read-JsonFile -Path $LocalAvailabilityPath)
 }
 
 function Write-RecoveryReport {
@@ -152,6 +199,9 @@ $repairAttempted = $false
 $messages = [Collections.Generic.List[string]]::new()
 $state = $null
 $failure = $null
+$availability = $null
+$availabilityFailure = $null
+$availabilityRefreshed = $false
 
 try {
     $state = Get-RecoveryState
@@ -167,7 +217,28 @@ catch {
     $messages.Add("Audit interrompu: $failure")
 }
 
-$hardFailure = $failure -or -not $state -or -not $state.EventsCaughtUp -or -not $state.SnapshotCaughtUp
+try {
+    $availability = Refresh-AvailabilityState
+    $availabilityRefreshed = $true
+}
+catch {
+    $availabilityFailure = $_.Exception.Message
+    $messages.Add("Disponibilité Kuma non rafraîchie: $availabilityFailure")
+    if (Test-Path -LiteralPath $LocalAvailabilityPath) {
+        try {
+            $availability = Read-JsonFile -Path $LocalAvailabilityPath
+        }
+        catch {
+            $messages.Add("Rapport de disponibilité local illisible: $($_.Exception.Message)")
+        }
+    }
+}
+
+$availabilityStatus = if ($availability -and $availability.status) { [string]$availability.status } else { "unknown" }
+$availabilityOk = $availability -and [bool]$availability.ok
+$availabilityHardFailure = $availabilityStatus -eq "down"
+$availabilityWarning = -not $availabilityOk -and -not $availabilityHardFailure
+$hardFailure = $failure -or -not $state -or -not $state.EventsCaughtUp -or -not $state.SnapshotCaughtUp -or $availabilityHardFailure
 $lastBackfill = if ($state) { $state.RemoteRecovery.lastBackfill } else { $null }
 $missingHours = @()
 if ($lastBackfill -and $lastBackfill.missingHours) {
@@ -196,12 +267,21 @@ if ($state) {
 
 if (-not $hardFailure) {
     $messages.Add("Le snapshot public et le journal local couvrent les dernières données Ubuntu.")
+    if ($state -and (($state.EventLagSeconds -and $state.EventLagSeconds -gt 0) -or ($state.SnapshotLagSeconds -and $state.SnapshotLagSeconds -gt 0))) {
+        $messages.Add("La copie locale reste dans la tolérance de reprise ($($state.CatchUpToleranceSeconds)s): échos $($state.EventLagSeconds)s, snapshot $($state.SnapshotLagSeconds)s.")
+    }
+}
+if ($availabilityHardFailure) {
+    $messages.Add("Uptime Kuma indique une indisponibilité active.")
+}
+elseif ($availabilityWarning) {
+    $messages.Add("La disponibilité publique est dégradée ou incomplète; consulter public-availability.json.")
 }
 if ($missingHours.Count) {
     $messages.Add("Des archives horaires historiques sont absentes: $($missingHours -join ', ').")
 }
 
-$status = if ($hardFailure) { "error" } elseif ($missingHours.Count) { "warning" } else { "complete" }
+$status = if ($hardFailure) { "error" } elseif ($missingHours.Count -or $availabilityWarning) { "warning" } else { "complete" }
 $report = [ordered]@{
     version = 1
     ok = -not [bool]$hardFailure
@@ -216,9 +296,14 @@ $report = [ordered]@{
         localEventRevision = if ($state) { [string]$state.LocalEvents.revision } else { $null }
         remoteEventCount = if ($state) { $state.RemoteEventCount } else { $null }
         localEventCount = if ($state) { $state.LocalEventCount } else { $null }
+        remoteRevisionLastId = if ($state) { $state.RemoteRevisionLastId } else { $null }
+        localRevisionLastId = if ($state) { $state.LocalRevisionLastId } else { $null }
         lastEventSynchronizedAt = if ($state) { Convert-ToIsoString $state.LocalEvents.summary.lastAt } else { $null }
         remoteSnapshotAt = if ($state -and $state.RemoteSnapshotAt) { $state.RemoteSnapshotAt.ToString("o") } else { $null }
         localSnapshotAt = if ($state -and $state.LocalSnapshotAt) { $state.LocalSnapshotAt.ToString("o") } else { $null }
+        eventLagSeconds = if ($state) { $state.EventLagSeconds } else { $null }
+        snapshotLagSeconds = if ($state) { $state.SnapshotLagSeconds } else { $null }
+        catchUpToleranceSeconds = if ($state) { $state.CatchUpToleranceSeconds } else { $null }
     }
     continuity = [ordered]@{
         currentStatus = if ($state) { [string]$state.RemoteRecovery.status } else { "unknown" }
@@ -230,6 +315,20 @@ $report = [ordered]@{
         importedHours = $currentImportedHours
         missingHours = [object[]]$missingHours
         lastBackfill = $lastBackfillReport
+    }
+    availability = [ordered]@{
+        refreshed = $availabilityRefreshed
+        ok = if ($availability) { [bool]$availability.ok } else { $false }
+        status = $availabilityStatus
+        monitorStatus = if ($availability -and $availability.summary) { $availability.summary.monitorStatus } else { $null }
+        monitorFresh = if ($availability -and $availability.summary) { $availability.summary.monitorFresh } else { $null }
+        heartbeatAgeSeconds = if ($availability -and $availability.summary) { $availability.summary.heartbeatAgeSeconds } else { $null }
+        staleOrMissingDataSets = if ($availability -and $availability.summary) { $availability.summary.staleOrMissingDataSets } else { $null }
+        downtimeWindowCount = if ($availability -and $availability.summary) { $availability.summary.downtimeWindowCount } else { $null }
+        uptimeLast24h = if ($availability -and $availability.summary) { $availability.summary.uptimeLast24h } else { $null }
+        unavailableSecondsLast24h = if ($availability -and $availability.summary) { $availability.summary.unavailableSecondsLast24h } else { $null }
+        latestDowntimeWindow = if ($availability -and $availability.downtimeWindows) { @($availability.downtimeWindows)[-1] } else { $null }
+        error = $availabilityFailure
     }
     messages = @($messages)
 }
@@ -244,6 +343,9 @@ if ($report.synchronization.lastEventSynchronizedAt) {
 }
 if ($lastBackfill) {
     Write-Host "Dernier backfill: $($lastBackfill.archivesImported) archive(s), $($lastBackfill.eventsAdded) événement(s) ajouté(s)."
+}
+if ($report.availability.status) {
+    Write-Host "Disponibilité locale: $($report.availability.status)"
 }
 
 if ($hardFailure) {

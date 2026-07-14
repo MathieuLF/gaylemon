@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="fr-CA">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dépôt, Ops et pipeline | Gaylémon Palworld</title>
+    <meta name="description" content="Structure technique de Gaylémon: Gaylemon Ops, scripts Windows, services Ubuntu, projections JSON publiques, validation et limites de publication.">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+    <meta name="theme-color" content="#176d70">
+    <meta name="color-scheme" content="light">
+    <link rel="canonical" href="https://gaylemon.mathieu.pro/github">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="fr_CA">
+    <meta property="og:site_name" content="Gaylémon Palworld">
+    <meta property="og:title" content="Dépôt, Ops et pipeline | Gaylémon Palworld">
+    <meta property="og:description" content="Gaylemon Ops, services systemd, collecteurs, exports publics et garde-fous autour du serveur Palworld.">
+    <meta property="og:url" content="https://gaylemon.mathieu.pro/github">
+    <meta property="og:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png?v=20260713.2">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Dépôt, Ops et pipeline | Gaylémon Palworld">
+    <meta name="twitter:description" content="Gaylemon Ops, scripts d'exploitation, JSON publics, tests et séparation des données privées.">
+    <meta name="twitter:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png?v=20260713.2">
+    <link rel="icon" href="/assets/favicon.svg?v=20260712.1" type="image/svg+xml">
+    <link rel="manifest" href="/site.webmanifest?v=20260712.1">
+    <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260714.11">
+    <script src="/assets/app.js?v=20260714.12" defer></script>
+
+    <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-3G8E2NE95B', { send_page_view: false });
+      function loadGoogleAnalytics() {
+        if (document.querySelector('script[data-google-analytics]')) return;
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=G-3G8E2NE95B';
+        script.dataset.googleAnalytics = '';
+        document.head.appendChild(script);
+      }
+      ['pointerdown', 'keydown'].forEach((eventName) => {
+        window.addEventListener(eventName, loadGoogleAnalytics, { once: true, passive: true });
+      });
+      window.addEventListener('load', () => setTimeout(loadGoogleAnalytics, 8000), { once: true });
+    </script>
+  </head>
+  <body class="github-view">
+    <div class="world-glow" aria-hidden="true"></div>
+    <header class="site-header" aria-label="Navigation principale">
+      <div class="site-header__inner">
+        <a class="site-brand" href="/" aria-label="Retour à l'accueil Gaylémon Palworld">
+          <span class="site-brand__emblem" aria-hidden="true">G</span>
+          <span><strong>Gaylémon</strong><small>Palworld</small></span>
+        </a>
+        <nav class="site-nav" aria-label="Sections du microsite">
+          <a href="/#accueil" data-section-link="accueil">Accueil</a>
+          <a href="/#chroniques" data-section-link="chroniques">Aventuriers</a>
+          <a href="/#classements" data-section-link="classements">Classements</a>
+          <a href="/#carte" data-section-link="carte">Carte</a>
+          <a href="/#evenements" data-section-link="evenements">Échos</a>
+          <a class="site-nav__discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="header">Discord <span aria-hidden="true">↗</span></a>
+        </nav>
+        <div class="site-header__telemetry">
+          <div class="site-header__players" id="header-players" aria-label="Joueurs actuellement en ligne">
+            <i aria-hidden="true"></i>
+            <strong data-metric="players-current">--</strong>
+            <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
+            <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
+          </div>
+          <div class="site-header__updated">
+            <small>Dernières données</small>
+            <time id="site-last-updated"><span class="site-last-updated__full">En attente</span><span class="site-last-updated__short" aria-hidden="true">--:--</span></time>
+          </div>
+          <div class="site-header__refresh" aria-label="Actualisation automatique" data-state="countdown">
+            <span id="next-update" role="status" aria-live="polite" aria-atomic="true">Dans 00:15</span>
+            <span class="refresh-track" aria-hidden="true"><span id="refresh-progress"></span></span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="github-main" class="github-page">
+      <section class="panel github-hero-panel" aria-labelledby="github-title">
+        <div>
+          <p class="eyebrow">Dépôt technique</p>
+          <h1 id="github-title">Dépôt, Ops et pipeline Gaylémon</h1>
+          <p class="github-lede">Ce dépôt ne contient pas le serveur Palworld lui-même. Il contient la couche d'exploitation: <code>Gaylemon Ops</code> côté Windows, les scripts Ubuntu sous <code>server/</code>, les unités <code>systemd</code>, les collecteurs, les projections publiques et le microsite statique qui lit uniquement des JSON filtrés.</p>
+        </div>
+        <a class="github-repo-link" href="https://github.com/MathieuLF/gaylemon" target="_blank" rel="noopener noreferrer" aria-label="Ouvrir le dépôt GitHub MathieuLF gaylemon dans un nouvel onglet">
+          <span aria-hidden="true">Code source</span>
+          <strong>MathieuLF/gaylemon</strong>
+          <small>Dépôt public, scripts et microsite ↗</small>
+        </a>
+      </section>
+
+      <section class="github-grid" aria-label="Contexte du projet">
+        <article class="github-card">
+          <p class="eyebrow">Rôle des dossiers</p>
+          <h2>Ce que contient le dépôt</h2>
+          <p><code>portal/</code> contient le site, les styles, <code>assets/app.js</code> et les contrats <code>public-*.json</code>. <code>scripts/</code> contient la console PowerShell, les synchronisations, les audits et le déploiement Windows vers Ubuntu. <code>server/</code> contient les scripts exécutés sur Ubuntu, les unités <code>systemd</code>, les sudoers, les réglages <code>sysctl</code> et les tests Python. <code>docker/</code> sert le microsite local avec Nginx.</p>
+          <p>Les fichiers réellement actifs sur Ubuntu sont décrits dans <code>server/deployment-manifest.json</code>: source, destination, propriétaire, mode, validation et politique de redémarrage.</p>
+        </article>
+        <article class="github-card github-card--dark">
+          <p class="eyebrow">Gaylemon Ops</p>
+          <h2>La console d'exploitation</h2>
+          <ul class="github-check-list">
+            <li><code>Gaylemon Ops Console.ps1</code> est l'entrée locale.</li>
+            <li><code>scripts/palworld-console.ps1</code> porte les actions: statut, métriques, joueurs, logs, backups, updates, Kuma, tunnel API et maintenance Ubuntu.</li>
+            <li><code>Gaylemon Ops Local Services</code> peut démarrer les helpers Windows: microsite Docker, tunnel local et rafraîchissement des métriques.</li>
+            <li>Les actions sensibles demandent confirmation et passent par SSH ou <code>systemctl</code>, jamais par une commande implicite cachée.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="panel github-process" aria-labelledby="github-pipeline-title">
+        <div class="panel__header">
+          <div>
+            <p class="eyebrow">Pipeline</p>
+            <h2 id="github-pipeline-title">Chemin des données et des opérations</h2>
+          </div>
+        </div>
+        <ol class="github-steps">
+          <li><strong>Ops Windows</strong><span><code>Gaylemon Ops</code> charge <code>scripts/lib/Gaylemon.Config.ps1</code>, vérifie SSH, lance les commandes locales et déclenche les opérations distantes autorisées.</span></li>
+          <li><strong>Collecte live</strong><span><code>palworld-stats.timer</code> et les scripts API lisent l'API REST Palworld locale sur Ubuntu. Le site ne reçoit que <code>public-metrics.json</code>, pas le mot de passe admin ni l'API brute.</span></li>
+          <li><strong>Snapshots de saves</strong><span><code>palworld-save-snapshot.timer</code> travaille sur une copie de sauvegarde terminée, lit les données avec PalworldSaveTools, puis écrit les contrats <code>public-save-index.json</code>, <code>public-save-snapshot.json</code> et <code>public-save-bases.json</code>.</span></li>
+          <li><strong>Journal d'événements</strong><span><code>palworld-events.timer</code> alimente SQLite, déduplique avec des clés stables, puis exporte <code>public-events.json</code> et <code>public-events-recent.json</code> pour le tableau de bord et le terminal.</span></li>
+          <li><strong>Déploiement Ubuntu</strong><span><code>scripts/deployer-ubuntu.ps1</code> prépare le manifeste résolu, met en scène sous <code>/tmp/gaylemon-staging</code>, valide Bash/Python/systemd/sudoers/sysctl, puis sauvegarde sous <code>/var/backups/gaylemon-deploy</code> avant installation.</span></li>
+          <li><strong>Publication statique</strong><span>Les synchronisations PowerShell recopient uniquement les exports publics dans <code>portal/data/</code>. Nginx sert ensuite le site sans accès aux bases SQLite privées, aux saves, aux secrets ou aux chemins internes.</span></li>
+        </ol>
+      </section>
+
+      <section class="github-grid github-grid--technical" aria-label="Détails techniques">
+        <article class="github-card">
+          <h2>Points d'entrée à lire</h2>
+          <ul class="github-tech-list">
+            <li><code>Gaylemon Ops Console.ps1</code>: lanceur local UTF-8.</li>
+            <li><code>scripts/palworld-console.ps1</code>: menu Ops, actions SSH, logs, maintenance et confirmations.</li>
+            <li><code>scripts/deployer-ubuntu.ps1</code> et <code>server/deploy/gaylemon_deploy.py</code>: livraison contrôlée vers Ubuntu.</li>
+            <li><code>server/bin/palworld-save-snapshot.py</code>: projection publique des sauvegardes.</li>
+            <li><code>server/bin/palworld-events-collect.py</code>: SQLite, backfill, confiance et déduplication des échos.</li>
+            <li><code>portal/assets/app.js</code>: rendu du dashboard, terminal, polling et fusion des flux récents.</li>
+          </ul>
+        </article>
+        <article class="github-card">
+          <h2>Contrats publics servis</h2>
+          <ul class="github-tech-list">
+            <li><code>public-metrics.json</code>: joueurs, FPS, camps, uptime.</li>
+            <li><code>public-uptime.json</code>: résumé filtré de la page Uptime Kuma externe.</li>
+            <li><code>public-stats.json</code>: sessions et agrégats joueurs publiables.</li>
+            <li><code>public-save-*.json</code>: index, profils, bases, diagnostics et projections v3.</li>
+            <li><code>public-events.json</code>: historique complet chargé une fois par le terminal.</li>
+            <li><code>public-events-recent.json</code>: flux récent léger, pollé au même rythme que le tableau de bord.</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="github-grid github-grid--technical" aria-label="Sécurité et exploitation">
+        <article class="github-card github-card--dark">
+          <p class="eyebrow">Frontière public/privé</p>
+          <h2>Ce qui reste hors Git et hors site</h2>
+          <ul class="github-check-list">
+            <li>Pas de <code>Level.sav</code>, <code>Players/*.sav</code>, base SQLite runtime ou assets extraits du jeu.</li>
+            <li>Pas de Steam ID, GUID Unreal, conteneur, chemin système, adresse IP ou détail de coffre.</li>
+            <li>Pas de mot de passe admin Palworld, jeton Cloudflare, URL Push Kuma ou secret SSH.</li>
+            <li>Pas d'attribution supposée pour les récoltes, transferts, destructions ou événements ambigus.</li>
+          </ul>
+        </article>
+        <article class="github-card">
+          <p class="eyebrow">Unités Ubuntu</p>
+          <h2>Ce que le manifeste pilote</h2>
+          <p>Les unités suivies couvrent <code>palworld.service</code>, <code>palworld-backup.timer</code>, <code>palworld-update.timer</code>, <code>palworld-kuma-push.timer</code>, <code>palworld-stats.timer</code>, <code>palworld-save-snapshot.timer</code>, <code>palworld-events.timer</code>, <code>palworld-welcome.service</code> et <code>palworld-performance.service</code>.</p>
+          <p>Le manifeste distingue les redémarrages <code>none</code>, <code>recommended</code> et <code>game</code>. Les changements qui touchent <code>palworld.service</code> sont visibles comme tels; le dépôt ne redémarre pas le jeu par surprise.</p>
+        </article>
+      </section>
+
+      <section class="panel github-notes" aria-labelledby="github-validation-title">
+        <div>
+          <p class="eyebrow">Garanties</p>
+          <h2 id="github-validation-title">Règles de fonctionnement</h2>
+        </div>
+        <p>Le serveur Palworld reste prioritaire: les workers lisent des copies, tournent avec des limites de ressources et n'impliquent pas de redémarrage de <code>palworld.service</code>. Le backfill traite une sauvegarde à la fois et reprend avec checkpoint.</p>
+        <p>Les exports publics sont construits par allowlist. Une donnée incertaine reste absente plutôt que d'être présentée comme un fait. Les identifiants techniques restent côté SQLite ou Ubuntu; le public reçoit seulement des clés stables non réversibles et des détails lisibles.</p>
+        <p>Côté navigateur, le tableau de bord reste compact. Le terminal charge l'historique complet une seule fois, puis interroge le flux récent au même rythme que le tableau de bord pour garder les joueurs, les échos et l'heure de synchronisation alignés.</p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>L'aventure continue!</span></div>
+      <nav class="site-footer__links" aria-label="Liens communautaires">
+        <a class="social-link social-link--github" href="/github" data-analytics-link="github" data-analytics-location="footer" aria-label="Lire la page technique Gaylémon Ops et GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a9.7 9.7 0 0 0-3.1 18.9v-2.2c-2.4.5-2.9-1-2.9-1-.4-1-.9-1.3-.9-1.3-.8-.5 0-.5 0-.5.8.1 1.3.9 1.3.9.7 1.3 1.8.9 2.3.7.1-.5.3-.9.5-1.1-1.9-.2-3.9-1-3.9-4.3 0-1 .4-1.8 1-2.4-.1-.2-.4-1.1.1-2.3 0 0 .8-.3 2.7.9a9.3 9.3 0 0 1 4.9 0c1.9-1.2 2.7-.9 2.7-.9.5 1.2.2 2.1.1 2.3.6.7 1 1.5 1 2.4 0 3.4-2 4.1-3.9 4.3.3.3.6.8.6 1.5v3.2A9.7 9.7 0 0 0 12 2.5Z"/></svg>
+          <span><strong>GitHub</strong><small>Dépôt et Gaylemon Ops</small></span><b aria-hidden="true">→</b>
+        </a>
+        <a class="social-link social-link--discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="footer" aria-label="Rejoindre le serveur Discord Gaylémon dans un nouvel onglet">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.1a13 13 0 0 1 9.6 0c1.5 2.2 2.4 4.7 2.6 7.3a12.6 12.6 0 0 1-3.7 1.9l-.9-1.2c.7-.3 1.3-.6 1.9-1.1a9.6 9.6 0 0 1-9.4 0c.6.5 1.2.8 1.9 1.1l-.9 1.2a12.6 12.6 0 0 1-3.7-1.9c.2-2.6 1.1-5.1 2.6-7.3ZM9.4 13c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6S8 10.5 8 11.4 8.6 13 9.4 13Zm5.2 0c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6-1.4.7-1.4 1.6.6 1.6 1.4 1.6Z"/></svg>
+          <span><strong>Discord</strong><small>Rejoindre la communauté</small></span><b aria-hidden="true">↗</b>
+        </a>
+        <a class="social-link social-link--top" href="#github-main">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+          <span><strong>Retour en haut</strong><small>Revenir au début de la page</small></span>
+        </a>
+      </nav>
+    </footer>
+  </body>
+</html>

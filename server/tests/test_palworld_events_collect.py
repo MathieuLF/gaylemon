@@ -233,6 +233,72 @@ class EventDetailsTests(unittest.TestCase):
         self.assertIn("Total enregistré: 5", events[0]["message"])
         self.assertIn("5 captures enregistrées", events[1]["message"])
 
+    def test_craft_and_fishing_events_are_detailed(self):
+        old = player_state(
+            records={"itemsCrafted": 10, "fishCaught": 2},
+            craftDetails={"wood": {"name": "Bois", "count": 10, "icon": "wood.webp"}},
+            fishDetails={"kelpsea": {"name": "Kelpsea", "count": 2, "icon": "fish.webp"}},
+        )
+        new = player_state(
+            records={"itemsCrafted": 15, "fishCaught": 5},
+            craftDetails={"wood": {"name": "Bois", "count": 15, "icon": "wood.webp"}},
+            fishDetails={"kelpsea": {"name": "Kelpsea", "count": 5, "icon": "fish.webp"}},
+        )
+        self.compare(old, new)
+        rows = self.connection.execute(
+            "SELECT type, message, details_json FROM events ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row["type"] for row in rows], ["craft", "fishing"])
+        self.assertIn("fabrique 5 Bois", rows[0]["message"])
+        self.assertIn("pêche 3 Kelpsea", rows[1]["message"])
+        self.assertIn("+5 Bois", rows[0]["details_json"])
+
+    def test_base_events_are_grouped_without_ambiguous_private_ids(self):
+        previous = {
+            "bases": {
+                "explorateurs::base principale": {
+                    "name": "Base principale",
+                    "guild": "Explorateurs",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 10,
+                    "structuresDamaged": 3,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 10}},
+                    "productionItems": {"lingot": {"name": "Lingot", "count": 10}},
+                    "researchCompleted": 1,
+                }
+            }
+        }
+        current = {
+            "bases": {
+                "explorateurs::base principale": {
+                    "name": "Base principale",
+                    "guild": "Explorateurs",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 34,
+                    "structuresDamaged": 1,
+                    "structureHighlights": {
+                        "mur": {"name": "Mur", "count": 30},
+                        "fondation": {"name": "Fondation", "count": 4},
+                    },
+                    "productionItems": {"lingot": {"name": "Lingot", "count": 40}},
+                    "researchCompleted": 2,
+                }
+            }
+        }
+        EVENTS.compare_base_events(
+            self.connection,
+            previous,
+            current,
+            "2026-07-12T18:00:00-04:00",
+        )
+        rows = self.connection.execute(
+            "SELECT type, player, base, details_json FROM events ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row["type"] for row in rows], ["build", "production", "repair", "research"])
+        self.assertTrue(all(row["player"] == "Mathieu" for row in rows))
+        self.assertTrue(all(row["base"] == "Base principale" for row in rows))
+        self.assertNotIn("guid", "\n".join(row["details_json"] or "" for row in rows).lower())
+
     def test_legacy_state_is_seeded_without_false_events(self):
         old = player_state()
         for field in ("technologyDetails", "bosses", "bossDetails", "fastTravel", "relicRanks"):
@@ -325,6 +391,70 @@ class RecoveryBackfillTests(unittest.TestCase):
         self.assertEqual(second_report["status"], "current")
         self.assertEqual(second_report["eventsAdded"], 0)
 
+    def test_checkpoint_backfill_suspends_when_server_health_is_low(self):
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({"server": {"lastFps": 45, "lastFrameMs": 18}}), encoding="utf-8")
+        self.write_archive("10", snapshot_payload("2026-07-12T10:15:00-04:00", 10))
+
+        report = EVENTS.backfill_archives_checkpoint(
+            self.connection,
+            self.history,
+            stats,
+            backfill_from="2026-07-09T00:00:00-04:00",
+            budget=1,
+            min_fps=50,
+            max_frame_ms=22,
+            max_load=99,
+        )
+
+        self.assertEqual(report["status"], "suspended")
+        self.assertEqual(report["snapshots"], 0)
+
+    def test_checkpoint_backfill_processes_one_archive_without_duplicates(self):
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({"server": {"lastFps": 60, "lastFrameMs": 16.7}}), encoding="utf-8")
+        self.write_archive("10", snapshot_payload("2026-07-12T10:15:00-04:00", 10))
+        self.write_archive("11", snapshot_payload("2026-07-12T11:15:00-04:00", 11))
+
+        first = EVENTS.backfill_archives_checkpoint(
+            self.connection,
+            self.history,
+            stats,
+            backfill_from="2026-07-09T00:00:00-04:00",
+            budget=1,
+            min_fps=50,
+            max_frame_ms=22,
+            max_load=99,
+        )
+        second = EVENTS.backfill_archives_checkpoint(
+            self.connection,
+            self.history,
+            stats,
+            backfill_from="2026-07-09T00:00:00-04:00",
+            budget=1,
+            min_fps=50,
+            max_frame_ms=22,
+            max_load=99,
+        )
+        third = EVENTS.backfill_archives_checkpoint(
+            self.connection,
+            self.history,
+            stats,
+            backfill_from="2026-07-09T00:00:00-04:00",
+            budget=1,
+            min_fps=50,
+            max_frame_ms=22,
+            max_load=99,
+        )
+
+        self.assertEqual(first["snapshots"], 1)
+        self.assertEqual(second["snapshots"], 1)
+        self.assertEqual(third["eventsAdded"], 0)
+        self.assertEqual(
+            self.connection.execute("SELECT COUNT(*) FROM events WHERE type = 'level'").fetchone()[0],
+            1,
+        )
+
 
 class SessionReconciliationTests(unittest.TestCase):
     def setUp(self):
@@ -377,6 +507,20 @@ class SessionReconciliationTests(unittest.TestCase):
 
         self.assertEqual(reconnects, 0)
         self.assertEqual([event["type"] for event in events], ["join", "leave", "join"])
+
+    def test_rest_session_duplicate_is_hidden_when_journal_transition_exists(self):
+        self.add_transition("2026-07-13T10:00:25-04:00", "join", source="players")
+        self.add_transition("2026-07-13T10:01:30-04:00", "join", source="journal")
+        self.add_transition("2026-07-13T11:00:00-04:00", "leave", source="players")
+        self.add_transition("2026-07-13T11:00:42-04:00", "leave", source="journal")
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual(
+            [(event["type"], event["source"]) for event in events],
+            [("leave", "journal"), ("join", "journal")],
+        )
 
     def test_old_orphan_leave_is_not_hidden(self):
         self.add_transition("2026-07-13T09:00:00-04:00", "join")

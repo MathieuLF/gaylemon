@@ -1,36 +1,36 @@
-# Politique de sécurité
+# Sécurité
 
-## Versions prises en charge
+Gaylémon touche à un serveur Palworld réel. Merci de signaler les problèmes en privé.
 
-Tant qu'aucune version stable n'est publiée, seule la dernière révision de la branche par défaut reçoit des correctifs de sécurité. Une vulnérabilité observée sur une ancienne révision doit être reproduite sur cette branche avant son signalement.
+## Versions suivies
 
-## Signaler une vulnérabilité
+Tant qu'il n'y a pas de version stable, seule la branche par défaut reçoit les correctifs.
 
-Ne pas publier de vulnérabilité, de secret ou de donnée joueur dans une issue publique.
+## Signaler un problème
 
-Utiliser de préférence l'option **Security advisories > Report a vulnerability** du dépôt GitHub. Si elle n'est pas disponible, contacter le propriétaire du dépôt par un canal privé avant de divulguer le problème.
+Ne pas ouvrir d'issue publique avec un secret, une vulnérabilité exploitable ou une donnée joueur.
 
-Inclure:
+Utiliser **Security advisories > Report a vulnerability** sur GitHub. Si l'option n'est pas disponible, contacter le propriétaire du dépôt par un canal privé.
 
-- la version ou révision concernée;
+Inclure si possible:
+
+- la révision concernée;
 - le composant touché;
 - les étapes minimales de reproduction;
-- l'impact attendu;
-- une proposition de correction, si disponible.
+- l'impact;
+- une piste de correction.
 
-## Périmètre
+## Points sensibles
 
-Sont particulièrement sensibles:
+- SSH et scripts distants;
+- règles `sudoers`;
+- API REST Palworld;
+- projections publiques des sauvegardes;
+- déploiement et mise à jour;
+- configuration Nginx.
 
-- l'exécution de commandes SSH;
-- les droits `sudoers`;
-- l'API REST Palworld;
-- les projections publiques de sauvegardes;
-- les scripts de déploiement et de mise à jour;
-- les en-têtes et chemins exposés par Nginx.
+Uptime Kuma, Cloudflare, Palworld et PalworldSaveTools restent des projets ou services externes. Les failles qui les concernent doivent aussi être signalées chez eux.
 
-Uptime Kuma, Cloudflare et PalworldSaveTools sont des dépendances ou infrastructures externes. Leurs vulnérabilités doivent aussi être signalées au projet concerné.
+## Secret publié par erreur
 
-## Secrets compromis
-
-Un secret accidentellement publié doit être révoqué et remplacé immédiatement. Le retirer de la dernière révision ne suffit pas, car il demeure dans l'historique Git.
+Révoquer le secret tout de suite, en créer un nouveau, puis nettoyer l'historique Git si le dépôt n'a pas encore été publié. Supprimer la valeur du dernier commit ne suffit pas.

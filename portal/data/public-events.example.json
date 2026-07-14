@@ -1,58 +1,130 @@
 {
-  "version": 2,
+  "version": 3,
   "ok": true,
-  "revision": "2:4:4",
+  "revision": "3:5:5",
   "updatedAt": "2026-07-12T12:00:00-04:00",
+  "recent": false,
   "summary": {
-    "events": 4,
+    "events": 5,
     "firstAt": "2026-07-12T10:00:00-04:00",
-    "lastAt": "2026-07-12T11:45:00-04:00",
+    "lastAt": "2026-07-12T11:55:00-04:00",
     "types": {
+      "build": 1,
       "capture": 1,
-      "challenge": 1,
       "join": 1,
-      "maintenance": 1
+      "maintenance": 1,
+      "production": 1
     },
     "reconciledReconnects": 0
   },
   "events": [
     {
+      "key": "evt_example_build_1",
+      "id": 5,
+      "occurredAt": "2026-07-12T11:55:00-04:00",
+      "type": "build",
+      "player": "Mathieu",
+      "guild": "Explorateurs",
+      "base": "Base principale",
+      "title": "Base agrandie",
+      "message": "Mathieu agrandit Base principale (+20 murs, +4 fondations et +2 portes).",
+      "display": {
+        "headline": "Mathieu agrandit la base principale",
+        "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+        "bullets": ["+20 murs", "+4 fondations", "+2 portes"]
+      },
+      "details": {
+        "structures": [
+          { "name": "Mur", "added": 20 },
+          { "name": "Fondation", "added": 4 },
+          { "name": "Porte", "added": 2 }
+        ],
+        "total": 148
+      },
+      "confidence": "confirmed",
+      "icon": null,
+      "source": "save"
+    },
+    {
+      "key": "evt_example_production_1",
       "id": 4,
       "occurredAt": "2026-07-12T11:50:00-04:00",
-      "type": "challenge",
+      "type": "production",
+      "player": "Brian",
+      "guild": "Explorateurs",
+      "base": "Atelier du nord",
+      "title": "Production terminée",
+      "message": "Brian termine une nouvelle chaîne de production: 40 Lingot.",
+      "display": {
+        "headline": "Brian termine une nouvelle chaîne de production",
+        "body": "40 ressources confirmées dans les tampons de production.",
+        "bullets": ["+40 Lingot"]
+      },
+      "details": {
+        "items": [{ "name": "Lingot", "added": 40, "count": 180 }],
+        "total": 180
+      },
+      "confidence": "confirmed",
+      "icon": "assets/game/icons/items/example.webp",
+      "source": "save"
+    },
+    {
+      "key": "evt_example_capture_1",
+      "id": 3,
+      "occurredAt": "2026-07-12T11:30:00-04:00",
+      "type": "capture",
       "player": "Aventurier",
-      "title": "Défi de capture réussi",
-      "message": "Aventurier complète le défi de Lamball: 5 captures enregistrées.",
+      "guild": "Explorateurs",
+      "base": null,
+      "title": "Capture réussie",
+      "message": "Aventurier capture 2 Lamball. Total enregistré: 5.",
+      "display": {
+        "headline": "Capture réussie",
+        "body": "Aventurier capture 2 Lamball. Total enregistré: 5.",
+        "bullets": []
+      },
+      "details": {},
+      "confidence": "confirmed",
       "icon": "assets/game/icons/pals/example.webp",
       "source": "save"
     },
     {
-      "id": 3,
-      "occurredAt": "2026-07-12T11:45:00-04:00",
+      "key": "evt_example_maintenance_1",
+      "id": 2,
+      "occurredAt": "2026-07-12T11:20:00-04:00",
       "type": "maintenance",
       "player": null,
+      "guild": null,
+      "base": null,
       "title": "Maintenance dans 5 minutes",
       "message": "Une sauvegarde du monde et une mise à jour sont planifiées.",
+      "display": {
+        "headline": "Maintenance dans 5 minutes",
+        "body": "Une sauvegarde du monde et une mise à jour sont planifiées.",
+        "bullets": []
+      },
+      "details": {},
+      "confidence": "confirmed",
       "icon": null,
       "source": "update"
     },
     {
-      "id": 2,
-      "occurredAt": "2026-07-12T11:30:00-04:00",
-      "type": "capture",
-      "player": "Aventurier",
-      "title": "Capture réussie",
-      "message": "Aventurier capture 2 Lamball. Total enregistré: 5.",
-      "icon": "assets/game/icons/pals/example.webp",
-      "source": "save"
-    },
-    {
+      "key": "evt_example_join_1",
       "id": 1,
       "occurredAt": "2026-07-12T10:00:00-04:00",
       "type": "join",
       "player": "Aventurier",
+      "guild": null,
+      "base": null,
       "title": "Arrivée sur Palpagos",
       "message": "Aventurier rejoint l'aventure.",
+      "display": {
+        "headline": "Arrivée sur Palpagos",
+        "body": "Aventurier rejoint l'aventure.",
+        "bullets": []
+      },
+      "details": {},
+      "confidence": "confirmed",
       "icon": null,
       "source": "journal"
     }
