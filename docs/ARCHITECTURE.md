@@ -1,78 +1,68 @@
-# Architecture de Gaylémon
+# Architecture
 
-## Principes
+Gaylémon sépare trois choses: le jeu, les outils d'exploitation et le site public.
 
-Gaylémon sépare l'exécution du jeu, l'administration, la projection publique et les services d'infrastructure partagés.
+```text
+Ubuntu
+  Palworld, systemd, sauvegardes, collecteurs
+        |
+        | SSH et JSON filtrés
+        v
+Windows
+  console, synchronisation, Docker Desktop
+        |
+        +--> Nginx local
+        |     microsite statique sur 127.0.0.1
+        |
+        +--> Tunnel SSH local
+              API REST Palworld sur 127.0.0.1
+        |
+        v
+Tunnel externe / visiteurs
+```
 
-Cette séparation poursuit quatre objectifs:
+## Ce que Gaylémon possède
 
-- ne pas exposer l'administration sur Internet;
-- ne pas faire dépendre Palworld de Docker Desktop;
-- ne publier que des projections filtrées;
-- ne jamais prendre possession d'un service externe partagé.
+Sur Ubuntu:
 
-## Composants possédés par le projet
+- scripts sous `server/bin/`;
+- unités et minuteries sous `server/systemd/`;
+- collecteurs de métriques et d'événements;
+- lecture des sauvegardes en mode projection, jamais comme source publique brute.
 
-### Ubuntu
-
-- serveur dédié Palworld installé par SteamCMD;
-- unités et minuteries `systemd` sous `server/systemd/`;
-- scripts d'exploitation sous `server/bin/`;
-- collecte REST locale;
-- analyse en lecture seule des sauvegardes;
-- sauvegardes et historiques locaux.
-
-### Windows
+Sur Windows:
 
 - console PowerShell;
-- tunnel SSH vers l'API REST;
 - synchronisation des JSON publics;
-- audit de reprise après une interruption;
+- validation et audit;
 - conteneur Nginx du microsite;
-- tâches planifiées propres à Gaylémon.
+- conteneur SSH du tunnel API Palworld local.
 
-## Intégrations externes
+## Ce qui reste externe
 
-### Uptime Kuma
+Uptime Kuma et cloudflared peuvent exister sur la même machine ou dans la même infra, mais Gaylémon ne les gère pas.
 
-Uptime Kuma peut surveiller plusieurs projets. Gaylémon:
+Le dépôt ne doit pas:
 
-- pousse l'état Palworld vers une URL configurée sur Ubuntu;
-- lit les API publiques d'une page de statut pour construire `public-uptime.json`;
-- n'accède pas à la base Kuma;
-- ne crée, ne modifie et ne supprime aucun moniteur depuis le Compose.
+- ajouter cloudflared au Compose;
+- monter un jeton Cloudflare ou une base Kuma;
+- recréer un conteneur partagé;
+- exposer l'API REST Palworld sur Internet.
 
-### cloudflared
+## Données publiques
 
-Le tunnel Cloudflare peut publier plusieurs origines. Gaylémon fournit seulement une origine Nginx liée à `127.0.0.1`.
+Les visiteurs lisent seulement des fichiers `public-*` sous `portal/data/`. Ces fichiers sont filtrés avant publication.
 
-Le projet ne doit pas:
+Ne pas publier:
 
-- ajouter cloudflared à son Compose;
-- monter la configuration ou le jeton du tunnel;
-- arrêter ou recréer le conteneur partagé;
-- modifier les routes d'autres sites.
-
-## Flux de données
-
-1. Palworld écrit ses sauvegardes et expose une API REST locale.
-2. Les collecteurs Ubuntu produisent des données privées et des projections publiques.
-3. Windows récupère les projections par SSH.
-4. Les scripts Windows appliquent une seconde filtration avant d'écrire sous `portal/data/`.
-5. Nginx sert le microsite et ses JSON publics.
-6. Le tunnel externe relaie l'origine locale vers le domaine public.
-
-## Frontières de sécurité
-
-- `8211/UDP`: trafic du jeu pouvant être exposé au routeur;
-- `8212/TCP`: API REST non exposée, consommée localement ou par tunnel SSH;
-- SSH: administration LAN par clé;
-- `portal/data/public-*`: données conçues pour être publiques;
-- `runtime/`, sauvegardes et fichiers privés: jamais servis ni versionnés;
-- secrets Cloudflare/Kuma: gérés par leur infrastructure, pas par le microsite.
+- sauvegardes brutes;
+- adresses IP;
+- identifiants Steam, Unreal, conteneurs ou chemins internes;
+- secrets, jetons, mots de passe;
+- détails privés des coffres ou profils non prévus par les contrats.
 
 ## Disponibilité
 
-La chute de Docker Desktop ou du poste Windows rend le microsite indisponible, mais n'arrête pas Palworld. Au retour du poste, l'audit de reprise compare l'état distant et l'état local, puis resynchronise les données manquantes.
+Si Docker Desktop ou Windows tombe, le microsite et le tunnel API local tombent aussi. Palworld continue de tourner sur Ubuntu.
 
-Une page de maintenance Cloudflare peut masquer une panne d'origine, mais elle appartient à l'infrastructure Cloudflare externe.
+Au retour du poste, les scripts resynchronisent les données publiques et l'audit permet de comparer Git avec les fichiers actifs.

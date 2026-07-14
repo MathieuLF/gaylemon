@@ -68,6 +68,25 @@ function Get-ValueOrDefault {
     return $Default
 }
 
+function Convert-ToObjectArray {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return @()
+    }
+
+    if ($Value -is [array]) {
+        return @($Value | Where-Object { $null -ne $_ })
+    }
+
+    $properties = @($Value.PSObject.Properties)
+    if ($properties.Count -gt 0) {
+        return @($properties | ForEach-Object { $_.Value } | Where-Object { $null -ne $_ })
+    }
+
+    return @($Value)
+}
+
 function Convert-PublicPosition {
     param($Location)
 
@@ -162,23 +181,8 @@ if ($metrics) {
 
 $stats = Read-JsonFile -Path $statsPath
 if ($stats) {
-    $rawPlayers = @()
-    if ($stats.players -is [array]) {
-        $rawPlayers = @($stats.players)
-    }
-    elseif ($stats.players) {
-        $rawPlayers = @($stats.players.PSObject.Properties.Value)
-    }
-    $rawPlayers = @($rawPlayers | Where-Object { $null -ne $_ })
-
-    $rawGuilds = @()
-    if ($stats.guilds -is [array]) {
-        $rawGuilds = @($stats.guilds)
-    }
-    elseif ($stats.guilds) {
-        $rawGuilds = @($stats.guilds.PSObject.Properties.Value)
-    }
-    $rawGuilds = @($rawGuilds | Where-Object { $null -ne $_ })
+    $rawPlayers = Convert-ToObjectArray -Value $stats.players
+    $rawGuilds = Convert-ToObjectArray -Value $stats.guilds
 
     $publicStats = [ordered]@{
         version = 1

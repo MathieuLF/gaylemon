@@ -45,6 +45,20 @@ else {
 }
 
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+$warningLogPath = Join-Path $outputDirectory "metrics-update-warnings.log"
+
+function Write-UpdateWarning {
+    param([Parameter(Mandatory)] [string]$Message)
+
+    $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
+    try {
+        Add-Content -LiteralPath $warningLogPath -Value $line -Encoding UTF8
+    }
+    catch {
+        # Logging should never block the public metrics refresh.
+    }
+    Write-Warning $Message
+}
 
 try {
     $metrics = Read-PalworldJson -Endpoint metrics
@@ -100,12 +114,12 @@ try {
     & (Join-Path $PSScriptRoot "sync-palworld-stats.ps1") | Out-Null
 }
 catch {
-    Write-Warning "Remote stats sync failed, using local fallback: $($_.Exception.Message)"
+    Write-UpdateWarning "Remote stats sync failed, using local fallback: $($_.Exception.Message)"
     try {
         & (Join-Path $PSScriptRoot "update-palworld-stats.ps1") | Out-Null
     }
     catch {
-        Write-Warning "Stats update failed: $($_.Exception.Message)"
+        Write-UpdateWarning "Stats update failed: $($_.Exception.Message)"
     }
 }
 
@@ -113,28 +127,35 @@ try {
     & (Join-Path $PSScriptRoot "export-public-microsite-data.ps1") | Out-Null
 }
 catch {
-    Write-Warning "Public microsite export failed: $($_.Exception.Message)"
+    Write-UpdateWarning "Public microsite export failed: $($_.Exception.Message)"
 }
 
 try {
     & (Join-Path $PSScriptRoot "export-public-uptime.ps1") | Out-Null
 }
 catch {
-    Write-Warning "Public uptime export failed: $($_.Exception.Message)"
+    Write-UpdateWarning "Public uptime export failed: $($_.Exception.Message)"
+}
+
+try {
+    & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null
+}
+catch {
+    Write-UpdateWarning "Public uptime history export failed: $($_.Exception.Message)"
 }
 
 try {
     & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") | Out-Null
 }
 catch {
-    Write-Warning "Public save snapshot sync failed: $($_.Exception.Message)"
+    Write-UpdateWarning "Public save snapshot sync failed: $($_.Exception.Message)"
 }
 
 try {
     & (Join-Path $PSScriptRoot "sync-palworld-events.ps1") | Out-Null
 }
 catch {
-    Write-Warning "Public event history sync failed: $($_.Exception.Message)"
+    Write-UpdateWarning "Public event history sync failed: $($_.Exception.Message)"
 }
 
 $assetMarker = Join-Path $PSScriptRoot "..\portal\assets\game\.source-commit"
@@ -145,6 +166,6 @@ if ($assetAuditDue) {
         & (Join-Path $PSScriptRoot "sync-palworld-game-assets.ps1") | Out-Null
     }
     catch {
-        Write-Warning "Palworld visual asset sync failed: $($_.Exception.Message)"
+        Write-UpdateWarning "Palworld visual asset sync failed: $($_.Exception.Message)"
     }
 }

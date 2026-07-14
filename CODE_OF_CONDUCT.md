@@ -14,7 +14,7 @@ Gaylémon accueille les contributions techniques, documentaires et visuelles dan
 
 - harcèlement, intimidation ou propos discriminatoires;
 - publication de secrets, sauvegardes ou identifiants sans autorisation;
-- contournement volontaire des garde-fous de production;
+- contournement volontaire des protections de production;
 - contenu trompeur ou malveillant;
 - attaques personnelles dans les issues et demandes de fusion.
 

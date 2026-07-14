@@ -81,6 +81,58 @@ else {
 }
 
 Write-Host ""
+$watcherPidPath = Join-Path $PSScriptRoot "..\portal\data\metrics-watcher.pid"
+$watcherLogPath = Join-Path $PSScriptRoot "..\portal\data\metrics-watcher.log"
+$watcherProcess = $null
+$watcherPid = $null
+
+if (Test-Path -LiteralPath $watcherPidPath) {
+    $pidValue = Get-Content -LiteralPath $watcherPidPath -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pidValue -as [int]) {
+        $watcherPid = [int]$pidValue
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $watcherPid" -ErrorAction SilentlyContinue
+        if ($processInfo -and $processInfo.CommandLine -and $processInfo.CommandLine.Contains("watch-microsite-metrics.ps1")) {
+            $watcherProcess = $processInfo
+        }
+    }
+}
+
+if (-not $watcherProcess) {
+    $watcherProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine.Contains("watch-microsite-metrics.ps1") } |
+        Select-Object -First 1
+}
+
+if ($watcherProcess) {
+    Write-Host "✅ Rafraîchisseur microsite: actif" -ForegroundColor Green
+    Write-Host "PID: $($watcherProcess.ProcessId)"
+}
+elseif ($watcherPid) {
+    Write-Host "⚠️  Rafraîchisseur microsite: PID stale ($watcherPid), processus absent" -ForegroundColor Yellow
+}
+else {
+    Write-Host "⚠️  Rafraîchisseur microsite: non actif" -ForegroundColor Yellow
+}
+
+$publicMetricsPath = Join-Path $PSScriptRoot "..\portal\data\public-metrics.json"
+if (Test-Path -LiteralPath $publicMetricsPath) {
+    $metricsItem = Get-Item -LiteralPath $publicMetricsPath
+    $ageSeconds = [int][Math]::Max(0, ((Get-Date).ToUniversalTime() - $metricsItem.LastWriteTimeUtc).TotalSeconds)
+    $freshLimitSeconds = [Math]::Max(180, $config.MetricUpdateTimeoutSeconds + ($config.MetricIntervalSeconds * 3))
+    $freshnessColor = if ($ageSeconds -le $freshLimitSeconds) { "Green" } else { "Yellow" }
+    Write-Host "Dernier export public-metrics: ${ageSeconds}s" -ForegroundColor $freshnessColor
+}
+
+if (Test-Path -LiteralPath $watcherLogPath) {
+    $lastWatcherLine = Get-Content -LiteralPath $watcherLogPath -Tail 120 -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match "Metrics update (completed|skipped)|Metrics watcher (started|stopped)" } |
+        Select-Object -Last 1
+    if ($lastWatcherLine) {
+        Write-Host "Dernier log watcher: $lastWatcherLine"
+    }
+}
+
+Write-Host ""
 $recoveryReportPath = Join-Path $PSScriptRoot "..\runtime\recovery\microsite-recovery-latest.json"
 if (Test-Path -LiteralPath $recoveryReportPath) {
     try {
@@ -99,4 +151,23 @@ if (Test-Path -LiteralPath $recoveryReportPath) {
 }
 else {
     Write-Host "ℹ️  Aucun audit de reprise local n'a encore été exécuté." -ForegroundColor DarkGray
+}
+
+Write-Host ""
+$availabilityPath = Join-Path $PSScriptRoot "..\portal\data\public-availability.json"
+if (Test-Path -LiteralPath $availabilityPath) {
+    try {
+        $availability = Get-Content -Raw -Encoding UTF8 -LiteralPath $availabilityPath | ConvertFrom-Json
+        $availabilityColor = if ($availability.status -eq "up") { "Green" } elseif ($availability.status -eq "down") { "Red" } else { "Yellow" }
+        Write-Host "Disponibilité locale: $($availability.status)" -ForegroundColor $availabilityColor
+        Write-Host "Moniteur Kuma: $($availability.summary.monitorStatus)"
+        Write-Host "Dernier heartbeat: $($availability.summary.heartbeatAgeSeconds)s"
+        Write-Host "Exports stale/manquants: $($availability.summary.staleOrMissingDataSets)"
+    }
+    catch {
+        Write-Host "⚠️  Disponibilité locale illisible: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+else {
+    Write-Host "ℹ️  Aucun ledger de disponibilité local n'a encore été généré." -ForegroundColor DarkGray
 }

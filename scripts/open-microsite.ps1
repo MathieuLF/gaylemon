@@ -1,6 +1,7 @@
 param(
     [int]$Port = 0,
     [int]$MetricIntervalSeconds = 0,
+    [int]$UpdateTimeoutSeconds = 0,
     [string]$PublicUrl = "",
     [switch]$NoOpen
 )
@@ -12,6 +13,7 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if ($Port -le 0) { $Port = $config.MicrositePort }
 if ($MetricIntervalSeconds -le 0) { $MetricIntervalSeconds = $config.MetricIntervalSeconds }
+if ($UpdateTimeoutSeconds -le 0) { $UpdateTimeoutSeconds = $config.MetricUpdateTimeoutSeconds }
 if (-not $PublicUrl) { $PublicUrl = $config.MicrositePublicUrl }
 $dataDirectory = Join-Path $ProjectRoot "portal\data"
 $originUrl = "http://127.0.0.1:$Port/"
@@ -135,6 +137,23 @@ function Stop-LegacyPythonMicrosite {
     Remove-Item -LiteralPath $serverPidPath -Force -ErrorAction SilentlyContinue
 }
 
+function Get-ActiveWatcherProcess {
+    $pidPath = Join-Path $dataDirectory "metrics-watcher.pid"
+    if (Test-Path -LiteralPath $pidPath) {
+        $pidValue = Get-Content -LiteralPath $pidPath -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($pidValue -as [int]) {
+            $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$pidValue)" -ErrorAction SilentlyContinue
+            if ($processInfo -and $processInfo.CommandLine -and $processInfo.CommandLine.Contains("watch-microsite-metrics.ps1")) {
+                return $processInfo
+            }
+        }
+    }
+
+    return Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine.Contains("watch-microsite-metrics.ps1") } |
+        Select-Object -First 1
+}
+
 & (Join-Path $PSScriptRoot "update-microsite-metrics.ps1") | Out-Null
 
 try {
@@ -153,8 +172,19 @@ Start-Process -FilePath $powerShellHost -ArgumentList @(
     "-File",
     $watcherScript,
     "-IntervalSeconds",
-    "$MetricIntervalSeconds"
+    "$MetricIntervalSeconds",
+    "-UpdateTimeoutSeconds",
+    "$UpdateTimeoutSeconds"
 ) -WindowStyle Hidden | Out-Null
+
+Start-Sleep -Milliseconds 500
+$watcherProcess = Get-ActiveWatcherProcess
+if ($watcherProcess) {
+    Write-Host "Rafraichisseur de metriques: actif, PID $($watcherProcess.ProcessId), intervalle ${MetricIntervalSeconds}s, delai ${UpdateTimeoutSeconds}s."
+}
+else {
+    Write-Warning "Le rafraichisseur de metriques n'a pas pu etre confirme apres le demarrage."
+}
 
 Stop-LegacyPythonMicrosite
 Start-DockerDesktopIfAvailable

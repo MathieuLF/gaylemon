@@ -1,71 +1,61 @@
 # Configuration locale
 
-## Fichier `.env`
+La configuration propre à une machine reste hors Git. Le fichier `.env` sert aux scripts PowerShell et à Docker Compose.
 
-Le fichier `.env` à la racine contient les valeurs propres à l'installation. Il est lu par Docker Compose et par les nouveaux utilitaires PowerShell.
-
-Création sans écrasement:
+## Mise en place
 
 ```powershell
 .\scripts\initialiser-projet.ps1
 ```
 
-Ordre de priorité des scripts PowerShell:
+Cette commande crée les fichiers attendus sans écraser une configuration existante.
+
+Les scripts lisent les valeurs dans cet ordre:
 
 1. variable d'environnement du processus;
-2. valeur du fichier `.env`;
-3. valeur par défaut sécuritaire.
+2. fichier `.env`;
+3. valeur par défaut prudente.
 
-## Variables
+Le modèle complet est [.env.example](../.env.example).
 
-| Variable | Rôle |
+## Variables utiles
+
+| Variable | Usage |
 |---|---|
-| `GAYLEMON_SSH_ALIAS` | alias du serveur dans `~/.ssh/config` |
-| `GAYLEMON_SERVER_LAN_IP` | adresse LAN informative |
-| `GAYLEMON_REMOTE_PROJECT_ROOT` | racine du projet sur Ubuntu |
-| `GAYLEMON_REMOTE_PROJECT_USER` | propriétaire Unix des outils du projet; déduit de `/home/<utilisateur>/` si omis |
-| `GAYLEMON_REMOTE_STEAM_ROOT` | racine Steam et Palworld |
-| `GAYLEMON_MICROSITE_PORT` | port Nginx lié à `127.0.0.1` |
-| `GAYLEMON_MICROSITE_PUBLIC_URL` | URL ouverte par la console |
-| `GAYLEMON_METRIC_INTERVAL_SECONDS` | pause du synchroniseur Windows |
+| `GAYLEMON_SSH_ALIAS` | alias SSH du serveur |
+| `GAYLEMON_REMOTE_PROJECT_ROOT` | dossier du projet sur Ubuntu |
+| `GAYLEMON_REMOTE_STEAM_ROOT` | dossier Steam/Palworld |
+| `GAYLEMON_MICROSITE_PORT` | port local du microsite Docker |
+| `GAYLEMON_MICROSITE_PUBLIC_URL` | URL publique ouverte par la console |
 | `GAYLEMON_API_LOCAL_PORT` | port local du tunnel REST |
-| `GAYLEMON_API_REMOTE_PORT` | port REST sur Ubuntu |
-| `GAYLEMON_UPTIME_KUMA_BASE_URL` | URL locale de l'instance Kuma externe |
-| `GAYLEMON_UPTIME_KUMA_STATUS_SLUG` | identifiant de la page de statut |
-| `GAYLEMON_UPTIME_KUMA_PUBLIC_URL` | page publique ouverte par la console |
-| `GAYLEMON_CLOUDFLARED_CONTAINER_PATTERN` | nom utilisé uniquement pour le diagnostic |
-| `GAYLEMON_GAME_HOST` | nom public du serveur de jeu |
-| `GAYLEMON_GAME_PORT` | port UDP du jeu |
-| `GAYLEMON_SAVE_TOOLS_FORK` | fork du parseur suivi |
-
-Le modèle [.env.example](../.env.example) est la référence exhaustive.
+| `GAYLEMON_API_REMOTE_PORT` | port REST Palworld sur Ubuntu |
+| `GAYLEMON_UPTIME_KUMA_*` | lecture de la page Kuma publique |
+| `GAYLEMON_GAME_HOST` / `GAYLEMON_GAME_PORT` | adresse publique du serveur de jeu |
 
 ## Secrets
 
-Le `.env` du projet ne doit pas devenir un coffre à secrets. Les secrets restent au plus près de leur consommateur:
+Le `.env` du dépôt ne doit pas contenir de secrets durables.
 
-- clé SSH privée: `~/.ssh`;
-- mot de passe admin Palworld: configuration Palworld sur Ubuntu;
-- URL Push Uptime Kuma: `/etc/palworld/kuma.env`;
-- jeton DNS Cloudflare: `/etc/palworld/palworld.env` si l'actualisation DNS est utilisée;
-- jeton du tunnel Cloudflare: infrastructure cloudflared externe.
+- Clé SSH: `~/.ssh`.
+- Mot de passe admin Palworld: configuration Palworld sur Ubuntu.
+- Push Uptime Kuma: `/etc/palworld/kuma.env`.
+- Jetons DNS ou tunnel Cloudflare: fichiers d'infrastructure, hors dépôt.
 
-Ne jamais recopier ces valeurs dans un exemple, une issue, une capture ou un rapport de validation.
+Ne pas copier ces valeurs dans une issue, une capture ou un rapport.
 
-## Notes propres à l'instance
+## Notes locales
 
-`config/local/` accueille les notes, listes de contrôle et fichiers non secrets propres à la machine. Ce répertoire est exclu de Git.
+`config/local/` peut contenir des notes et listes propres à la machine. Le dossier est ignoré par Git.
 
-## SSH
-
-Exemple de configuration:
-
-```text
-config/exemples/ssh-config.example
-```
-
-La clé privée reste hors du projet. Valider l'accès avec:
+Test SSH rapide:
 
 ```powershell
-ssh palworld "hostname"
+ssh gaylemon "hostname"
+```
+
+Le tunnel REST utilisé par le robot Discord est lancé par Docker Desktop:
+
+```powershell
+docker compose up -d --build palworld-api-tunnel
+.\scripts\palworld-api-tunnel.ps1 status
 ```
