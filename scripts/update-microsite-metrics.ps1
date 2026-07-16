@@ -1,5 +1,14 @@
 ﻿param(
-    [string]$OutputPath = (Join-Path $PSScriptRoot "..\portal\data\metrics.json")
+    [string]$OutputPath = (Join-Path $PSScriptRoot "..\portal\data\metrics.json"),
+    [int]$UptimeHistoryIntervalMinutes = 10,
+    [int]$SaveSnapshotIntervalMinutes = 15,
+    [int]$DiagnosticsRefreshIntervalHours = 2,
+    [int]$DiagnosticsRefreshAnchorHour = 1,
+    [int]$DiagnosticsRefreshWindowMinutes = 15,
+    [int]$EventsIntervalMinutes = 1,
+    [int]$AssetAuditIntervalHours = 6,
+    [switch]$FastOnly,
+    [switch]$ForceHeavy
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,6 +67,84 @@ function Write-UpdateWarning {
         # Logging should never block the public metrics refresh.
     }
     Write-Warning $Message
+}
+
+function Test-RefreshDue {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [int]$IntervalMinutes = 0,
+        [int]$IntervalHours = 0,
+        [switch]$Force
+    )
+
+    if ($Force) { return $true }
+    if ($FastOnly) { return $false }
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+
+    $interval = if ($IntervalHours -gt 0) {
+        [TimeSpan]::FromHours($IntervalHours)
+    }
+    else {
+        [TimeSpan]::FromMinutes([Math]::Max(1, $IntervalMinutes))
+    }
+
+    $item = Get-Item -LiteralPath $Path
+    return $item.LastWriteTimeUtc -lt (Get-Date).ToUniversalTime().Subtract($interval)
+}
+
+function Get-ScheduledRefreshSlot {
+    param(
+        [Parameter(Mandatory)] [int]$IntervalHours,
+        [Parameter(Mandatory)] [int]$AnchorHour,
+        [datetime]$Now = (Get-Date)
+    )
+
+    $safeInterval = [Math]::Max(1, $IntervalHours)
+    $safeAnchor = (($AnchorHour % 24) + 24) % 24
+    $slot = [datetime]::new($Now.Year, $Now.Month, $Now.Day, $safeAnchor, 0, 0, $Now.Kind)
+    while ($slot -gt $Now) { $slot = $slot.AddHours(-$safeInterval) }
+    while ($slot.AddHours($safeInterval) -le $Now) { $slot = $slot.AddHours($safeInterval) }
+    return $slot
+}
+
+function Test-ScheduledRefreshDue {
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [int]$IntervalHours,
+        [Parameter(Mandatory)] [int]$AnchorHour,
+        [Parameter(Mandatory)] [int]$WindowMinutes,
+        [switch]$Force
+    )
+
+    if ($Force) { return $true }
+    if ($FastOnly) { return $false }
+    if (-not (Test-Path -LiteralPath $Path)) { return $true }
+
+    $now = Get-Date
+    $slot = Get-ScheduledRefreshSlot -IntervalHours $IntervalHours -AnchorHour $AnchorHour -Now $now
+    if ($now -ge $slot.AddMinutes([Math]::Max(1, $WindowMinutes))) {
+        return $false
+    }
+
+    $item = Get-Item -LiteralPath $Path
+    return $item.LastWriteTime -lt $slot
+}
+
+function Invoke-OptionalRefresh {
+    param(
+        [Parameter(Mandatory)] [string]$Label,
+        [Parameter(Mandatory)] [scriptblock]$ScriptBlock,
+        [Parameter(Mandatory)] [string]$DuePath,
+        [int]$IntervalMinutes = 0,
+        [int]$IntervalHours = 0
+    )
+
+    if (-not (Test-RefreshDue -Path $DuePath -IntervalMinutes $IntervalMinutes -IntervalHours $IntervalHours -Force:$ForceHeavy)) {
+        Write-Host "$Label ignoré: dernière synchronisation encore fraîche."
+        return
+    }
+
+    & $ScriptBlock
 }
 
 try {
@@ -138,30 +225,62 @@ catch {
 }
 
 try {
-    & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null
+    Invoke-OptionalRefresh `
+        -Label "Historique Uptime Kuma" `
+        -DuePath (Join-Path $PSScriptRoot "..\portal\data\public-uptime-history.json") `
+        -IntervalMinutes $UptimeHistoryIntervalMinutes `
+        -ScriptBlock { & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null }
 }
 catch {
     Write-UpdateWarning "Public uptime history export failed: $($_.Exception.Message)"
 }
 
 try {
-    & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") | Out-Null
+    Invoke-OptionalRefresh `
+        -Label "Snapshot public" `
+        -DuePath (Join-Path $PSScriptRoot "..\portal\data\public-save-index.json") `
+        -IntervalMinutes $SaveSnapshotIntervalMinutes `
+        -ScriptBlock { & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") | Out-Null }
 }
 catch {
     Write-UpdateWarning "Public save snapshot sync failed: $($_.Exception.Message)"
 }
 
 try {
-    & (Join-Path $PSScriptRoot "sync-palworld-events.ps1") | Out-Null
+    $diagnosticsPath = Join-Path $PSScriptRoot "..\portal\data\public-save-diagnostics.json"
+    if (Test-ScheduledRefreshDue `
+            -Path $diagnosticsPath `
+            -IntervalHours $DiagnosticsRefreshIntervalHours `
+            -AnchorHour $DiagnosticsRefreshAnchorHour `
+            -WindowMinutes $DiagnosticsRefreshWindowMinutes `
+            -Force:$ForceHeavy) {
+        & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") `
+            -DiagnosticsRefreshIntervalHours $DiagnosticsRefreshIntervalHours `
+            -DiagnosticsRefreshAnchorHour $DiagnosticsRefreshAnchorHour `
+            -DiagnosticsRefreshWindowMinutes $DiagnosticsRefreshWindowMinutes `
+            -ForceDiagnostics:$ForceHeavy | Out-Null
+    }
+    else {
+        Write-Host "Diagnostics publics ignorés: prochain créneau planifié non atteint."
+    }
+}
+catch {
+    Write-UpdateWarning "Public save diagnostics sync failed: $($_.Exception.Message)"
+}
+
+try {
+    Invoke-OptionalRefresh `
+        -Label "Historique des échos" `
+        -DuePath (Join-Path $PSScriptRoot "..\portal\data\public-events-recent.json") `
+        -IntervalMinutes $EventsIntervalMinutes `
+        -ScriptBlock { & (Join-Path $PSScriptRoot "sync-palworld-events.ps1") | Out-Null }
 }
 catch {
     Write-UpdateWarning "Public event history sync failed: $($_.Exception.Message)"
 }
 
 $assetMarker = Join-Path $PSScriptRoot "..\portal\assets\game\.source-commit"
-$assetAuditDue = -not (Test-Path -LiteralPath $assetMarker) -or
-    (Get-Item -LiteralPath $assetMarker).LastWriteTimeUtc -lt (Get-Date).ToUniversalTime().AddHours(-6)
-if ($assetAuditDue) {
+if (Test-RefreshDue -Path $assetMarker -IntervalHours $AssetAuditIntervalHours -Force:$ForceHeavy) {
     try {
         & (Join-Path $PSScriptRoot "sync-palworld-game-assets.ps1") | Out-Null
     }

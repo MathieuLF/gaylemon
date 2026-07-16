@@ -7,6 +7,9 @@ BASE_URL="http://127.0.0.1:8212/v1/api"
 method="${1:-GET}"
 path="${2:-/info}"
 body="${3:-}"
+if [ "$method" != "GET" ] && [ -z "$body" ]; then
+  body="{}"
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "Palworld settings file not found: $CONFIG_FILE" >&2

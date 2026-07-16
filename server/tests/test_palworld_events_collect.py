@@ -249,9 +249,125 @@ class EventDetailsTests(unittest.TestCase):
             "SELECT type, message, details_json FROM events ORDER BY id"
         ).fetchall()
         self.assertEqual([row["type"] for row in rows], ["craft", "fishing"])
-        self.assertIn("fabrique 5 Bois", rows[0]["message"])
-        self.assertIn("pêche 3 Kelpsea", rows[1]["message"])
+        self.assertIn("termine 5 fabrications", rows[0]["message"])
+        self.assertNotIn("Bois", rows[0]["message"])
+        self.assertIn("ramène 3 prises de pêche", rows[1]["message"])
+        self.assertNotIn("Kelpsea", rows[1]["message"])
         self.assertIn("+5 Bois", rows[0]["details_json"])
+        self.assertIn("+3 Kelpsea", rows[1]["details_json"])
+
+    def test_record_counter_events_are_published_with_totals(self):
+        old = player_state(records={
+            "raidBossDefeats": 0,
+            "towerBossDefeats": 1,
+            "arenaSoloClears": 0,
+            "notesFound": 1,
+            "palRankups": 2,
+            "mutations": 0,
+            "uniqueItemsPickedUp": 3,
+        })
+        new = player_state(records={
+            "raidBossDefeats": 1,
+            "towerBossDefeats": 2,
+            "arenaSoloClears": 2,
+            "notesFound": 4,
+            "palRankups": 5,
+            "mutations": 1,
+            "uniqueItemsPickedUp": 6,
+        })
+        self.compare(old, new)
+        rows = self.connection.execute(
+            "SELECT type, title, message, details_json FROM events ORDER BY id"
+        ).fetchall()
+        self.assertEqual(
+            [row["type"] for row in rows],
+            ["raid", "boss", "arena", "note", "pal", "mutation", "loot"],
+        )
+        self.assertIn("vainc 1 boss de raid. Total cumulé: 1.", rows[0]["message"])
+        self.assertIn("termine 2 arènes solo. Total cumulé: 2.", rows[2]["message"])
+        self.assertIn("trouve 3 notes. Total cumulé: 4.", rows[3]["message"])
+        self.assertIn("découvre 3 types d'objets uniques. Total cumulé: 6.", rows[6]["message"])
+        self.assertIn("+3 types d'objets uniques", rows[6]["details_json"])
+
+    def test_new_record_fields_are_seeded_without_false_events(self):
+        old = player_state(records={"itemsCrafted": 0})
+        new = player_state(records={
+            "itemsCrafted": 0,
+            "raidBossDefeats": 1,
+            "towerBossDefeats": 2,
+            "arenaSoloClears": 2,
+            "notesFound": 4,
+            "palRankups": 5,
+            "mutations": 1,
+            "uniqueItemsPickedUp": 6,
+        })
+        self.compare(old, new)
+        self.assertEqual(self.events(), [])
+
+    def test_death_drop_appearance_and_recovery_are_published_once(self):
+        drop = {
+            "key": "drop_public_1",
+            "type": "character-drop",
+            "label": "Sac de récupération",
+            "player": "Aventuriere",
+            "position": {"mapX": 12, "mapY": 34, "mapVisible": True},
+        }
+        EVENTS.compare_snapshots(
+            self.connection,
+            {"players": {}, "bases": {}, "deathDrops": {}},
+            {"players": {}, "bases": {}, "deathDrops": {"drop_public_1": drop}},
+            "2026-07-12T18:00:00-04:00",
+            set(),
+        )
+        EVENTS.compare_snapshots(
+            self.connection,
+            {"players": {}, "bases": {}, "deathDrops": {"drop_public_1": drop}},
+            {"players": {}, "bases": {}, "deathDrops": {}},
+            "2026-07-12T18:05:00-04:00",
+            set(),
+        )
+        rows = self.connection.execute(
+            "SELECT type, title, message, player, confidence, details_json FROM events ORDER BY id"
+        ).fetchall()
+        self.assertEqual([row["type"] for row in rows], ["death", "recovery"])
+        self.assertEqual(rows[0]["player"], "Aventuriere")
+        self.assertIn("apparaît sur Palpagos", rows[0]["message"])
+        self.assertIn("n'est plus présent", rows[1]["message"])
+        self.assertNotIn("drop_public_1", rows[0]["details_json"])
+
+    def test_death_drops_are_seeded_without_false_events(self):
+        EVENTS.compare_snapshots(
+            self.connection,
+            {"players": {}, "bases": {}},
+            {"players": {}, "bases": {}, "deathDrops": {"drop_public_1": {
+                "key": "drop_public_1",
+                "label": "Sac de récupération",
+            }}},
+            "2026-07-12T18:00:00-04:00",
+            set(),
+        )
+        self.assertEqual(self.events(), [])
+
+    def test_detailed_quest_does_not_emit_duplicate_progress(self):
+        old = player_state(
+            quests=0,
+            questDetails={},
+            technologies=1,
+            technologyDetails={"torch": {"name": "Torche", "icon": "torch.webp"}},
+        )
+        new = player_state(
+            quests=1,
+            questDetails={"breeder": {"name": "Mission de l'éleveur · chapitre 1"}},
+            technologies=1,
+            technologyDetails={"torch": {"name": "Torche", "icon": "torch.webp"}},
+        )
+        self.compare(old, new)
+        events = self.events()
+        self.assertEqual([event["type"] for event in events], ["quest"])
+        self.assertEqual(
+            events[0]["message"],
+            "Aventuriere termine Mission de l'éleveur · chapitre 1.",
+        )
 
     def test_base_events_are_grouped_without_ambiguous_private_ids(self):
         previous = {
@@ -292,12 +408,137 @@ class EventDetailsTests(unittest.TestCase):
             "2026-07-12T18:00:00-04:00",
         )
         rows = self.connection.execute(
-            "SELECT type, player, base, details_json FROM events ORDER BY id"
+            "SELECT type, player, base, message, details_json FROM events ORDER BY id"
         ).fetchall()
         self.assertEqual([row["type"] for row in rows], ["build", "production", "repair", "research"])
         self.assertTrue(all(row["player"] == "Mathieu" for row in rows))
         self.assertTrue(all(row["base"] == "Base principale" for row in rows))
         self.assertNotIn("guid", "\n".join(row["details_json"] or "" for row in rows).lower())
+        production = next(row for row in rows if row["type"] == "production")
+        self.assertIn("Mathieu termine une production à Base principale", production["message"])
+        self.assertIn("30 ressources produites sont prêtes", production["message"])
+        self.assertIn("Stock de production actuel: 40", production["message"])
+        production_details = json.loads(production["details_json"])
+        self.assertEqual(
+            production_details["body"],
+            "30 ressources produites sont prêtes. Stock de production actuel: 40.",
+        )
+        self.assertIn("+30 Lingot", production_details["bullets"])
+        self.assertEqual(production_details["total"], 40)
+
+    def test_base_damage_increase_is_not_reported_as_raid(self):
+        previous = {
+            "bases": {
+                "explorateurs::base principale": {
+                    "name": "Base principale",
+                    "guild": "Explorateurs",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 10,
+                    "structuresDamaged": 1,
+                    "structureHighlights": {},
+                    "productionItems": {},
+                    "researchCompleted": 0,
+                }
+            }
+        }
+        current = {
+            "bases": {
+                "explorateurs::base principale": {
+                    "name": "Base principale",
+                    "guild": "Explorateurs",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 10,
+                    "structuresDamaged": 4,
+                    "structureHighlights": {},
+                    "productionItems": {},
+                    "researchCompleted": 0,
+                }
+            }
+        }
+        EVENTS.compare_base_events(
+            self.connection,
+            previous,
+            current,
+            "2026-07-12T18:00:00-04:00",
+        )
+        self.assertEqual(
+            self.connection.execute("SELECT COUNT(*) FROM events WHERE type = 'raid'").fetchone()[0],
+            0,
+        )
+
+    def test_inactive_player_snapshot_changes_are_not_published(self):
+        EVENTS.compare_snapshots(
+            self.connection,
+            {"players": {"aventuriere": player_state()}},
+            {"players": {"aventuriere": player_state(level=11)}},
+            "2026-07-12T18:00:00-04:00",
+            {"aventuriere"},
+            set(),
+        )
+        self.connection.commit()
+
+        self.assertEqual(self.events(), [])
+
+    def test_post_session_snapshot_changes_are_published_at_session_close(self):
+        EVENTS.compare_snapshots(
+            self.connection,
+            {"players": {"aventuriere": player_state()}},
+            {"players": {"aventuriere": player_state(level=11)}},
+            "2026-07-12T18:00:45-04:00",
+            {"aventuriere"},
+            {"aventuriere": "2026-07-12T18:00:00-04:00"},
+        )
+        self.connection.commit()
+
+        row = self.connection.execute(
+            "SELECT occurred_at, fingerprint, type FROM events"
+        ).fetchone()
+        self.assertEqual(row["type"], "level")
+        self.assertEqual(row["occurred_at"], "2026-07-12T18:00:00-04:00")
+        self.assertIn("save:2026-07-12T18:00:00-04:00:level:aventuriere:11", row["fingerprint"])
+
+    def test_inactive_base_changes_are_not_published(self):
+        previous = {
+            "bases": {
+                "explorateurs::base principale": {
+                    "name": "Base principale",
+                    "guild": "Explorateurs",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 10,
+                    "structuresDamaged": 1,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 10}},
+                    "productionItems": {"lingot": {"name": "Lingot", "count": 10}},
+                    "researchCompleted": 0,
+                }
+            }
+        }
+        current = {
+            "bases": {
+                "explorateurs::base principale": {
+                    "name": "Base principale",
+                    "guild": "Explorateurs",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 11,
+                    "structuresDamaged": 4,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 11}},
+                    "productionItems": {"lingot": {"name": "Lingot", "count": 11}},
+                    "researchCompleted": 0,
+                }
+            }
+        }
+
+        EVENTS.compare_base_events(
+            self.connection,
+            previous,
+            current,
+            "2026-07-12T18:00:00-04:00",
+            set(),
+        )
+        row = self.connection.execute(
+            "SELECT type, player, message FROM events"
+        ).fetchone()
+
+        self.assertIsNone(row)
 
     def test_legacy_state_is_seeded_without_false_events(self):
         old = player_state()
@@ -312,7 +553,9 @@ class RecoveryBackfillTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.history = self.root / "history"
+        self.bases_history = self.root / "bases-history"
         self.snapshot = self.root / "current.json"
+        self.bases_snapshot = self.root / "current-bases.json"
         self.connection = EVENTS.connect_database(self.root / "events.sqlite3")
 
     def tearDown(self):
@@ -324,6 +567,26 @@ class RecoveryBackfillTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(path, "wt", encoding="utf-8") as stream:
             json.dump(payload, stream)
+
+    def write_bases_archive(self, hour, payload):
+        path = self.bases_history / "2026" / "07" / "12" / f"{hour}.json.gz"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(path, "wt", encoding="utf-8") as stream:
+            json.dump(payload, stream)
+
+    def bases_payload(self, updated_at, damaged):
+        return {
+            "ok": True,
+            "updatedAt": updated_at,
+            "bases": [{
+                "name": "Base principale",
+                "guild": "Explorateurs",
+                "players": ["Mathieu"],
+                "structures": {"total": 10, "damaged": damaged, "highlights": []},
+                "production": {"topItems": []},
+                "research": {"completed": 0},
+            }],
+        }
 
     def test_new_hourly_archives_are_replayed_after_initial_backfill(self):
         initial = snapshot_payload("2026-07-12T10:15:00-04:00", 10)
@@ -455,6 +718,37 @@ class RecoveryBackfillTests(unittest.TestCase):
             1,
         )
 
+    def test_raid_history_backfill_is_disabled(self):
+        self.write_bases_archive("10", self.bases_payload("2026-07-12T10:15:00-04:00", 1))
+        self.write_bases_archive("11", self.bases_payload("2026-07-12T11:15:00-04:00", 4))
+        self.bases_snapshot.write_text(
+            json.dumps(self.bases_payload("2026-07-12T12:15:00-04:00", 6)),
+            encoding="utf-8",
+        )
+
+        first = EVENTS.backfill_raid_history(
+            self.connection,
+            self.bases_snapshot,
+            self.bases_history,
+        )
+        self.connection.commit()
+        second = EVENTS.backfill_raid_history(
+            self.connection,
+            self.bases_snapshot,
+            self.bases_history,
+        )
+
+        self.assertEqual(first["status"], "skipped")
+        self.assertEqual(first["reason"], "derived-raid-backfill-disabled")
+        self.assertEqual(first["snapshots"], 0)
+        self.assertEqual(first["eventsAdded"], 0)
+        self.assertEqual(second["snapshots"], 0)
+        self.assertEqual(second["eventsAdded"], 0)
+        self.assertEqual(
+            self.connection.execute("SELECT COUNT(*) FROM events WHERE type = 'raid'").fetchone()[0],
+            0,
+        )
+
 
 class SessionReconciliationTests(unittest.TestCase):
     def setUp(self):
@@ -557,6 +851,309 @@ class SessionReconciliationTests(unittest.TestCase):
             ("join", "journal"),
             ("leave", "players"),
         ])
+
+    def test_player_sessions_accept_public_player_lists_and_are_strict_after_leave(self):
+        stats = self.root / "stats-list.json"
+        stats.write_text(json.dumps({
+            "players": [{
+                "name": "Alyross",
+                "sessionHistory": [{
+                    "startedAt": "2026-07-13T10:00:00-04:00",
+                    "endedAt": "2026-07-13T11:00:00-04:00",
+                }],
+            }],
+        }), encoding="utf-8")
+
+        sessions = EVENTS.player_session_index(stats)
+
+        self.assertEqual(set(sessions), {"alyross"})
+        self.assertEqual(
+            EVENTS.active_players_at(sessions, "2026-07-13T11:00:00-04:00"),
+            {"alyross"},
+        )
+        self.assertEqual(
+            EVENTS.active_players_at(sessions, "2026-07-13T11:00:01-04:00"),
+            set(),
+        )
+        self.assertEqual(EVENTS.collect_player_sessions(self.connection, stats), 2)
+        self.assertEqual(
+            EVENTS.session_activity_times_at(
+                self.connection,
+                sessions,
+                "2026-07-13T11:00:45-04:00",
+            ),
+            {"alyross": "2026-07-13T11:00:00-04:00"},
+        )
+
+    def test_inactive_save_event_cleanup_reassigns_closing_deltas_and_removes_late_ones(self):
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({
+            "players": {
+                "steam_1": {
+                    "name": "Alyross",
+                    "sessionHistory": [{
+                        "startedAt": "2026-07-13T10:00:00-04:00",
+                        "endedAt": "2026-07-13T11:00:00-04:00",
+                    }],
+                },
+            },
+        }), encoding="utf-8")
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:active",
+            occurred_at="2026-07-13T10:59:59-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 2 fabrications.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:closing",
+            occurred_at="2026-07-13T11:00:01-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 2 fabrications.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:inactive",
+            occurred_at="2026-07-13T11:04:01-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 2 fabrications.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="journal:leave",
+            occurred_at="2026-07-13T11:00:00-04:00",
+            event_type="leave",
+            player="Alyross",
+            title="Fin d'expédition",
+            message="Alyross quitte l'archipel.",
+            source="journal",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:death",
+            occurred_at="2026-07-13T11:00:01-04:00",
+            event_type="death",
+            player="Alyross",
+            title="Sac de récupération",
+            message="Le sac apparaît sur Palpagos.",
+            source="save",
+            confidence="derived",
+        )
+
+        report = EVENTS.purge_inactive_save_events(self.connection, stats)
+
+        self.assertEqual(report["removed"], 1)
+        self.assertEqual(report["reassigned"], 1)
+        rows = self.connection.execute(
+            "SELECT fingerprint, occurred_at FROM events ORDER BY occurred_at, id"
+        ).fetchall()
+        self.assertEqual(
+            [(row["fingerprint"], row["occurred_at"]) for row in rows],
+            [
+                ("save:active", "2026-07-13T10:59:59-04:00"),
+                ("save:closing", "2026-07-13T11:00:00-04:00"),
+                ("journal:leave", "2026-07-13T11:00:00-04:00"),
+                ("save:death", "2026-07-13T11:00:01-04:00"),
+            ],
+        )
+
+
+class PublicExportTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.connection = EVENTS.connect_database(self.root / "events.sqlite3")
+
+    def tearDown(self):
+        self.connection.close()
+        self.temporary.cleanup()
+
+    def test_public_export_keeps_complete_history(self):
+        for index in range(6):
+            EVENTS.add_event(
+                self.connection,
+                fingerprint=f"server:event:{index}",
+                occurred_at=f"2026-07-13T10:0{index}:00-04:00",
+                event_type="server",
+                title=f"Écho {index}",
+                message=f"Message {index}",
+                source="journal",
+            )
+
+        output = self.root / "public-events.json"
+        recent = self.root / "public-events-recent.json"
+        EVENTS.write_export(self.connection, output, recent)
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        recent_payload = json.loads(recent.read_text(encoding="utf-8"))
+        self.assertFalse(payload["truncated"])
+        self.assertEqual(payload["summary"]["events"], 6)
+        self.assertEqual(payload["summary"]["totalEvents"], 6)
+        self.assertEqual([event["title"] for event in payload["events"]], [
+            "Écho 5",
+            "Écho 4",
+            "Écho 3",
+            "Écho 2",
+            "Écho 1",
+            "Écho 0",
+        ])
+        self.assertTrue(recent_payload["recent"])
+        self.assertEqual(recent_payload["summary"]["totalEvents"], 6)
+
+    def test_normalization_backfill_updates_legacy_itemized_events_and_removes_quest_duplicates(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:legacy:craft",
+            occurred_at="2026-07-13T10:00:00-04:00",
+            event_type="craft",
+            player="Galyk",
+            title="Fabrication terminée",
+            message="Galyk fabrique 5 Bois.",
+            source="save",
+            details={
+                "headline": "Fabrication terminée",
+                "body": "Galyk fabrique 5 Bois.",
+                "bullets": ["+5 Bois"],
+                "items": [{"name": "Bois", "added": 5, "count": 15}],
+                "total": 15,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:legacy:production",
+            occurred_at="2026-07-13T10:01:00-04:00",
+            event_type="production",
+            player="Brian",
+            guild="Explorateurs",
+            base="Atelier du nord",
+            title="Production terminée",
+            message="Brian termine une nouvelle chaîne de production: 40 Lingot.",
+            source="save",
+            details={
+                "headline": "Brian termine une nouvelle chaîne de production",
+                "body": "40 ressources confirmées dans les tampons de production.",
+                "bullets": ["+40 Lingot"],
+                "items": [{"name": "Lingot", "added": 40, "count": 180}],
+            },
+        )
+        for index in range(2):
+            EVENTS.add_event(
+                self.connection,
+                fingerprint=f"save:legacy:quest:{index}",
+                occurred_at=f"2026-07-13T10:0{2 + index}:00-04:00",
+                event_type="quest",
+                player="Sprince",
+                title="Quête terminée",
+                message="Sprince termine Mission de l'éleveur · chapitre 1.",
+                source="save",
+            )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:2026-07-13T10:03:00-04:00:capture:alyross:prunelia:17",
+            occurred_at="2026-07-13T10:03:00-04:00",
+            event_type="capture",
+            player="Alyross",
+            title="Capture réussie",
+            message="Alyross capture 1 Prunelia. Total enregistré: 17.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:2026-07-13T10:04:00-04:00:capture:alyross:prunelia:26",
+            occurred_at="2026-07-13T10:04:00-04:00",
+            event_type="capture",
+            player="Alyross",
+            title="Capture réussie",
+            message="Alyross capture 9 Prunelia. Total enregistré: 26.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:2026-07-13T11:00:00-04:00:capture:alyross:prunelia:26",
+            occurred_at="2026-07-13T11:00:00-04:00",
+            event_type="capture",
+            player="Alyross",
+            title="Capture réussie",
+            message="Alyross capture 24 Prunelia. Total enregistré: 26.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:2026-07-13T12:00:00-04:00:capture:alyross:shroomer noct:2",
+            occurred_at="2026-07-13T12:00:00-04:00",
+            event_type="capture",
+            player="Alyross",
+            title="Première capture",
+            message="Alyross inscrit Shroomer Noct dans son Paldex avec 2 captures.",
+            source="save",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:2026-07-13T12:05:00-04:00:capture:alyross:shroomer noct:4",
+            occurred_at="2026-07-13T12:05:00-04:00",
+            event_type="capture",
+            player="Alyross",
+            title="Capture réussie",
+            message="Alyross capture 1 Shroomer Noct. Total enregistré: 4.",
+            source="save",
+        )
+
+        report = EVENTS.normalize_event_history(self.connection)
+        second_report = EVENTS.normalize_event_history(self.connection)
+
+        self.assertEqual(report["itemizedUpdated"], 2)
+        self.assertEqual(report["duplicatesRemoved"], 1)
+        self.assertEqual(report["captureDuplicatesRemoved"], 1)
+        self.assertEqual(report["captureMessagesUpdated"], 2)
+        self.assertEqual(second_report["itemizedUpdated"], 0)
+        self.assertEqual(second_report["duplicatesRemoved"], 0)
+        self.assertEqual(second_report["captureDuplicatesRemoved"], 0)
+        self.assertEqual(second_report["captureMessagesUpdated"], 0)
+
+        rows = self.connection.execute(
+            "SELECT type, message, details_json FROM events ORDER BY occurred_at, id"
+        ).fetchall()
+        self.assertEqual(
+            [row["type"] for row in rows],
+            ["craft", "production", "quest", "capture", "capture", "capture", "capture"],
+        )
+        self.assertEqual(
+            rows[0]["message"],
+            "Galyk termine 5 fabrications. Total cumulé: 15.",
+        )
+        self.assertEqual(
+            rows[1]["message"],
+            "Brian termine une production à Atelier du nord. "
+            "40 ressources produites sont prêtes. Stock de production actuel: 180.",
+        )
+        production_details = json.loads(rows[1]["details_json"])
+        self.assertEqual(production_details["total"], 180)
+        self.assertEqual(
+            rows[2]["message"],
+            "Sprince termine Mission de l'éleveur · chapitre 1.",
+        )
+        self.assertEqual(
+            rows[3]["message"],
+            "Alyross inscrit Prunelia dans son Paldex avec 17 captures.",
+        )
+        self.assertEqual(
+            rows[4]["message"],
+            "Alyross capture 9 Prunelia. Total enregistré: 26.",
+        )
+        self.assertEqual(
+            rows[6]["message"],
+            "Alyross capture 2 Shroomer Noct. Total enregistré: 4.",
+        )
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ KUMA_SCRIPT="$ROOT/bin/palworld-kuma-push.sh"
 API_BIN="$ROOT/bin/palworld-api.sh"
 ANNOUNCE_SCRIPT="$ROOT/bin/palworld-announce.sh"
 SERVICE_NAME="palworld.service"
+WELCOME_SERVICE_NAME="palworld-welcome.service"
 APP_ID="2394010"
 MAINTENANCE_LOCK="$PALWORLD_DIR/.maintenance.lock"
 DEFER_STATE_FILE="$PALWORLD_DIR/update-deferred.state"
@@ -145,6 +146,12 @@ wait_for_api() {
 push_recovered_up() {
   if [ -x "$KUMA_SCRIPT" ]; then
     runuser -u steam -- "$KUMA_SCRIPT" || log "Palworld recovered, but the UP state could not be pushed to Uptime Kuma."
+  fi
+}
+
+start_welcome_service() {
+  if systemctl cat "$WELCOME_SERVICE_NAME" >/dev/null 2>&1; then
+    systemctl start "$WELCOME_SERVICE_NAME" || log "Palworld recovered, but $WELCOME_SERVICE_NAME could not be started."
   fi
 }
 
@@ -438,6 +445,7 @@ main() {
     log "Restarting $SERVICE_NAME after update."
     systemctl start "$SERVICE_NAME"
     if wait_for_api; then
+      start_welcome_service
       push_recovered_up
     else
       push_maintenance_down "Palworld redémarré, mais son API reste indisponible après la mise à jour"

@@ -1,11 +1,13 @@
 {
-  "version": 3,
+  "version": 4,
   "ok": true,
-  "revision": "3:2:5",
+  "revision": "4:2:5",
   "updatedAt": "2026-07-12T12:00:00-04:00",
   "recent": true,
+  "truncated": false,
   "summary": {
     "events": 2,
+    "totalEvents": 5,
     "firstAt": "2026-07-12T11:50:00-04:00",
     "lastAt": "2026-07-12T11:55:00-04:00",
     "types": {
@@ -44,13 +46,16 @@
       "guild": "Explorateurs",
       "base": "Atelier du nord",
       "title": "Production terminée",
-      "message": "Brian termine une nouvelle chaîne de production: 40 Lingot.",
+      "message": "Brian termine une production à Atelier du nord. 40 ressources produites sont prêtes. Stock de production actuel: 180.",
       "display": {
-        "headline": "Brian termine une nouvelle chaîne de production",
-        "body": "40 ressources confirmées dans les tampons de production.",
+        "headline": "Brian termine une production à Atelier du nord",
+        "body": "40 ressources produites sont prêtes. Stock de production actuel: 180.",
         "bullets": ["+40 Lingot"]
       },
-      "details": {},
+      "details": {
+        "items": [{ "name": "Lingot", "added": 40, "count": 180 }],
+        "total": 180
+      },
       "confidence": "confirmed",
       "icon": "assets/game/icons/items/example.webp",
       "source": "save"

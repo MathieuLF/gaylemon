@@ -20,6 +20,10 @@ Il contient:
 
 Le microsite fusionne les ressources par type. Il affiche la base, jamais le coffre exact.
 
+## Historique horaire
+
+`runtime/save-bases-history/` conserve une archive horaire du snapshot public des bases. Cet historique permet au journal des échos de rejouer les hausses de structures endommagées et de publier les raids sans recréer les événements déjà connus.
+
 ## Ce qui reste privé
 
 `runtime/private-save-bases.json` reste sur Ubuntu en mode `0600`.
