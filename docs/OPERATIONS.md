@@ -10,13 +10,7 @@ Depuis Windows:
 .\Gaylemon Ops Console.ps1
 ```
 
-Ou, depuis l'Explorateur:
-
-```text
-Gaylemon Ops Console.cmd
-```
-
-Le `.cmd` lance simplement PowerShell en UTF-8 avec l'ExecutionPolicy adaptée à cet outil local. Le vrai script reste `scripts\palworld-console.ps1`.
+Le lanceur racine prépare l'encodage de la console et délègue au vrai menu `scripts\palworld-console.ps1`.
 
 Commandes utiles:
 
@@ -223,6 +217,8 @@ portal/data/public-save-bases.json
 portal/data/public-save-diagnostics.json
 portal/data/public-events.json
 portal/data/public-events-recent.json
+portal/data/public-events-index.json
+portal/data/public-events-page-0001.json
 ```
 
 Synchronisations utiles:
@@ -235,7 +231,7 @@ Synchronisations utiles:
 .\scripts\sync-palworld-game-assets.ps1
 ```
 
-Les données joueurs, profils, Pals, bases et échos sont synchronisées à la minute. Le navigateur relit les exports toutes les 75 secondes pour laisser le temps aux JSON de se stabiliser. Le panneau technique `Données du monde` garde son dernier diagnostic publié et se rafraîchit une fois par jour vers 04:00.
+Les métriques rapides et les échos sont synchronisés à la minute. Les données joueurs, profils, Pals, bases et index publics passent par la synchronisation snapshot, admissible toutes les 15 minutes côté Windows. Le navigateur relit les exports toutes les 75 secondes pour laisser le temps aux JSON de se stabiliser. Le panneau technique `Données du monde` garde son dernier diagnostic publié et le rafraîchit aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
 
 Les projections publiques retirent les identifiants techniques, secrets, coordonnées brutes et détails de coffres.
 
@@ -252,6 +248,12 @@ Le collecteur `palworld-events.timer` alimente:
 Il publie les événements fiables: connexions, progression, captures déduites des compteurs, crafts, constructions regroupées, productions confirmées, recherches, bases, réparations, pêche et éclosions strictes.
 
 Il ne publie pas les destructions, transferts, récoltes ou attributions ambiguës.
+
+L'export public complet n'est pas plafonné: le terminal doit pouvoir afficher tous les échos publiés. Le flux `public-events-recent.json` reste limité aux derniers échos pour alléger le tableau de bord.
+
+La synchronisation Windows découpe aussi l'historique en `public-events-index.json` et `public-events-page-0001.json`, `public-events-page-0002.json`, etc. Ces fichiers ne remplacent pas l'export complet: ils servent seulement au chargement paresseux du terminal. Les filtres et recherches qui doivent couvrir tout l'historique peuvent toujours relire `public-events.json`.
+
+Les échos publics sont synchronisés à la minute avec le watcher local. Le tableau de bord relit le flux récent; le terminal paginé relit l'index et recharge la page visible quand la révision change.
 
 ## Validation courante
 

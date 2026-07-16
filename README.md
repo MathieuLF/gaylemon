@@ -1,6 +1,5 @@
 # Gaylémon
 
-[![Validation](https://github.com/MathieuLF/Gaylemon/actions/workflows/validation.yml/badge.svg)](https://github.com/MathieuLF/Gaylemon/actions/workflows/validation.yml)
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-2f855a.svg)](LICENSE)
 
 Gaylémon regroupe les outils autour d'un serveur Palworld privé: console d'exploitation, scripts Ubuntu, collecteurs, projections publiques et microsite.

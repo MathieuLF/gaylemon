@@ -20,6 +20,7 @@ echo
 ss -lunp | grep -E ':(8211|27015)\b' || true
 '@
 
+$remoteScript = $remoteScript.Replace("`r`n", "`n")
 $encodedScript = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($remoteScript))
 & ssh.exe $config.SshAlias "printf '%s' '$encodedScript' | base64 -d | bash"
 exit $LASTEXITCODE

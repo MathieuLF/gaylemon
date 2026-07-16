@@ -24,6 +24,7 @@ DEFAULT_RECENT_OUTPUT = Path("/home/gaylemon/Gaylemon/runtime/public-events-rece
 DEFAULT_SNAPSHOT = Path("/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json")
 DEFAULT_BASES_SNAPSHOT = Path("/home/gaylemon/Gaylemon/runtime/public-save-bases.json")
 DEFAULT_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-snapshot-history")
+DEFAULT_BASES_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-bases-history")
 DEFAULT_STATS = Path("/srv/storage/steam/servers/palworld/stats/stats.json")
 DEFAULT_RECOVERY_REPORT = Path(
     "/home/gaylemon/Gaylemon/runtime/events/palworld-events-recovery.json"
@@ -32,13 +33,26 @@ DEFAULT_RECOVERY_REPORT = Path(
 JOIN_RE = re.compile(r"\] \[LOG\] (?P<player>.+?) joined the server\.")
 LEAVE_RE = re.compile(r"\] \[LOG\] (?P<player>.+?) left the server\.")
 SESSION_EVENT_TOLERANCE_SECONDS = 120
+SAVE_ACTIVITY_TOLERANCE_SECONDS = 0
+POST_SESSION_SAVE_GRACE_SECONDS = 180
 RECONNECT_WINDOW_SECONDS = 120
 JOURNAL_UNITS = ("palworld.service", "palworld-update.service")
 STRUCTURED_EVENT_PREFIX = "GAYLEMON_EVENT"
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-PUBLIC_EVENT_VERSION = 3
+PUBLIC_EVENT_VERSION = 4
 DEFAULT_BACKFILL_FROM = "2026-07-09T00:00:00-04:00"
 RECENT_EVENT_LIMIT = 250
+CAPTURE_FINGERPRINT_RE = re.compile(r":capture:([^:]+):([^:]+):(\d+)$")
+NEW_RECORD_FIELDS = (
+    "uniqueItemsPickedUp",
+    "notesFound",
+    "arenaSoloClears",
+    "mutations",
+    "palRankups",
+    "raidBossDefeats",
+    "towerBossDefeats",
+)
+SESSION_BOUNDARY_EXEMPT_SAVE_TYPES = {"death", "recovery"}
 
 
 def now_iso() -> str:
@@ -70,6 +84,10 @@ def connect_database(path: Path) -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS events_occurred_at_idx
             ON events(occurred_at DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS events_type_occurred_at_idx
+            ON events(type, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS events_player_occurred_at_idx
+            ON events(player, occurred_at DESC);
         CREATE TABLE IF NOT EXISTS metadata (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -129,7 +147,7 @@ def add_event(
 ) -> None:
     details_json = None
     if details:
-        details_json = json.dumps(public_details(details), ensure_ascii=False, separators=(",", ":"))
+        details_json = details_json_payload(details)
     connection.execute(
         """
         INSERT OR IGNORE INTO events(
@@ -350,14 +368,8 @@ def collect_player_sessions(connection: sqlite3.Connection, stats_path: Path) ->
     except (OSError, ValueError, TypeError):
         return 0
 
-    players = payload.get("players") or {}
-    if not isinstance(players, dict):
-        return 0
-
     added = 0
-    for player_key, record in players.items():
-        if not isinstance(record, dict):
-            continue
+    for player_key, record in iter_player_records(payload):
         player = str(record.get("name") or "").strip()
         sessions = record.get("sessionHistory") or []
         if not player or not isinstance(sessions, list):
@@ -390,6 +402,172 @@ def collect_player_sessions(connection: sqlite3.Connection, stats_path: Path) ->
                 if connection.total_changes > before:
                     added += 1
     return added
+
+
+def iter_player_records(payload: dict):
+    players = payload.get("players") if isinstance(payload, dict) else None
+    if isinstance(players, dict):
+        for player_key, record in players.items():
+            if isinstance(record, dict):
+                yield str(player_key), record
+    elif isinstance(players, list):
+        for index, record in enumerate(players):
+            if not isinstance(record, dict):
+                continue
+            player = str(record.get("name") or "").strip()
+            player_key = str(record.get("id") or record.get("key") or player or index)
+            yield player_key, record
+
+
+def player_session_index(stats_path: Path) -> dict[str, list[tuple[datetime, datetime | None]]]:
+    try:
+        payload = json.loads(stats_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+
+    index: dict[str, list[tuple[datetime, datetime | None]]] = {}
+    for _player_key, record in iter_player_records(payload):
+        player = str(record.get("name") or "").strip()
+        if not player:
+            continue
+        sessions: list[tuple[datetime, datetime | None]] = []
+        for session in record.get("sessionHistory") or []:
+            if not isinstance(session, dict):
+                continue
+            started_at = parse_timestamp(str(session.get("startedAt") or ""))
+            if started_at is None:
+                continue
+            ended_at = parse_timestamp(str(session.get("endedAt") or "")) if session.get("endedAt") else None
+            sessions.append((started_at, ended_at))
+
+        current_started_at = parse_timestamp(str(record.get("currentSessionStartedAt") or ""))
+        if record.get("isOnline") and current_started_at is not None:
+            current_is_known = any(
+                ended_at is None
+                and abs((started_at - current_started_at).total_seconds()) <= SESSION_EVENT_TOLERANCE_SECONDS
+                for started_at, ended_at in sessions
+            )
+            if not current_is_known:
+                sessions.append((current_started_at, None))
+
+        if sessions:
+            index[player.casefold()] = sessions
+    return index
+
+
+def active_players_at(
+    sessions: dict[str, list[tuple[datetime, datetime | None]]],
+    occurred_at: str,
+    tolerance_seconds: int = SAVE_ACTIVITY_TOLERANCE_SECONDS,
+) -> set[str] | None:
+    if not sessions:
+        return None
+    target = parse_timestamp(occurred_at)
+    if target is None:
+        return None
+    tolerance = timedelta(seconds=max(0, tolerance_seconds))
+    active = set()
+    for player, player_sessions in sessions.items():
+        if player_active_at(player_sessions, target, tolerance):
+            active.add(player)
+    return active
+
+
+def save_activity_time_for_player(
+    connection: sqlite3.Connection,
+    sessions: dict[str, list[tuple[datetime, datetime | None]]],
+    player: str,
+    occurred_at: str,
+    grace_seconds: int = POST_SESSION_SAVE_GRACE_SECONDS,
+) -> str | None:
+    if not sessions:
+        return occurred_at
+    target = parse_timestamp(occurred_at)
+    if target is None:
+        return None
+    player_key = str(player or "").casefold()
+    player_sessions = sessions.get(player_key)
+    if not player_sessions:
+        return None
+    grace = timedelta(seconds=max(0, grace_seconds))
+    for started_at, ended_at in player_sessions:
+        if target < started_at:
+            continue
+        if ended_at is None or target <= ended_at:
+            return occurred_at
+        if target <= ended_at + grace:
+            return session_close_time(connection, player_key, target, ended_at, grace)
+    return None
+
+
+def session_activity_times_at(
+    connection: sqlite3.Connection,
+    sessions: dict[str, list[tuple[datetime, datetime | None]]],
+    occurred_at: str,
+) -> dict[str, str] | None:
+    if not sessions:
+        return None
+    result = {}
+    for player in sessions:
+        event_time = save_activity_time_for_player(connection, sessions, player, occurred_at)
+        if event_time:
+            result[player] = event_time
+    return result
+
+
+def session_close_time(
+    connection: sqlite3.Connection,
+    player_key: str,
+    target: datetime,
+    ended_at: datetime,
+    grace: timedelta,
+) -> str:
+    row = connection.execute(
+        """
+        SELECT occurred_at
+        FROM events
+        WHERE type = 'leave'
+          AND player IS NOT NULL
+          AND lower(player) = lower(?)
+          AND occurred_at <= ?
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT 1
+        """,
+        (player_key, target.isoformat()),
+    ).fetchone()
+    if row:
+        journal_left_at = parse_timestamp(row["occurred_at"])
+        if journal_left_at and target - journal_left_at <= grace:
+            return journal_left_at.isoformat()
+    return ended_at.isoformat()
+
+
+def player_active_at(
+    sessions: list[tuple[datetime, datetime | None]],
+    target: datetime,
+    tolerance: timedelta,
+) -> bool:
+    for started_at, ended_at in sessions:
+        if target < started_at - tolerance:
+            continue
+        if ended_at is not None and target > ended_at + tolerance:
+            continue
+        return True
+    return False
+
+
+def activity_player_keys(activity) -> set[str] | None:
+    if activity is None:
+        return None
+    if isinstance(activity, dict):
+        return set(activity)
+    return set(activity)
+
+
+def activity_event_time(activity, player: str | None, default: str) -> str:
+    if isinstance(activity, dict) and player:
+        return str(activity.get(str(player).casefold()) or default)
+    return default
 
 
 def public_event_key(fingerprint: str) -> str:
@@ -428,6 +606,12 @@ def details_from_row(row: sqlite3.Row) -> dict:
     except (TypeError, ValueError):
         return {}
     return public_details(value) if isinstance(value, dict) else {}
+
+
+def details_json_payload(details: dict | None) -> str | None:
+    if not details:
+        return None
+    return json.dumps(public_details(details), ensure_ascii=False, separators=(",", ":"))
 
 
 def event_display(row: sqlite3.Row, details: dict) -> dict:
@@ -667,6 +851,13 @@ def snapshot_player_state(player: dict) -> dict:
             "campsConquered": int(records.get("campsConquered") or 0),
             "fishCaught": int(records.get("fishCaught") or 0),
             "itemsCrafted": int(records.get("itemsCrafted") or 0),
+            "uniqueItemsPickedUp": int(records.get("uniqueItemsPickedUp") or 0),
+            "notesFound": int(records.get("notesFound") or 0),
+            "arenaSoloClears": int(records.get("arenaSoloClears") or 0),
+            "mutations": int(records.get("mutations") or 0),
+            "palRankups": int(records.get("palRankups") or 0),
+            "raidBossDefeats": int(records.get("raidBossDefeats") or 0),
+            "towerBossDefeats": int(records.get("towerBossDefeats") or 0),
         },
         "fishDetails": {
             str(row.get("asset") or row.get("name") or "").casefold(): {
@@ -753,6 +944,27 @@ def bases_state(payload: dict | None) -> dict:
     return bases
 
 
+def death_drops_state(payload: dict | None) -> dict:
+    if not isinstance(payload, dict):
+        return {}
+    world = payload.get("world") if isinstance(payload.get("world"), dict) else {}
+    drops = {}
+    for row in world.get("deathDrops") or []:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("key") or "").strip()
+        if not key:
+            continue
+        drops[key] = {
+            "key": key,
+            "type": str(row.get("type") or "death-drop"),
+            "label": str(row.get("label") or "Sac de récupération"),
+            "player": str(row.get("player") or "").strip() or None,
+            "position": row.get("position") if isinstance(row.get("position"), dict) else None,
+        }
+    return drops
+
+
 def snapshot_state(payload: dict, bases_payload: dict | None = None) -> dict:
     players = {}
     for player in payload.get("players") or []:
@@ -760,7 +972,11 @@ def snapshot_state(payload: dict, bases_payload: dict | None = None) -> dict:
             continue
         state = snapshot_player_state(player)
         players[state["name"].casefold()] = state
-    return {"players": players, "bases": bases_state(bases_payload or payload)}
+    return {
+        "players": players,
+        "bases": bases_state(bases_payload or payload),
+        "deathDrops": death_drops_state(payload),
+    }
 
 
 def plural(value: int, singular: str, plural_form: str | None = None) -> str:
@@ -809,12 +1025,132 @@ def quantity_bullets(rows: list[dict], prefix: str = "+") -> list[str]:
     ]
 
 
-def quantity_labels(rows: list[dict]) -> list[str]:
-    return [
-        f"{int(row.get('added') or row.get('count') or 0)} {row.get('name')}"
-        for row in rows
-        if int(row.get("added") or row.get("count") or 0) > 0 and row.get("name")
-    ]
+def quantity_total_from_bullets(bullets: list) -> int:
+    total = 0
+    for bullet in bullets or []:
+        match = re.match(r"^[+-]?(\d+)", str(bullet or ""))
+        if match:
+            total += int(match.group(1))
+    return total
+
+
+def delta_event(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+    event_type: str,
+    player_key: str,
+    player_name: str,
+    record_key: str,
+    old_records: dict,
+    records: dict,
+    title: str,
+    title_plural: str | None = None,
+    singular: str,
+    plural_label: str | None = None,
+    verb: str = "ajoute",
+    total_label: str = "Total cumulé",
+    confidence: str = "confirmed",
+) -> None:
+    total = int(records.get(record_key) or 0)
+    previous = int(old_records.get(record_key) or 0)
+    delta = total - previous
+    if delta <= 0:
+        return
+    label = plural(delta, singular, plural_label)
+    display_title = title if delta == 1 else (title_plural or title)
+    body = f"{player_name} {verb} {delta} {label}. {total_label}: {total}."
+    add_event(
+        connection,
+        fingerprint=f"save:{occurred_at}:{event_type}:{player_key}:{record_key}:{total}",
+        occurred_at=occurred_at,
+        event_type=event_type,
+        player=player_name,
+        title=display_title,
+        message=body,
+        source="save",
+        confidence=confidence,
+        details={
+            "headline": display_title,
+            "body": body,
+            "bullets": [f"+{delta} {label}"],
+            "total": total,
+        },
+    )
+
+
+def detail_items_quantity_total(details: dict, key: str) -> int:
+    total = 0
+    for item in details.get("items") or []:
+        if isinstance(item, dict):
+            total += int(item.get(key) or 0)
+    return total
+
+
+def itemized_added_total(details: dict) -> int:
+    return detail_items_quantity_total(details, "added") or quantity_total_from_bullets(details.get("bullets") or [])
+
+
+def production_event_headline(player: str | None, base: str | None, fallback: str) -> str:
+    player = str(player or "").strip()
+    base = str(base or "").strip()
+    if player and base:
+        return f"{player} termine une production à {base}"
+    if player:
+        return f"{player} termine une production"
+    if base:
+        return f"{base} termine une production"
+    return fallback
+
+
+def normalized_itemized_event(row: sqlite3.Row, details: dict) -> tuple[str, str, str | None] | None:
+    event_type = row["type"]
+    if event_type not in {"craft", "fishing", "production"}:
+        return None
+
+    added = itemized_added_total(details)
+    player = str(row["player"] or "").strip()
+    if added <= 0:
+        return None
+
+    normalized = dict(details)
+    if event_type == "craft":
+        total = int(normalized.get("total") or 0)
+        if not player or total <= 0:
+            return None
+        title = "Fabrication terminée" if added == 1 else "Fabrications terminées"
+        message = (
+            f"{player} termine {added} {plural(added, 'fabrication')}. "
+            f"Total cumulé: {total}."
+        )
+        normalized.update({"headline": title, "body": message, "total": total})
+        return title, message, details_json_payload(normalized)
+
+    if event_type == "fishing":
+        total = int(normalized.get("total") or 0)
+        if not player or total <= 0:
+            return None
+        title = "Prise de pêche" if added == 1 else "Pêche fructueuse"
+        message = (
+            f"{player} ramène {added} {plural(added, 'prise de pêche', 'prises de pêche')}. "
+            f"Total cumulé: {total}."
+        )
+        normalized.update({"headline": title, "body": message, "total": total})
+        return title, message, details_json_payload(normalized)
+
+    total = int(normalized.get("total") or detail_items_quantity_total(normalized, "count"))
+    headline = production_event_headline(row["player"], row["base"], str(row["title"] or "Production terminée"))
+    ready = (
+        "1 ressource produite est prête"
+        if added == 1
+        else f"{added} ressources produites sont prêtes"
+    )
+    body = f"{ready}. Stock de production actuel: {total}." if total > 0 else f"{ready}."
+    message = f"{headline}. {body}"
+    if total > 0:
+        normalized["total"] = total
+    normalized.update({"headline": headline, "body": body})
+    return str(row["title"] or "Production terminée"), message, details_json_payload(normalized)
 
 
 def compare_enriched_progress(
@@ -848,7 +1184,7 @@ def compare_enriched_progress(
                 )
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:capture:{key}:{species_key}:{count}",
+                fingerprint=f"save:capture:{key}:{species_key}:{count}",
                 occurred_at=occurred_at,
                 event_type="capture",
                 player=name,
@@ -864,7 +1200,7 @@ def compare_enriched_progress(
         if old_challenge < target <= challenge:
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:capture-challenge:{key}:{species_key}:{target}",
+                fingerprint=f"save:capture-challenge:{key}:{species_key}:{target}",
                 occurred_at=occurred_at,
                 event_type="challenge",
                 player=name,
@@ -924,18 +1260,11 @@ def compare_enriched_progress(
         total = int(records.get("itemsCrafted") or 0)
         added_total = sum(int(item["added"]) for item in crafted)
         main = crafted[0]
-        title = "Fabrication terminée" if len(crafted) == 1 else "Fabrications terminées"
-        if len(crafted) == 1:
-            message = (
-                f"{name} fabrique {main['added']} {main['name']}. "
-                f"Total cumulé: {total}."
-            )
-        else:
-            message = (
-                f"{name} termine {added_total} fabrications: "
-                f"{french_list(quantity_labels(crafted))}. "
-                f"Total cumulé: {total}."
-            )
+        title = "Fabrication terminée" if added_total == 1 else "Fabrications terminées"
+        message = (
+            f"{name} termine {added_total} {plural(added_total, 'fabrication')}. "
+            f"Total cumulé: {total}."
+        )
         add_event(
             connection,
             fingerprint=f"save:{occurred_at}:craft:{key}:{total}",
@@ -965,7 +1294,7 @@ def compare_enriched_progress(
         main = fish[0]
         title = "Prise de pêche" if added_total == 1 else "Pêche fructueuse"
         message = (
-            f"{name} pêche {french_list(quantity_labels(fish))}. "
+            f"{name} ramène {added_total} {plural(added_total, 'prise de pêche', 'prises de pêche')}. "
             f"Total cumulé: {total}."
         )
         add_event(
@@ -1031,10 +1360,201 @@ def compare_enriched_progress(
             source="save",
         )
 
+    delta_event(
+        connection,
+        occurred_at=occurred_at,
+        event_type="raid",
+        player_key=key,
+        player_name=name,
+        record_key="raidBossDefeats",
+        old_records=old_records,
+        records=records,
+        title="Boss de raid vaincu",
+        title_plural="Boss de raid vaincus",
+        singular="boss de raid",
+        verb="vainc",
+    )
+    if int(player.get("bosses") or 0) <= int(old.get("bosses") or 0):
+        delta_event(
+            connection,
+            occurred_at=occurred_at,
+            event_type="boss",
+            player_key=key,
+            player_name=name,
+            record_key="towerBossDefeats",
+            old_records=old_records,
+            records=records,
+            title="Boss de tour vaincu",
+            title_plural="Boss de tour vaincus",
+            singular="boss de tour",
+            verb="vainc",
+        )
+    delta_event(
+        connection,
+        occurred_at=occurred_at,
+        event_type="arena",
+        player_key=key,
+        player_name=name,
+        record_key="arenaSoloClears",
+        old_records=old_records,
+        records=records,
+        title="Arène solo terminée",
+        title_plural="Arènes solo terminées",
+        singular="arène solo",
+        plural_label="arènes solo",
+        verb="termine",
+    )
+    delta_event(
+        connection,
+        occurred_at=occurred_at,
+        event_type="note",
+        player_key=key,
+        player_name=name,
+        record_key="notesFound",
+        old_records=old_records,
+        records=records,
+        title="Note trouvée",
+        title_plural="Notes trouvées",
+        singular="note",
+        verb="trouve",
+    )
+    delta_event(
+        connection,
+        occurred_at=occurred_at,
+        event_type="pal",
+        player_key=key,
+        player_name=name,
+        record_key="palRankups",
+        old_records=old_records,
+        records=records,
+        title="Pal amélioré",
+        title_plural="Pals améliorés",
+        singular="amélioration de Pal",
+        plural_label="améliorations de Pal",
+        verb="réalise",
+    )
+    delta_event(
+        connection,
+        occurred_at=occurred_at,
+        event_type="mutation",
+        player_key=key,
+        player_name=name,
+        record_key="mutations",
+        old_records=old_records,
+        records=records,
+        title="Mutation confirmée",
+        title_plural="Mutations confirmées",
+        singular="mutation",
+        verb="confirme",
+    )
+    delta_event(
+        connection,
+        occurred_at=occurred_at,
+        event_type="loot",
+        player_key=key,
+        player_name=name,
+        record_key="uniqueItemsPickedUp",
+        old_records=old_records,
+        records=records,
+        title="Objet unique découvert",
+        title_plural="Objets uniques découverts",
+        singular="type d'objet unique",
+        plural_label="types d'objets uniques",
+        verb="découvre",
+    )
 
-def base_event_player(base: dict) -> str | None:
+
+def base_event_player(base: dict, active_players: set[str] | None = None) -> str | None:
     players = base.get("players") or []
+    if active_players is not None:
+        active_base_players = [
+            str(player)
+            for player in players
+            if str(player).casefold() in active_players
+        ]
+        return active_base_players[0] if len(active_base_players) == 1 else None
     return players[0] if len(players) == 1 else None
+
+
+def death_drop_event_details(row: dict, status: str) -> dict:
+    details = {
+        "headline": str(row.get("label") or "Sac de récupération"),
+        "body": "Signal confirmé dans la sauvegarde du monde.",
+        "dropType": str(row.get("type") or "death-drop"),
+        "status": status,
+    }
+    if isinstance(row.get("position"), dict):
+        details["position"] = row["position"]
+    return details
+
+
+def french_de_name(name: str) -> str:
+    stripped = str(name or "").strip()
+    if not stripped:
+        return ""
+    return f"d'{stripped}" if stripped[:1].casefold() in "aeiouyàâäéèêëîïôöùûü" else f"de {stripped}"
+
+
+def compare_death_drop_events(
+    connection: sqlite3.Connection,
+    previous: dict,
+    current: dict,
+    occurred_at: str,
+) -> None:
+    old_drops = previous.get("deathDrops") or {}
+    new_drops = current.get("deathDrops") or {}
+    for key, row in new_drops.items():
+        if key in old_drops:
+            continue
+        label = str(row.get("label") or "Sac de récupération")
+        player = row.get("player")
+        message = (
+            f"Le {label.casefold()} {french_de_name(player)} apparaît sur Palpagos."
+            if player
+            else f"Un {label.casefold()} apparaît sur Palpagos."
+        )
+        add_event(
+            connection,
+            fingerprint=f"save:{occurred_at}:death-drop:new:{key}",
+            occurred_at=occurred_at,
+            event_type="death",
+            player=player,
+            title=f"{label} détecté",
+            message=message,
+            source="save",
+            confidence="confirmed" if player else "derived",
+            details={
+                **death_drop_event_details(row, "appeared"),
+                "body": message,
+            },
+        )
+
+    for key, row in old_drops.items():
+        if key in new_drops:
+            continue
+        label = str(row.get("label") or "Sac de récupération")
+        player = row.get("player")
+        message = (
+            f"Le {label.casefold()} {french_de_name(player)} n'est plus présent dans la sauvegarde."
+            if player
+            else f"Un {label.casefold()} n'est plus présent dans la sauvegarde."
+        )
+        add_event(
+            connection,
+            fingerprint=f"save:{occurred_at}:death-drop:cleared:{key}",
+            occurred_at=occurred_at,
+            event_type="recovery",
+            player=player,
+            title="Sac récupéré ou disparu",
+            message=message,
+            source="save",
+            confidence="derived",
+            details={
+                **death_drop_event_details(row, "cleared"),
+                "headline": "Sac récupéré ou disparu",
+                "body": message,
+            },
+        )
 
 
 def compare_base_events(
@@ -1042,19 +1562,24 @@ def compare_base_events(
     previous: dict,
     current: dict,
     occurred_at: str,
+    active_players: set[str] | dict[str, str] | None = None,
 ) -> None:
     old_bases = previous.get("bases") or {}
     new_bases = current.get("bases") or {}
+    active_player_keys = activity_player_keys(active_players)
     for key, base in new_bases.items():
         old = old_bases.get(key)
         name = base["name"]
         guild = base.get("guild") or None
-        player = base_event_player(base)
+        player = base_event_player(base, active_player_keys)
+        event_occurred_at = activity_event_time(active_players, player, occurred_at)
         if old is None:
+            if active_player_keys is not None and player is None:
+                continue
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:base:new:{key}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{event_occurred_at}:base:new:{key}",
+                occurred_at=event_occurred_at,
                 event_type="base",
                 player=player,
                 guild=guild,
@@ -1075,18 +1600,21 @@ def compare_base_events(
             old.get("structureHighlights") or {},
         )
         total_delta = int(base.get("structuresTotal") or 0) - int(old.get("structuresTotal") or 0)
-        if total_delta > 0 and structure_changes:
+        if total_delta > 0 and structure_changes and (active_player_keys is None or player is not None):
             bullets = quantity_bullets(structure_changes)
             headline = (
                 f"{player} agrandit {name}"
                 if player
                 else f"{name} s'agrandit"
             )
-            message = f"{headline} ({', '.join(bullets)})."
+            message = (
+                f"{headline}. "
+                f"{total_delta} {plural(total_delta, 'nouvelle structure confirmée', 'nouvelles structures confirmées')}."
+            )
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:build:{key}:{base.get('structuresTotal')}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{event_occurred_at}:build:{key}:{base.get('structuresTotal')}",
+                occurred_at=event_occurred_at,
                 event_type="build",
                 player=player,
                 guild=guild,
@@ -1107,20 +1635,28 @@ def compare_base_events(
             base.get("productionItems") or {},
             old.get("productionItems") or {},
         )
-        if production_changes:
+        if production_changes and (active_player_keys is None or player is not None):
             produced = sum(int(item["added"]) for item in production_changes)
+            production_total = sum(int(item["count"]) for item in base.get("productionItems", {}).values())
             headline = (
-                f"{player} termine une nouvelle chaîne de production"
+                f"{player} termine une production à {name}"
                 if player
                 else f"{name} termine une production"
             )
+            ready = (
+                "1 ressource produite est prête"
+                if produced == 1
+                else f"{produced} ressources produites sont prêtes"
+            )
+            body = f"{ready}. Stock de production actuel: {production_total}."
             message = (
-                f"{headline}: {french_list(quantity_labels(production_changes))}."
+                f"{headline}. "
+                f"{body}"
             )
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:production:{key}:{sum(item['count'] for item in base.get('productionItems', {}).values())}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{event_occurred_at}:production:{key}:{production_total}",
+                occurred_at=event_occurred_at,
                 event_type="production",
                 player=player,
                 guild=guild,
@@ -1131,15 +1667,16 @@ def compare_base_events(
                 source="save",
                 details={
                     "headline": headline,
-                    "body": f"{produced} ressource{'' if produced == 1 else 's'} confirmée{'' if produced == 1 else 's'} dans les tampons de production.",
+                    "body": body,
                     "bullets": quantity_bullets(production_changes),
                     "items": production_changes,
+                    "total": production_total,
                 },
             )
 
         old_damaged = int(old.get("structuresDamaged") or 0)
         damaged = int(base.get("structuresDamaged") or 0)
-        if damaged < old_damaged:
+        if damaged < old_damaged and (active_player_keys is None or player is not None):
             repaired = old_damaged - damaged
             headline = (
                 f"{player} remet {name} en état"
@@ -1148,8 +1685,8 @@ def compare_base_events(
             )
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:repair:{key}:{damaged}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{event_occurred_at}:repair:{key}:{damaged}",
+                occurred_at=event_occurred_at,
                 event_type="repair",
                 player=player,
                 guild=guild,
@@ -1165,7 +1702,7 @@ def compare_base_events(
             )
 
         research_delta = int(base.get("researchCompleted") or 0) - int(old.get("researchCompleted") or 0)
-        if research_delta > 0:
+        if research_delta > 0 and (active_player_keys is None or player is not None):
             headline = (
                 f"{player} fait progresser la recherche de guilde"
                 if player
@@ -1173,8 +1710,8 @@ def compare_base_events(
             )
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:research:{key}:{base.get('researchCompleted')}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{event_occurred_at}:research:{key}:{base.get('researchCompleted')}",
+                occurred_at=event_occurred_at,
                 event_type="research",
                 player=player,
                 guild=guild,
@@ -1196,26 +1733,37 @@ def compare_snapshots(
     current: dict,
     occurred_at: str,
     known_players: set[str],
+    active_players: set[str] | dict[str, str] | None = None,
 ) -> None:
     old_players = previous.get("players") or {}
     new_players = current.get("players") or {}
-    compare_base_events(connection, previous, current, occurred_at)
+    active_player_keys = activity_player_keys(active_players)
+    if "deathDrops" not in previous:
+        previous["deathDrops"] = current.get("deathDrops", {})
+    else:
+        compare_death_drop_events(connection, previous, current, occurred_at)
+    compare_base_events(connection, previous, current, occurred_at, active_players)
 
     for key, player in new_players.items():
         old = old_players.get(key)
         name = player["name"]
+        player_active = active_player_keys is None or key in active_player_keys
+        player_occurred_at = activity_event_time(active_players, key, occurred_at)
         if old is None:
-            if key not in known_players:
+            if key not in known_players and player_active:
                 add_event(
                     connection,
-                    fingerprint=f"save:{occurred_at}:new-player:{key}",
-                    occurred_at=occurred_at,
+                    fingerprint=f"save:{player_occurred_at}:new-player:{key}",
+                    occurred_at=player_occurred_at,
                     event_type="discovery",
                     player=name,
                     title="Nouvel aventurier",
                     message=f"{name} laisse sa première trace dans les chroniques.",
                     source="save",
                 )
+            known_players.add(key)
+            continue
+        if not player_active:
             known_players.add(key)
             continue
 
@@ -1234,14 +1782,20 @@ def compare_snapshots(
         ):
             if field not in old:
                 old[field] = player.get(field, {})
+        old_records = old.get("records") if isinstance(old.get("records"), dict) else {}
+        old["records"] = old_records
+        current_records = player.get("records") or {}
+        for field in NEW_RECORD_FIELDS:
+            if field not in old_records:
+                old_records[field] = current_records.get(field, 0)
 
-        compare_enriched_progress(connection, old, player, occurred_at, key)
+        compare_enriched_progress(connection, old, player, player_occurred_at, key)
 
         if player["level"] > old["level"]:
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:level:{key}:{player['level']}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{player_occurred_at}:level:{key}:{player['level']}",
+                occurred_at=player_occurred_at,
                 event_type="level",
                 player=name,
                 title="Niveau supérieur",
@@ -1274,8 +1828,8 @@ def compare_snapshots(
                 message += f" {species_label}: {french_list([item['name'] for item in new_species])}."
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:pals:{key}:{player['pals']}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{player_occurred_at}:pals:{key}:{player['pals']}",
+                occurred_at=player_occurred_at,
                 event_type="collection",
                 player=name,
                 title="Collection enrichie",
@@ -1288,8 +1842,15 @@ def compare_snapshots(
         technology_delta = player["technologies"] - old["technologies"]
         if quest_delta > 0 or technology_delta > 0:
             achievements = []
-            if quest_delta > 0:
-                achievements.append(f"{quest_delta} {plural(quest_delta, 'quête')} terminée{'' if quest_delta == 1 else 's'}")
+            new_quest_details = set((player.get("questDetails") or {}).keys())
+            old_quest_details = set((old.get("questDetails") or {}).keys())
+            detailed_quest_delta = len(new_quest_details - old_quest_details)
+            undetailed_quest_delta = max(0, quest_delta - detailed_quest_delta)
+            if undetailed_quest_delta > 0:
+                achievements.append(
+                    f"{undetailed_quest_delta} {plural(undetailed_quest_delta, 'quête')} "
+                    f"terminée{'' if undetailed_quest_delta == 1 else 's'}"
+                )
             if technology_delta > 0:
                 new_technologies = [
                     technology
@@ -1308,17 +1869,18 @@ def compare_snapshots(
                         f"{technology_delta} nouvelle{'' if technology_delta == 1 else 's'} "
                         f"{plural(technology_delta, 'technologie')}"
                     )
-            add_event(
-                connection,
-                fingerprint=f"save:{occurred_at}:progress:{key}:{player['quests']}:{player['technologies']}",
-                occurred_at=occurred_at,
-                event_type="progress",
-                player=name,
-                title="Nouvelle avancée",
-                message=f"{name} progresse: {'; '.join(achievements)}.",
-                icon=new_technologies[0].get("icon") if technology_delta > 0 and new_technologies else None,
-                source="save",
-            )
+            if achievements:
+                add_event(
+                    connection,
+                    fingerprint=f"save:{player_occurred_at}:progress:{key}:{player['quests']}:{player['technologies']}",
+                    occurred_at=player_occurred_at,
+                    event_type="progress",
+                    player=name,
+                    title="Nouvelle avancée",
+                    message=f"{name} progresse: {'; '.join(achievements)}.",
+                    icon=new_technologies[0].get("icon") if technology_delta > 0 and new_technologies else None,
+                    source="save",
+                )
 
         boss_delta = player["bosses"] - int(old.get("bosses") or 0)
         if boss_delta > 0:
@@ -1338,9 +1900,9 @@ def compare_snapshots(
                 message += f" Adversaire{'' if len(new_bosses) == 1 else 's'} identifié{'' if len(new_bosses) == 1 else 's'}: {boss_names}."
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:boss:{key}:{player['bosses']}",
-                occurred_at=occurred_at,
-                event_type="discovery",
+                fingerprint=f"save:{player_occurred_at}:boss:{key}:{player['bosses']}",
+                occurred_at=player_occurred_at,
+                event_type="boss",
                 player=name,
                 title="Boss vaincu",
                 message=message,
@@ -1355,8 +1917,8 @@ def compare_snapshots(
         if new_fast_travel:
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:travel:{key}:{len(player['fastTravel'])}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{player_occurred_at}:travel:{key}:{len(player['fastTravel'])}",
+                occurred_at=player_occurred_at,
                 event_type="discovery",
                 player=name,
                 title="Nouveau point de voyage",
@@ -1373,8 +1935,8 @@ def compare_snapshots(
         if relic_changes:
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:relics:{key}:{sum(item['rank'] for item in player['relicRanks'].values())}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{player_occurred_at}:relics:{key}:{sum(item['rank'] for item in player['relicRanks'].values())}",
+                occurred_at=player_occurred_at,
                 event_type="progress",
                 player=name,
                 title="Pouvoir renforcé",
@@ -1385,8 +1947,8 @@ def compare_snapshots(
         if player["campLevel"] > old["campLevel"]:
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:camp:{key}:{player['campLevel']}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{player_occurred_at}:camp:{key}:{player['campLevel']}",
+                occurred_at=player_occurred_at,
                 event_type="camp",
                 player=name,
                 title="Camp amélioré",
@@ -1396,8 +1958,8 @@ def compare_snapshots(
         elif player["bases"] > old["bases"]:
             add_event(
                 connection,
-                fingerprint=f"save:{occurred_at}:bases:{key}:{player['bases']}",
-                occurred_at=occurred_at,
+                fingerprint=f"save:{player_occurred_at}:bases:{key}:{player['bases']}",
+                occurred_at=player_occurred_at,
                 event_type="camp",
                 player=name,
                 title="Nouvelle base",
@@ -1410,6 +1972,7 @@ def backfill_capture_history(
     connection: sqlite3.Connection,
     snapshot_path: Path,
     history_path: Path,
+    stats_path: Path | None = None,
 ) -> dict:
     schema_version = 1
     if int(metadata_get(connection, "capture_history_schema", 0) or 0) >= schema_version:
@@ -1430,20 +1993,25 @@ def backfill_capture_history(
     events_before = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
     previous = None
     snapshots = 0
+    sessions = player_session_index(stats_path) if stats_path is not None else {}
     for occurred_at, payload in sorted(
         candidates.items(),
         key=lambda item: parse_timestamp(item[0]) or datetime.min.replace(tzinfo=timezone.utc),
     ):
         current = snapshot_state(payload)
+        active_players = session_activity_times_at(connection, sessions, occurred_at)
         if previous is not None:
             for key, player in current["players"].items():
+                if active_players is not None and key not in active_players:
+                    continue
                 old = (previous.get("players") or {}).get(key)
                 if old is not None:
+                    player_occurred_at = activity_event_time(active_players, key, occurred_at)
                     compare_enriched_progress(
                         connection,
                         old,
                         player,
-                        occurred_at,
+                        player_occurred_at,
                         key,
                         capture_only=True,
                     )
@@ -1459,11 +2027,27 @@ def backfill_capture_history(
     }
 
 
+def backfill_raid_history(
+    connection: sqlite3.Connection,
+    bases_snapshot_path: Path,
+    bases_history_path: Path,
+    stats_path: Path | None = None,
+) -> dict:
+    return {
+        "status": "skipped",
+        "reason": "derived-raid-backfill-disabled",
+        "snapshots": 0,
+        "processed": [],
+        "eventsAdded": 0,
+    }
+
+
 def collect_snapshots(
     connection: sqlite3.Connection,
     snapshot_path: Path,
     history_path: Path,
     bases_path: Path | None = None,
+    stats_path: Path | None = None,
 ) -> dict:
     previous = metadata_get(connection, "save_state")
     previous_last_save_at = str(metadata_get(connection, "last_save_at", ""))
@@ -1471,6 +2055,7 @@ def collect_snapshots(
     last_save_timestamp = parse_timestamp(last_save_at)
     known_players = set(metadata_get(connection, "known_players", []))
     events_before = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
+    sessions = player_session_index(stats_path) if stats_path is not None else {}
 
     candidates: dict[str, tuple[dict, str, str | None]] = {}
     archive_hours = set()
@@ -1508,10 +2093,11 @@ def collect_snapshots(
         ):
             continue
         current = snapshot_state(payload, bases_payload if source == "current" else None)
+        active_players = session_activity_times_at(connection, sessions, occurred_at)
         if previous is None:
             known_players.update(current["players"].keys())
         else:
-            compare_snapshots(connection, previous, current, occurred_at, known_players)
+            compare_snapshots(connection, previous, current, occurred_at, known_players, active_players)
         previous = current
         last_save_at = occurred_at
         last_save_timestamp = occurred_timestamp
@@ -1672,6 +2258,7 @@ def backfill_archives_checkpoint(
 
     events_before = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
     imported = []
+    sessions = player_session_index(stats_path)
     for hour_key, path in candidates[: max(1, budget)]:
         payload = load_snapshot(path)
         occurred_at = str(payload.get("updatedAt") or "") if payload else ""
@@ -1680,7 +2267,14 @@ def backfill_archives_checkpoint(
             continue
         current = snapshot_state(payload)
         if previous is not None:
-            compare_snapshots(connection, previous, current, occurred_at, set(metadata_get(connection, "known_players", [])))
+            compare_snapshots(
+                connection,
+                previous,
+                current,
+                occurred_at,
+                set(metadata_get(connection, "known_players", [])),
+                session_activity_times_at(connection, sessions, occurred_at),
+            )
         previous = current
         processed.add(hour_key)
         imported.append(hour_key)
@@ -1696,6 +2290,245 @@ def backfill_archives_checkpoint(
         "importedHours": imported,
         "eventsAdded": events_after - events_before,
         "remaining": max(0, len(candidates) - len(imported)),
+    }
+
+
+ONE_TIME_DEDUPE_TYPES = {"quest", "challenge", "discovery"}
+
+
+def duplicate_event_identity(row: sqlite3.Row) -> tuple[str, str, str, str] | None:
+    if row["type"] not in ONE_TIME_DEDUPE_TYPES:
+        return None
+    message = re.sub(r"\s+", " ", str(row["message"] or "").strip()).casefold()
+    if not message:
+        return None
+    return (
+        str(row["type"] or ""),
+        str(row["player"] or "").casefold(),
+        str(row["title"] or "").casefold(),
+        message,
+    )
+
+
+def duplicate_capture_identity(row: sqlite3.Row) -> tuple[str, str, int] | None:
+    if row["type"] != "capture":
+        return None
+    match = CAPTURE_FINGERPRINT_RE.search(str(row["fingerprint"] or ""))
+    if not match:
+        return None
+    player_key, species_key, total = match.groups()
+    return (player_key.casefold(), species_key.casefold(), int(total))
+
+
+def capture_species_from_message(message: str) -> str | None:
+    text = str(message or "").strip()
+    for pattern in (
+        r"^.+? capture \d+ (.+?)\. Total enregistré: \d+\.$",
+        r"^.+? capture (.+?) pour la première fois\.$",
+        r"^.+? inscrit (.+?) dans son Paldex avec \d+ captures\.$",
+    ):
+        match = re.match(pattern, text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def normalized_capture_event(
+    row: sqlite3.Row,
+    previous_total: int,
+) -> tuple[str, str] | None:
+    identity = duplicate_capture_identity(row)
+    if identity is None:
+        return None
+    _player_key, species_key, total = identity
+    if total <= previous_total:
+        return None
+    species = capture_species_from_message(str(row["message"] or "")) or species_key
+    player = str(row["player"] or "").strip()
+    if not player:
+        return None
+    if previous_total == 0 and total == 1:
+        title = "Première capture"
+        message = f"{player} capture {species} pour la première fois."
+    elif previous_total == 0:
+        title = "Première capture"
+        message = f"{player} inscrit {species} dans son Paldex avec {total} captures."
+    else:
+        added = total - previous_total
+        title = "Capture réussie"
+        message = f"{player} capture {added} {species}. Total enregistré: {total}."
+    if title == row["title"] and message == row["message"]:
+        return None
+    return title, message
+
+
+def normalize_event_history(connection: sqlite3.Connection) -> dict:
+    rows = connection.execute(
+        """
+        SELECT id, fingerprint, occurred_at, type, player, guild, base, title,
+               message, icon, source, details_json, confidence
+        FROM events
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+
+    itemized_updated = 0
+    for row in rows:
+        details = details_from_row(row)
+        normalized = normalized_itemized_event(row, details)
+        if normalized is None:
+            continue
+        title, message, details_json = normalized
+        if title == row["title"] and message == row["message"] and details_json == row["details_json"]:
+            continue
+        connection.execute(
+            """
+            UPDATE events
+            SET title = ?, message = ?, details_json = ?
+            WHERE id = ?
+            """,
+            (title, message, details_json, row["id"]),
+        )
+        itemized_updated += 1
+
+    rows = connection.execute(
+        """
+        SELECT id, fingerprint, occurred_at, type, player, title, message
+        FROM events
+        WHERE type IN ('quest', 'challenge', 'discovery')
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+    seen = set()
+    duplicate_ids = []
+    for row in rows:
+        identity = duplicate_event_identity(row)
+        if identity is None:
+            continue
+        if identity in seen:
+            duplicate_ids.append(int(row["id"]))
+        else:
+            seen.add(identity)
+
+    if duplicate_ids:
+        placeholders = ",".join("?" for _ in duplicate_ids)
+        connection.execute(f"DELETE FROM events WHERE id IN ({placeholders})", duplicate_ids)
+
+    rows = connection.execute(
+        """
+        SELECT id, fingerprint, occurred_at, type, player, title, message
+        FROM events
+        WHERE type = 'capture'
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+    seen_captures = set()
+    capture_duplicate_ids = []
+    for row in rows:
+        identity = duplicate_capture_identity(row)
+        if identity is None:
+            continue
+        if identity in seen_captures:
+            capture_duplicate_ids.append(int(row["id"]))
+        else:
+            seen_captures.add(identity)
+
+    if capture_duplicate_ids:
+        placeholders = ",".join("?" for _ in capture_duplicate_ids)
+        connection.execute(f"DELETE FROM events WHERE id IN ({placeholders})", capture_duplicate_ids)
+
+    rows = connection.execute(
+        """
+        SELECT id, fingerprint, occurred_at, type, player, title, message
+        FROM events
+        WHERE type = 'capture'
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+    previous_capture_totals: dict[tuple[str, str], int] = {}
+    capture_messages_updated = 0
+    for row in rows:
+        identity = duplicate_capture_identity(row)
+        if identity is None:
+            continue
+        player_key, species_key, total = identity
+        key = (player_key, species_key)
+        previous_total = previous_capture_totals.get(key, 0)
+        normalized = normalized_capture_event(row, previous_total)
+        if normalized is not None:
+            title, message = normalized
+            connection.execute(
+                "UPDATE events SET title = ?, message = ? WHERE id = ?",
+                (title, message, row["id"]),
+            )
+            capture_messages_updated += 1
+        previous_capture_totals[key] = max(previous_total, total)
+
+    return {
+        "status": "complete",
+        "itemizedUpdated": itemized_updated,
+        "duplicatesRemoved": len(duplicate_ids),
+        "duplicateIds": duplicate_ids[:25],
+        "captureDuplicatesRemoved": len(capture_duplicate_ids),
+        "captureDuplicateIds": capture_duplicate_ids[:25],
+        "captureMessagesUpdated": capture_messages_updated,
+    }
+
+
+def purge_inactive_save_events(connection: sqlite3.Connection, stats_path: Path) -> dict:
+    sessions = player_session_index(stats_path)
+    if not sessions:
+        return {
+            "status": "skipped",
+            "reason": "no-session-index",
+            "removed": 0,
+            "reassigned": 0,
+            "removedIds": [],
+            "reassignedIds": [],
+        }
+
+    rows = connection.execute(
+        """
+        SELECT id, occurred_at, type, player
+        FROM events
+        WHERE source = 'save' AND player IS NOT NULL
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+    remove_ids = []
+    reassignments = []
+    for row in rows:
+        if row["type"] in SESSION_BOUNDARY_EXEMPT_SAVE_TYPES:
+            continue
+        player = str(row["player"] or "")
+        if player.casefold() not in sessions:
+            continue
+        event_time = save_activity_time_for_player(
+            connection,
+            sessions,
+            player,
+            str(row["occurred_at"] or ""),
+        )
+        if event_time is None:
+            remove_ids.append(int(row["id"]))
+        elif event_time != row["occurred_at"]:
+            reassignments.append((event_time, int(row["id"])))
+
+    if remove_ids:
+        placeholders = ",".join("?" for _ in remove_ids)
+        connection.execute(f"DELETE FROM events WHERE id IN ({placeholders})", remove_ids)
+    if reassignments:
+        connection.executemany(
+            "UPDATE events SET occurred_at = ? WHERE id = ?",
+            reassignments,
+        )
+
+    return {
+        "status": "complete",
+        "removed": len(remove_ids),
+        "reassigned": len(reassignments),
+        "removedIds": remove_ids[:25],
+        "reassignedIds": [row_id for _, row_id in reassignments[:25]],
     }
 
 
@@ -1716,7 +2549,14 @@ def write_json_atomic(output: Path, payload: dict) -> None:
     temporary.replace(output)
 
 
-def export_payload(events: list[dict], rows, reconnects: int, *, recent: bool = False) -> dict:
+def export_payload(
+    events: list[dict],
+    rows,
+    reconnects: int,
+    *,
+    recent: bool = False,
+    total_events: int | None = None,
+) -> dict:
     counts = Counter(event["type"] for event in events)
     max_id = max((int(row["id"]) for row in rows), default=0)
     return {
@@ -1725,8 +2565,10 @@ def export_payload(events: list[dict], rows, reconnects: int, *, recent: bool = 
         "revision": f"{PUBLIC_EVENT_VERSION}:{len(events)}:{max_id}",
         "updatedAt": now_iso(),
         "recent": recent,
+        "truncated": False,
         "summary": {
             "events": len(events),
+            "totalEvents": total_events if total_events is not None else len(events),
             "firstAt": events[-1]["occurredAt"] if events else None,
             "lastAt": events[0]["occurredAt"] if events else None,
             "types": dict(sorted(counts.items())),
@@ -1736,7 +2578,12 @@ def export_payload(events: list[dict], rows, reconnects: int, *, recent: bool = 
     }
 
 
-def write_export(connection: sqlite3.Connection, output: Path, recent_output: Path) -> None:
+def write_export(
+    connection: sqlite3.Connection,
+    output: Path,
+    recent_output: Path,
+) -> None:
+    total_events = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
     rows = connection.execute(
         """
         SELECT id, fingerprint, occurred_at, type, player, guild, base, title,
@@ -1746,10 +2593,24 @@ def write_export(connection: sqlite3.Connection, output: Path, recent_output: Pa
         """
     ).fetchall()
     events, reconnects = reconcile_public_events(rows)
-    write_json_atomic(output, export_payload(events, rows, reconnects))
+    write_json_atomic(
+        output,
+        export_payload(
+            events,
+            rows,
+            reconnects,
+            total_events=total_events,
+        ),
+    )
     write_json_atomic(
         recent_output,
-        export_payload(events[:RECENT_EVENT_LIMIT], rows, reconnects, recent=True),
+        export_payload(
+            events[:RECENT_EVENT_LIMIT],
+            rows,
+            reconnects,
+            recent=True,
+            total_events=total_events,
+        ),
     )
 
 
@@ -1761,6 +2622,7 @@ def main() -> None:
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
     parser.add_argument("--bases-snapshot", type=Path, default=DEFAULT_BASES_SNAPSHOT)
     parser.add_argument("--history", type=Path, default=DEFAULT_HISTORY)
+    parser.add_argument("--bases-history", type=Path, default=DEFAULT_BASES_HISTORY)
     parser.add_argument("--stats", type=Path, default=DEFAULT_STATS)
     parser.add_argument("--recovery-report", type=Path, default=DEFAULT_RECOVERY_REPORT)
     parser.add_argument("--journal-fixture", type=Path)
@@ -1778,7 +2640,13 @@ def main() -> None:
         if not args.skip_journal:
             collect_journal(connection, args.journal_fixture)
         collect_player_sessions(connection, args.stats)
-        capture_backfill = backfill_capture_history(connection, args.snapshot, args.history)
+        capture_backfill = backfill_capture_history(connection, args.snapshot, args.history, args.stats)
+        raid_backfill = backfill_raid_history(
+            connection,
+            args.bases_snapshot,
+            args.bases_history,
+            args.stats,
+        )
         archive_backfill = (
             {"status": "skipped", "snapshots": 0, "eventsAdded": 0}
             if args.skip_archive_backfill
@@ -1798,9 +2666,13 @@ def main() -> None:
             args.snapshot,
             args.history,
             args.bases_snapshot,
+            args.stats,
         )
         recovery_report["captureBackfill"] = capture_backfill
+        recovery_report["raidBackfill"] = raid_backfill
         recovery_report["archiveBackfill"] = archive_backfill
+        recovery_report["normalizationBackfill"] = normalize_event_history(connection)
+        recovery_report["inactiveSaveEventCleanup"] = purge_inactive_save_events(connection, args.stats)
         write_recovery_report(args.recovery_report, recovery_report)
         write_export(connection, args.output, args.recent_output)
         connection.commit()

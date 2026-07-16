@@ -41,7 +41,6 @@ $requiredFiles = @(
     ".github\ISSUE_TEMPLATE\bug.yml",
     ".github\ISSUE_TEMPLATE\feature.yml",
     ".github\pull_request_template.md",
-    ".github\workflows\validation.yml",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
     "docs\README.md",
@@ -73,6 +72,38 @@ $socialCardSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "portal\ass
 Write-Result (
     $socialCardSource -notmatch '(?i)(assets/game|\.\./game|T_WorldMap|_icon_normal)'
 ) "Carte sociale autonome" "La carte sociale référence une ressource Palworld exclue de Git."
+
+$nginxConfig = Get-Content -LiteralPath (Join-Path $ProjectRoot "docker\microsite\default.conf") -Raw -Encoding UTF8
+Write-Result (
+    $nginxConfig.Contains('location ~ ^/data/public-[A-Za-z0-9_.-]+\.json$') -and
+    $nginxConfig.Contains('location ~ ^/data/players/[A-Za-z0-9-]+\.json$') -and
+    $nginxConfig.Contains('location /data/ {') -and
+    $nginxConfig -notmatch 'location\s+~\s+\^/data/\.\*\\\.json\$'
+) "Allowlist HTTP des donnees publiques"
+Write-Result (
+    $nginxConfig.Contains('location ^~ /assets/game/') -and
+    $nginxConfig.Contains('max-age=31536000, immutable') -and
+    $nginxConfig.Contains('location ~* \.(?:css|js)$')
+) "Cache long des assets statiques"
+
+$eventsSyncSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\sync-palworld-events.ps1") -Raw -Encoding UTF8
+$metricsUpdaterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\update-microsite-metrics.ps1") -Raw -Encoding UTF8
+Write-Result (
+    $eventsSyncSource.Contains("public-events-index.json") -and
+    $eventsSyncSource.Contains("public-events-page-{0:D4}.json") -and
+    (Test-Path -LiteralPath (Join-Path $ProjectRoot "portal\data\public-events-index.example.json")) -and
+    (Test-Path -LiteralPath (Join-Path $ProjectRoot "portal\data\public-events-page-0001.example.json"))
+) "Pagination statique des echos publics"
+Write-Result (
+    $metricsUpdaterSource -match '\[int\]\$EventsIntervalMinutes\s*=\s*1\b'
+) "Synchronisation minute des echos publics"
+
+$availabilityExporterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\export-uptime-kuma-history.ps1") -Raw -Encoding UTF8
+$availabilityExample = Get-Content -LiteralPath (Join-Path $ProjectRoot "portal\data\public-availability.example.json") -Raw -Encoding UTF8
+Write-Result (
+    $availabilityExporterSource -notmatch '(?m)^\s*path\s*=\s*\$Path\b' -and
+    $availabilityExample -notmatch '"path"\s*:'
+) "Disponibilite publique sans chemins locaux"
 
 $configSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\lib\Gaylemon.Config.ps1") -Raw -Encoding UTF8
 $documentedLocalKeys = @(
@@ -235,7 +266,20 @@ if ($git) {
     }
     Write-Result ($notIgnored.Count -eq 0) "Isolation des fichiers locaux Git" ($notIgnored -join ", ")
 
-    $publishable = @(& $git.Source -C $ProjectRoot ls-files --cached --others --exclude-standard)
+    $publishable = @(
+        & $git.Source -C $ProjectRoot ls-files --cached --others --exclude-standard |
+            Where-Object { Test-Path -LiteralPath (Join-Path $ProjectRoot $_) }
+    )
+    $workflowDirectory = Join-Path $ProjectRoot ".github\workflows"
+    $workflowFiles = @(
+        if (Test-Path -LiteralPath $workflowDirectory) {
+            Get-ChildItem -LiteralPath $workflowDirectory -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -in @(".yml", ".yaml") }
+        }
+    )
+    Write-Result ($workflowFiles.Count -eq 0) "Validation GitHub automatique désactivée" (($workflowFiles | ForEach-Object Name) -join ", ")
+    $versionedCmdFiles = @($publishable | Where-Object { $_ -like "*.cmd" })
+    Write-Result ($versionedCmdFiles.Count -eq 0) "Aucun lanceur CMD versionné" ($versionedCmdFiles -join ", ")
     $forbidden = @($publishable | Where-Object {
         $_ -match '(^|/)(runtime|config/local|portal/data/players|portal/assets/game|portal/joueur)/' -or
         $_ -match '(^|/)\.env($|\.)' -and $_ -notmatch '\.example$' -or
@@ -243,7 +287,7 @@ if ($git) {
     })
     Write-Result ($forbidden.Count -eq 0) "Liste des fichiers publiables" ($forbidden -join ", ")
 
-    $textExtensions = @(".cmd", ".css", ".env", ".example", ".html", ".js", ".json", ".md", ".ps1", ".py", ".sh", ".svg", ".txt", ".yaml", ".yml")
+    $textExtensions = @(".css", ".env", ".example", ".html", ".js", ".json", ".md", ".ps1", ".py", ".sh", ".svg", ".txt", ".yaml", ".yml")
     $utf8Errors = [Collections.Generic.List[string]]::new()
     $mojibakeErrors = [Collections.Generic.List[string]]::new()
     $whitespaceErrors = [Collections.Generic.List[string]]::new()

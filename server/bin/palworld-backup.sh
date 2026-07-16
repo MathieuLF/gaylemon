@@ -69,7 +69,11 @@ request_world_save() {
   fi
 
   log "Requesting Palworld REST /save before archiving."
-  if curl -fsS --max-time 20 -X POST -u "admin:${admin_password}" "${REST_BASE_URL}/save" >/dev/null; then
+  if curl -fsS --max-time 20 -X POST \
+    -u "admin:${admin_password}" \
+    -H "Content-Type: application/json" \
+    --data '{}' \
+    "${REST_BASE_URL}/save" >/dev/null; then
     log "REST /save accepted; waiting ${SAVE_WAIT_SECONDS}s before archiving."
     sleep "$SAVE_WAIT_SECONDS"
   else
@@ -89,6 +93,7 @@ prepare_maintenance_lock() {
 
 main() {
   load_env
+  cd "$PALWORLD_DIR"
 
   if [ "${PALWORLD_MAINTENANCE_LOCK_HELD:-0}" != "1" ]; then
     prepare_maintenance_lock

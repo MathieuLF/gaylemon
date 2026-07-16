@@ -57,7 +57,7 @@ gh repo create MathieuLF/Gaylemon --public --source . --remote origin --push
 
 Après le push:
 
-1. vérifier la validation GitHub;
+1. relancer la validation locale depuis le clone publié;
 2. activer le signalement privé de vulnérabilité;
 3. renseigner la description, le site et les sujets;
 4. relire le README public.
