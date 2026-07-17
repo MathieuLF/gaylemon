@@ -16,7 +16,7 @@ services:
       - "127.0.0.1:${GAYLEMON_API_LOCAL_PORT:-8212}:${GAYLEMON_API_LOCAL_PORT:-8212}"
     volumes:
       - type: bind
-        source: ${USERPROFILE}/.ssh
+        source: ${GAYLEMON_SSH_DIR:-${USERPROFILE}/.ssh}
         target: /ssh-src
         read_only: true
     healthcheck:

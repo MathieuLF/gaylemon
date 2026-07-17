@@ -49,6 +49,14 @@ La voie normale passe par la console, menu `Maintenance Ubuntu guidée`.
 
 Aucun redémarrage de `palworld.service` n'est implicite. Un redémarrage doit être demandé et confirmé à part.
 
+Quand une zone de stage existe déjà, l'installation root non interactive peut être appliquée par le wrapper borné:
+
+```bash
+sudo -n /usr/local/sbin/gaylemon-deploy-install /tmp/gaylemon-staging/AAAAMMJJ-HHMMSS
+```
+
+Ce wrapper ne donne pas un accès `sudo` général. Il valide le chemin de stage et appelle seulement le script de déploiement Gaylémon.
+
 Reçus et backups de livraison:
 
 ```text
@@ -188,6 +196,8 @@ Palworld écoute localement sur `8212/tcp`, mais UFW bloque l'accès entrant. Le
 
 Le mot de passe admin est lu sur Ubuntu. Il n'a pas à être copié dans ce dépôt.
 
+Les wrappers qui utilisent l'API REST Palworld sont limités au groupe `steam`. L'utilisateur SSH utilisé pour la console doit donc être membre de ce groupe s'il doit lancer `Metrics`, `Players`, `Update`, `Backup` ou les annonces.
+
 Pour le robot Discord, le tunnel local est géré par Docker Desktop:
 
 ```powershell
@@ -195,7 +205,23 @@ Pour le robot Discord, le tunnel local est géré par Docker Desktop:
 .\scripts\palworld-api-tunnel.ps1 status
 ```
 
-Le conteneur publie seulement `127.0.0.1:8212` côté Windows. Il monte `~/.ssh` en lecture seule, copie la configuration au démarrage pour corriger les permissions OpenSSH, puis ouvre le forward vers le port REST distant.
+Le conteneur publie seulement `127.0.0.1:8212` côté Windows. Il monte le dossier `GAYLEMON_SSH_DIR`, ou `~/.ssh` par défaut, en lecture seule. Au démarrage, il copie la configuration pour corriger les permissions OpenSSH, valide les ports, désactive l'agent/X11 et les commandes locales SSH, puis ouvre le forward vers le port REST distant.
+
+Si Docker Desktop ne peut pas joindre l'IP LAN du serveur parce qu'un autre bridge Docker recouvre le même subnet, utiliser le mode SSH Windows:
+
+```powershell
+.\scripts\palworld-api-tunnel.ps1 start -Mode windows-ssh
+```
+
+Ce mode ouvre le même port local `127.0.0.1:8212` sans passer par le routage réseau de Docker. Pour rendre ce choix persistant avec l'autostart Windows, définir `GAYLEMON_API_TUNNEL_MODE=windows-ssh` dans `.env`.
+
+Configuration privée du bot:
+
+```powershell
+Copy-Item .\config\exemples\bot.env.example C:\chemin\du\bot\.env
+```
+
+Le fichier rempli ne doit pas revenir dans Git. Le bot doit appeler `http://127.0.0.1:8212/v1/api` depuis cette même machine, avec des délais courts et sans publier dans Discord les erreurs contenant l'URL complète, les en-têtes ou le mot de passe.
 
 Si le conteneur reste `unhealthy` alors que SSH fonctionne depuis Windows, vérifier les réseaux Docker inutilisés qui recouvrent le LAN. Un bridge Docker comme `192.168.80.0/20` capture une adresse `192.168.86.x` avant qu'elle sorte vers le réseau local; supprimer le réseau Docker vide ou déplacer son subnet.
 
@@ -233,7 +259,7 @@ Synchronisations utiles:
 
 Les métriques rapides et les échos sont synchronisés à la minute. Les données joueurs, profils, Pals, bases et index publics passent par la synchronisation snapshot, admissible toutes les 15 minutes côté Windows. Le navigateur relit les exports toutes les 75 secondes pour laisser le temps aux JSON de se stabiliser. Le panneau technique `Données du monde` garde son dernier diagnostic publié et le rafraîchit aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
 
-Les projections publiques retirent les identifiants techniques, secrets, coordonnées brutes et détails de coffres.
+Les projections publiques retirent les identifiants techniques, secrets, coordonnées brutes et détails de coffres. Un `accountName`, `playerId`, `userId`, Steam ID ou GUID Unreal ne doit pas être publié, même comme nom de secours.
 
 ## Journal des événements
 

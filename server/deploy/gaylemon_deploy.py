@@ -30,9 +30,10 @@ except ImportError:  # pragma: no cover - deployment runs on Ubuntu.
 ALLOWED_DESTINATIONS = (
     re.compile(r"^/srv/storage/steam/bin/[A-Za-z0-9_.-]+$"),
     re.compile(r"^/home/[A-Za-z0-9_.-]+/Gaylemon/server/bin/[A-Za-z0-9_.-]+$"),
+    re.compile(r"^/usr/local/sbin/gaylemon-[A-Za-z0-9_.-]+$"),
     re.compile(r"^/etc/systemd/system/(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
     re.compile(r"^/etc/sysctl\.d/[A-Za-z0-9_.-]*palworld[A-Za-z0-9_.-]*\.conf$"),
-    re.compile(r"^/etc/sudoers\.d/palworld[A-Za-z0-9_.-]*$"),
+    re.compile(r"^/etc/sudoers\.d/(?:palworld|gaylemon)[A-Za-z0-9_.-]*$"),
 )
 VALIDATORS = {"bash", "python", "sudoers", "sysctl", "systemd"}
 RESTART_POLICIES = {"none", "recommended", "game"}

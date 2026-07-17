@@ -1,0 +1,1 @@
+gaylemon ALL=(root) NOPASSWD: /usr/local/sbin/gaylemon-deploy-install

@@ -43,10 +43,16 @@ Par défaut, Nginx écoute seulement sur `127.0.0.1`.
 Pour exposer localement l'API REST Palworld au robot Discord via Docker Desktop:
 
 ```powershell
-docker compose up -d --build palworld-api-tunnel
+.\scripts\palworld-api-tunnel.ps1 start
+.\scripts\palworld-api-tunnel.ps1 status
 ```
 
-Le port reste lié à `127.0.0.1`.
+Le port reste lié à `127.0.0.1`. Le bot doit utiliser l'exemple [bot.env.example](config/exemples/bot.env.example), hors Git une fois rempli.
+Si Docker Desktop ne peut pas joindre le LAN à cause d'un subnet Docker concurrent, le même script peut démarrer un tunnel SSH Windows local:
+
+```powershell
+.\scripts\palworld-api-tunnel.ps1 start -Mode windows-ssh
+```
 
 ## Commandes utiles
 
@@ -88,11 +94,15 @@ Les exemples `*.example.json` sont fictifs et servent au développement local.
 ## Documentation
 
 - [Sommaire](docs/README.md)
+- [Sécurité](SECURITY.md)
+- [Support](SUPPORT.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Sécurité d'exploitation](docs/SECURITE-EXPLOITATION.md)
 - [Configuration locale](docs/CONFIGURATION-LOCALE.md)
 - [Développement](docs/DEVELOPPEMENT.md)
 - [Déploiement](docs/DEPLOIEMENT.md)
 - [Opérations](docs/OPERATIONS.md)
+- [Bot Discord](docs/BOT-DISCORD.md)
 - [Publication GitHub](docs/PUBLIC-REPOSITORY.md)
 - [Démarche GitHub du microsite](https://gaylemon.mathieu.pro/github)
 

@@ -61,6 +61,8 @@ Ne pas publier:
 - secrets, jetons, mots de passe;
 - détails privés des coffres ou profils non prévus par les contrats.
 
+Les noms affichés publiquement doivent venir d'un nom de joueur prévu pour l'affichage. Un identifiant technique comme `accountName`, `playerId`, `userId`, Steam ID ou Unreal GUID ne doit jamais servir de nom de secours dans un export public.
+
 ## Disponibilité
 
 Si Docker Desktop ou Windows tombe, le microsite et le tunnel API local tombent aussi. Palworld continue de tourner sur Ubuntu.

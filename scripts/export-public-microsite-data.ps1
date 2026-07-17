@@ -114,18 +114,20 @@ function Convert-PublicPosition {
     }
 }
 
+function Get-PublicDisplayName {
+    param($Player)
+
+    if (-not [string]::IsNullOrWhiteSpace([string]$Player.name)) {
+        return [string]$Player.name
+    }
+
+    return "Joueur"
+}
+
 function Convert-PublicPlayer {
     param($Player)
 
-    $displayName = if (-not [string]::IsNullOrWhiteSpace([string]$Player.name)) {
-        [string]$Player.name
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace([string]$Player.accountName)) {
-        [string]$Player.accountName
-    }
-    else {
-        "Joueur"
-    }
+    $displayName = Get-PublicDisplayName -Player $Player
 
     return [ordered]@{
         name = $displayName
@@ -167,7 +169,7 @@ if ($metrics) {
         metrics = $metrics.metrics
         players = @($metrics.players | ForEach-Object {
             [ordered]@{
-                name = if ($_.name) { [string]$_.name } elseif ($_.accountName) { [string]$_.accountName } else { "Joueur" }
+                name = Get-PublicDisplayName -Player $_
             }
         })
     }
