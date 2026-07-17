@@ -26,7 +26,7 @@ Le diagnostic peut être mis à jour même si le dernier snapshot valide est con
 
 `palworld-save-snapshot.timer` vérifie les sauvegardes toutes les minutes.
 
-La synchronisation Windows publie les données joueurs, profils, Pals, bases et index à la minute. Le diagnostic technique visible dans le bloc `Données du monde` du microsite, lui, est conservé entre deux passages et rafraîchi une fois par jour vers 04:00.
+La synchronisation Windows publie les données joueurs, profils, Pals, bases et index publics toutes les 15 minutes. Le diagnostic technique visible dans le bloc `Données du monde` du microsite, lui, est conservé entre deux passages et rafraîchi aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
 
 Le service utilise:
 

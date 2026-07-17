@@ -1,0 +1,46 @@
+{
+  "version": 4,
+  "ok": true,
+  "revision": "4:5:5:pages:1",
+  "updatedAt": "2026-07-12T12:00:00-04:00",
+  "recent": false,
+  "truncated": false,
+  "pageSize": 250,
+  "summary": {
+    "events": 5,
+    "totalEvents": 5,
+    "firstAt": "2026-07-12T10:00:00-04:00",
+    "lastAt": "2026-07-12T11:55:00-04:00",
+    "types": {
+      "build": 1,
+      "capture": 1,
+      "join": 1,
+      "maintenance": 1,
+      "production": 1
+    },
+    "reconciledReconnects": 0
+  },
+  "facets": {
+    "types": [
+      { "value": "build", "count": 1 },
+      { "value": "capture", "count": 1 },
+      { "value": "join", "count": 1 },
+      { "value": "maintenance", "count": 1 },
+      { "value": "production", "count": 1 }
+    ],
+    "players": [
+      { "value": "Aventurier", "count": 2 },
+      { "value": "Brian", "count": 1 },
+      { "value": "Mathieu", "count": 1 }
+    ]
+  },
+  "pages": [
+    {
+      "page": 1,
+      "path": "data/public-events-page-0001.json",
+      "events": 5,
+      "firstAt": "2026-07-12T10:00:00-04:00",
+      "lastAt": "2026-07-12T11:55:00-04:00"
+    }
+  ]
+}

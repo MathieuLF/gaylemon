@@ -7,7 +7,9 @@ param(
     [string]$RemoteSnapshotPath = "",
     [string]$RemoteDiagnosticsPath = "",
     [string]$RemoteBasesPath = "",
-    [int]$DiagnosticsRefreshHour = 4,
+    [int]$DiagnosticsRefreshIntervalHours = 2,
+    [int]$DiagnosticsRefreshAnchorHour = 1,
+    [int]$DiagnosticsRefreshWindowMinutes = 15,
     [switch]$ForceDiagnostics
 )
 
@@ -19,22 +21,42 @@ if (-not $RemoteSnapshotPath) { $RemoteSnapshotPath = "$($config.RemoteProjectRo
 if (-not $RemoteDiagnosticsPath) { $RemoteDiagnosticsPath = "$($config.RemoteProjectRoot)/runtime/public-save-diagnostics.json" }
 if (-not $RemoteBasesPath) { $RemoteBasesPath = "$($config.RemoteProjectRoot)/runtime/public-save-bases.json" }
 
+function Get-DiagnosticsRefreshSlot {
+    param(
+        [Parameter(Mandatory)] [int]$IntervalHours,
+        [Parameter(Mandatory)] [int]$AnchorHour,
+        [datetime]$Now = (Get-Date)
+    )
+
+    $safeInterval = [Math]::Max(1, $IntervalHours)
+    $safeAnchor = (($AnchorHour % 24) + 24) % 24
+    $slot = [datetime]::new($Now.Year, $Now.Month, $Now.Day, $safeAnchor, 0, 0, $Now.Kind)
+    while ($slot -gt $Now) { $slot = $slot.AddHours(-$safeInterval) }
+    while ($slot.AddHours($safeInterval) -le $Now) { $slot = $slot.AddHours($safeInterval) }
+    return $slot
+}
+
 function Test-DiagnosticsRefreshDue {
     param(
         [Parameter(Mandatory)] [string]$Path,
-        [Parameter(Mandatory)] [int]$RefreshHour,
+        [Parameter(Mandatory)] [int]$IntervalHours,
+        [Parameter(Mandatory)] [int]$AnchorHour,
+        [Parameter(Mandatory)] [int]$WindowMinutes,
         [switch]$Force
     )
 
     if ($Force) { return $true }
+    if ($IntervalHours -le 0) { return $true }
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
 
     $now = Get-Date
-    $dueAt = [datetime]::new($now.Year, $now.Month, $now.Day, $RefreshHour, 0, 0, $now.Kind)
-    if ($now -lt $dueAt) { return $false }
+    $slot = Get-DiagnosticsRefreshSlot -IntervalHours $IntervalHours -AnchorHour $AnchorHour -Now $now
+    if ($now -ge $slot.AddMinutes([Math]::Max(1, $WindowMinutes))) {
+        return $false
+    }
 
     $item = Get-Item -LiteralPath $Path
-    return $item.LastWriteTime -lt $dueAt
+    return $item.LastWriteTime -lt $slot
 }
 
 function Expand-GzipBase64 {
@@ -86,7 +108,12 @@ function Write-JsonAtomic {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     $temporary = "$resolved.tmp"
     $json = $Value | ConvertTo-Json -Depth $Depth
-    [IO.File]::WriteAllText($temporary, $json.TrimEnd() + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    $content = $json.TrimEnd() + [Environment]::NewLine
+    if ((Test-Path -LiteralPath $resolved) -and [IO.File]::ReadAllText($resolved, [Text.Encoding]::UTF8) -eq $content) {
+        return
+    }
+
+    [IO.File]::WriteAllText($temporary, $content, [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $temporary -Destination $resolved -Force
 }
 
@@ -136,6 +163,17 @@ function Convert-PublicPosition($Position) {
         leftPercent = [double]$Position.leftPercent
         topPercent = [double]$Position.topPercent
         mapVisible = if ($null -eq $mapVisible) { $true } else { [bool]$mapVisible }
+    }
+}
+
+function Convert-PublicDeathDrop($Drop) {
+    $player = Get-OptionalProperty $Drop "player"
+    return [ordered]@{
+        key = [string]$Drop.key
+        type = [string]$Drop.type
+        label = [string]$Drop.label
+        player = if ($player) { [string]$player } else { $null }
+        position = Convert-PublicPosition $Drop.position
     }
 }
 
@@ -384,6 +422,12 @@ function Convert-PublicProgress($Progress, [switch]$SummaryOnly) {
             itemsCrafted = [long](Get-OptionalInt $records "itemsCrafted")
             craftedItemTypes = Get-OptionalInt $records "craftedItemTypes"
             uniqueItemsPickedUp = Get-OptionalInt $records "uniqueItemsPickedUp"
+            notesFound = Get-OptionalInt $records "notesFound"
+            arenaSoloClears = Get-OptionalInt $records "arenaSoloClears"
+            mutations = Get-OptionalInt $records "mutations"
+            palRankups = Get-OptionalInt $records "palRankups"
+            raidBossDefeats = Get-OptionalInt $records "raidBossDefeats"
+            towerBossDefeats = Get-OptionalInt $records "towerBossDefeats"
         }
         $result.bosses.known = @((Get-OptionalProperty $bosses "known") | Where-Object { $null -ne $_ } | ForEach-Object {
             [ordered]@{ name = [string]$_.name; icon = if ($_.icon) { [string]$_.icon } else { $null } }
@@ -518,10 +562,15 @@ function Write-PlayerDataFiles($Players, [string]$DestinationRoot, [string]$Upda
 }
 
 $source = Read-RemoteJson -RemotePath $RemoteSnapshotPath
-if (-not $source.ok -or [int]$source.version -notin @(2, 3)) {
+if (-not $source.ok -or [int]$source.version -notin @(2, 3, 4)) {
     throw "Le snapshot public distant est invalide ou incompatible."
 }
-$shouldSyncDiagnostics = Test-DiagnosticsRefreshDue -Path $DiagnosticsOutputPath -RefreshHour $DiagnosticsRefreshHour -Force:$ForceDiagnostics
+$shouldSyncDiagnostics = Test-DiagnosticsRefreshDue `
+    -Path $DiagnosticsOutputPath `
+    -IntervalHours $DiagnosticsRefreshIntervalHours `
+    -AnchorHour $DiagnosticsRefreshAnchorHour `
+    -WindowMinutes $DiagnosticsRefreshWindowMinutes `
+    -Force:$ForceDiagnostics
 $sourceDiagnostics = if ($shouldSyncDiagnostics) { Read-RemoteJson -RemotePath $RemoteDiagnosticsPath -Optional } else { $null }
 $sourceBases = Read-RemoteJson -RemotePath $RemoteBasesPath -Optional
 $projectionVersion = if (
@@ -555,6 +604,9 @@ $public = [ordered]@{
             fastTravelPoints = [int]$source.world.fastTravelPoints
             discoverableAreas = [int]$source.world.discoverableAreas
             knownBosses = [int]$source.world.knownBosses
+            deathDrops = @((Get-OptionalProperty $source.world "deathDrops") | Where-Object { $null -ne $_ } | ForEach-Object {
+                Convert-PublicDeathDrop $_
+            })
         }
     } else { $null }
     bases = @()
@@ -689,6 +741,7 @@ if ($sourceDiagnostics) {
     else {
         0
     }
+    $unknownStructures = Get-OptionalProperty $sourceDiagnostics.parse "unknownStructures"
     $publicDiagnostics = [ordered]@{
         version = 1
         ok = [bool]$sourceDiagnostics.ok
@@ -709,6 +762,17 @@ if ($sourceDiagnostics) {
             playersParsed = [int]$sourceDiagnostics.parse.playersParsed
             palsParsed = [int]$sourceDiagnostics.parse.palsParsed
             basesParsed = [int]$sourceDiagnostics.parse.basesParsed
+            unknownStructures = [ordered]@{
+                unknownAreas = Get-OptionalInt $unknownStructures "unknownAreas"
+                unknownBossFlags = Get-OptionalInt $unknownStructures "unknownBossFlags"
+                unknownFastTravelPoints = Get-OptionalInt $unknownStructures "unknownFastTravelPoints"
+                unknownPalCaptureAssets = Get-OptionalInt $unknownStructures "unknownPalCaptureAssets"
+                unknownPalChallengeAssets = Get-OptionalInt $unknownStructures "unknownPalChallengeAssets"
+                unknownPaldeckAssets = Get-OptionalInt $unknownStructures "unknownPaldeckAssets"
+                unknownPalProperties = Get-OptionalInt $unknownStructures "unknownPalProperties"
+                unknownTechnologies = Get-OptionalInt $unknownStructures "unknownTechnologies"
+                unresolvedBaseWorkers = Get-OptionalInt $unknownStructures "unresolvedBaseWorkers"
+            }
         }
         output = [ordered]@{
             snapshotBytes = Get-NullableInt $sourceDiagnostics.output.snapshotBytes
@@ -717,6 +781,7 @@ if ($sourceDiagnostics) {
             basesGzipBytes = Get-NullableInt $sourceDiagnostics.output.basesGzipBytes
             privateBasesBytes = Get-NullableInt $sourceDiagnostics.output.privateBasesBytes
             historyArchiveBytes = Get-NullableInt $sourceDiagnostics.output.historyArchiveBytes
+            basesHistoryArchiveBytes = Get-NullableInt $sourceDiagnostics.output.basesHistoryArchiveBytes
         }
         parser = [ordered]@{ name = "PalworldSaveTools"; commit = [string]$sourceDiagnostics.parser.commit }
         events = [ordered]@{
@@ -743,8 +808,8 @@ if ($sourceDiagnostics) {
     Write-JsonAtomic -Path $DiagnosticsOutputPath -Value $publicDiagnostics -Depth 10
 }
 
-Write-Host "Snapshot v$($public.version) synchronisé vers $OutputPath"
+Write-Host "Snapshot public v$($public.version), projection v$($public.projection.version) synchronisé vers $OutputPath"
 Write-Host "Index léger synchronisé vers $indexPath"
 if ($sourceDiagnostics) { Write-Host "Diagnostics publics synchronisés vers $DiagnosticsOutputPath" }
-elseif (-not $shouldSyncDiagnostics) { Write-Host "Diagnostics publics conservés jusqu'au prochain passage quotidien de 04:00." }
+elseif (-not $shouldSyncDiagnostics) { Write-Host "Diagnostics publics conservés; créneau planifié non atteint." }
 Write-Host "Pages de partage joueurs générées dans $PlayerPagesRoot"

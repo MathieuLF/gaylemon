@@ -36,5 +36,5 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-ReadOnlyPaths=/srv/example/game-project/runtime/public-save-snapshot.json /srv/example/game-project/runtime/public-save-bases.json /srv/example/game-project/runtime/save-snapshot-history /srv/storage/steam/servers/palworld/stats/stats.json
+ReadOnlyPaths=/srv/example/game-project/runtime/public-save-snapshot.json /srv/example/game-project/runtime/public-save-bases.json /srv/example/game-project/runtime/save-snapshot-history /srv/example/game-project/runtime/save-bases-history /srv/storage/steam/servers/palworld/stats/stats.json
 ReadWritePaths=/srv/example/game-project/runtime

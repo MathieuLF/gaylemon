@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+stage="${1:-}"
+
+if [[ ! "$stage" =~ ^/tmp/gaylemon-staging/[0-9]{8}-[0-9]{6}$ ]]; then
+  echo "Stage invalide: $stage" >&2
+  exit 2
+fi
+
+if [[ ! -d "$stage" || -L "$stage" ]]; then
+  echo "Stage absent ou invalide: $stage" >&2
+  exit 2
+fi
+
+deploy_script="$stage/server/deploy/gaylemon_deploy.py"
+if [[ ! -f "$deploy_script" || -L "$deploy_script" ]]; then
+  echo "Script de deploiement absent ou invalide: $deploy_script" >&2
+  exit 2
+fi
+
+stamp="$(basename "$stage")"
+
+exec /usr/bin/python3 "$deploy_script" install \
+  --stage "$stage" \
+  --confirm "$stamp"

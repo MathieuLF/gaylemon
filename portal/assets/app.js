@@ -120,11 +120,16 @@ let selectedPaldexKey = "";
 const paldexPageSize = 30;
 let playerActivityByName = new Map();
 let eventsSnapshot = null;
+let eventsIndexSnapshot = null;
 let eventCurrentPage = 1;
 let eventsFullLoaded = false;
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
 let terminalEventPageSize = 8;
+const eventExportPageSizeFallback = 250;
+const eventPageCache = new Map();
+const eventPagePromises = new Map();
+let eventsFullLoadPromise = null;
 let leaderboardSortKey = "level";
 let leaderboardSortDirection = "desc";
 let backgroundScrollY = 0;
@@ -141,6 +146,7 @@ const dataRevisions = {
   bases: "",
   diagnostics: "",
   events: "",
+  eventsIndex: "",
 };
 
 const globalMapView = {
@@ -157,8 +163,11 @@ const globalMapView = {
 
 const globalMapViewStorageKey = "gaylemon:map-view";
 const gameAssetVersion = "20260712.1";
-const worldDiagnosticWarningMs = 26 * 60 * 60 * 1000;
-const worldDiagnosticStaleMs = 48 * 60 * 60 * 1000;
+const worldDiagnosticRefreshIntervalHours = 2;
+const worldDiagnosticRefreshAnchorHour = 1;
+const worldDiagnosticRefreshWindowMinutes = 15;
+const worldDiagnosticWarningMs = 3 * 60 * 60 * 1000;
+const worldDiagnosticStaleMs = 6 * 60 * 60 * 1000;
 
 function isTerminalRoute() {
   return location.pathname.replace(/\/+$/, "") === "/terminal";
@@ -628,6 +637,37 @@ function formatDateTime(value) {
   });
 }
 
+function formatTime(value) {
+  const date = parseDate(value);
+  if (!date) return "--";
+  return date.toLocaleTimeString("fr-CA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function scheduledDiagnosticSlot(now = new Date()) {
+  const intervalMs = Math.max(1, worldDiagnosticRefreshIntervalHours) * 60 * 60 * 1000;
+  const anchorHour = ((worldDiagnosticRefreshAnchorHour % 24) + 24) % 24;
+  let slot = new Date(now.getFullYear(), now.getMonth(), now.getDate(), anchorHour, 0, 0, 0);
+  while (slot > now) slot = new Date(slot.getTime() - intervalMs);
+  while (slot.getTime() + intervalMs <= now.getTime()) slot = new Date(slot.getTime() + intervalMs);
+  return slot;
+}
+
+function nextDiagnosticRefreshAt(updatedAtValue) {
+  const now = new Date();
+  const intervalMs = Math.max(1, worldDiagnosticRefreshIntervalHours) * 60 * 60 * 1000;
+  const currentSlot = scheduledDiagnosticSlot(now);
+  const updatedAt = parseDate(updatedAtValue);
+  const windowMs = Math.max(1, worldDiagnosticRefreshWindowMinutes) * 60 * 1000;
+  const slotCovered = updatedAt && updatedAt.getTime() >= currentSlot.getTime() - windowMs;
+  if (!slotCovered && now.getTime() < currentSlot.getTime() + windowMs) {
+    return currentSlot;
+  }
+  return new Date(currentSlot.getTime() + intervalMs);
+}
+
 function formatRelativeAge(value) {
   const date = parseDate(value);
   if (!date) return "--";
@@ -709,7 +749,13 @@ function syncTerminalView(scrollToTop = false) {
   document.body.classList.toggle("terminal-view", active);
   if (active) {
     eventsDisclosure.open = true;
-    if (eventsSnapshot) {
+    if (eventsFullLoaded && eventsSnapshot) {
+      renderEventFilters(eventsSnapshot.events || []);
+      renderEvents();
+    } else if (eventsIndexSnapshot) {
+      renderEventFiltersFromFacets(eventsIndexSnapshot);
+      void renderPagedTerminalEvents(false);
+    } else if (eventsSnapshot) {
       renderEventFilters(eventsSnapshot.events || []);
       renderEvents();
     }
@@ -821,6 +867,30 @@ function renderWorldContractStatus() {
   setWorldDataQuality("contracts", loaded.length === contracts.length ? "up" : "warning");
 }
 
+function formatParsingWarningsNote(parse) {
+  const warningCount = Number(parse?.warnings || 0);
+  if (!warningCount) return "Aucun avertissement non bloquant";
+
+  const unknown = parse?.unknownStructures || {};
+  const details = [
+    [unknown.unknownBossFlags, "flags boss"],
+    [unknown.unknownPalProperties, "champs Pal"],
+    [unknown.unknownPalCaptureAssets, "captures"],
+    [unknown.unknownAreas, "zones"],
+    [unknown.unknownFastTravelPoints, "voyages rapides"],
+    [unknown.unknownPalChallengeAssets, "défis capture"],
+    [unknown.unknownPaldeckAssets, "Paldex"],
+    [unknown.unknownTechnologies, "technologies"],
+    [unknown.unresolvedBaseWorkers, "travailleurs"],
+  ]
+    .map(([value, label]) => [Number(value || 0), label])
+    .filter(([value]) => value > 0)
+    .map(([value, label]) => `${value.toLocaleString("fr-CA")} ${label}`);
+
+  const base = `${warningCount.toLocaleString("fr-CA")} avertissement${warningCount > 1 ? "s" : ""} non bloquant${warningCount > 1 ? "s" : ""}`;
+  return details.length ? `${base}: ${details.join(", ")}` : base;
+}
+
 function renderSaveDiagnostics(payload) {
   if (!payload?.ok || !worldDataGrid) return;
   saveDiagnosticsSnapshot = payload;
@@ -842,7 +912,7 @@ function renderSaveDiagnostics(payload) {
   const exportAgeMs = updatedAt ? Date.now() - updatedAt.getTime() : 0;
   const freshnessState = exportAgeMs > worldDiagnosticStaleMs ? "stale" : exportAgeMs > worldDiagnosticWarningMs ? "warning" : "up";
   setWorldData("freshness", formatRelativeAge(payload.updatedAt));
-  setWorldDataNote("freshness-status", `Export du ${formatDateTime(payload.updatedAt)}`);
+  setWorldDataNote("freshness-status", `Export du ${formatDateTime(payload.updatedAt)} · prochain passage ${formatTime(nextDiagnosticRefreshAt(payload.updatedAt))}`);
   setWorldDataQuality("freshness", freshnessState);
   const playersParsed = Number(parse.playersParsed || 0);
   const playerFiles = Number(save.playerFiles || playersParsed || 0);
@@ -851,7 +921,7 @@ function renderSaveDiagnostics(payload) {
   setWorldDataQuality("coverage", playerFiles && playersParsed >= playerFiles ? "up" : "warning");
   const warningCount = Number(parse.warnings || 0);
   setWorldData("warnings", parse.status === "ok" ? "OK" : "À vérifier");
-  setWorldDataNote("warnings", `${warningCount.toLocaleString("fr-CA")} avertissement${warningCount > 1 ? "s" : ""} non bloquant${warningCount > 1 ? "s" : ""}`);
+  setWorldDataNote("warnings", formatParsingWarningsNote(parse));
   setWorldDataQuality("warnings", parse.status === "ok" ? "up" : "warning");
   setWorldData("duration", parse.durationMs == null ? "--" : `${(Number(parse.durationMs) / 1000).toLocaleString("fr-CA", { maximumFractionDigits: 2 })} s`);
   const age = Number(save.backupAgeSeconds || 0);
@@ -1909,6 +1979,14 @@ const eventTypeMeta = {
   quest: { label: "Quêtes", token: "!", color: "#bc8ee2" },
   loot: { label: "Trésors", token: "◆", color: "#e59d4d" },
   adventure: { label: "Expéditions", token: "⚑", color: "#58b99b" },
+  raid: { label: "Raids", token: "RAID", color: "#ef6f6c" },
+  boss: { label: "Boss", token: "BOSS", color: "#d86f72" },
+  arena: { label: "Arènes", token: "ARN", color: "#d8954d" },
+  death: { label: "Sacs", token: "SAC", color: "#b36f63" },
+  recovery: { label: "Récupérations", token: "REC", color: "#8aa05e" },
+  note: { label: "Notes", token: "NTE", color: "#d5a84f" },
+  pal: { label: "Pals", token: "PAL", color: "#55a9d6" },
+  mutation: { label: "Mutations", token: "MUT", color: "#b682d8" },
   collection: { label: "Collections", token: "PAL", color: "#4da2dd" },
   craft: { label: "Fabrications", token: "CRA", color: "#f18b55" },
   build: { label: "Constructions", token: "BLD", color: "#68b35d" },
@@ -1966,13 +2044,17 @@ function dedupeSessionFallbackEvents(events) {
   });
 }
 
-function renderEventFilters(events) {
-  events = dedupeSessionFallbackEvents(events);
-  const selectedType = eventTypeFilter?.value || "all";
-  const selectedPlayer = eventPlayerFilter?.value || "all";
-  const types = [...new Set(events.map((event) => event.type).filter(Boolean))];
-  const players = [...new Set(events.map((event) => event.player).filter(Boolean))]
-    .sort((left, right) => left.localeCompare(right, "fr-CA"));
+function selectedEventTypeValue() {
+  return eventTypeFilter?.dataset.pendingValue || eventTypeFilter?.value || "all";
+}
+
+function selectedEventPlayerValue() {
+  return eventPlayerFilter?.dataset.pendingValue || eventPlayerFilter?.value || "all";
+}
+
+function renderEventFilterOptions(types, players) {
+  const selectedType = selectedEventTypeValue();
+  const selectedPlayer = selectedEventPlayerValue();
 
   if (eventTypeFilter) eventTypeFilter.innerHTML = [
     '<option value="all">Tous les événements</option>',
@@ -1984,6 +2066,37 @@ function renderEventFilters(events) {
   ].join("");
   if (eventTypeFilter && types.includes(selectedType)) eventTypeFilter.value = selectedType;
   if (eventPlayerFilter && players.includes(selectedPlayer)) eventPlayerFilter.value = selectedPlayer;
+  if (eventTypeFilter) delete eventTypeFilter.dataset.pendingValue;
+  if (eventPlayerFilter) delete eventPlayerFilter.dataset.pendingValue;
+}
+
+function renderEventFilters(events) {
+  events = dedupeSessionFallbackEvents(events);
+  const types = [...new Set(events.map((event) => event.type).filter(Boolean))];
+  const players = [...new Set(events.map((event) => event.player).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "fr-CA"));
+
+  renderEventFilterOptions(types, players);
+}
+
+function renderEventFiltersFromFacets(payload) {
+  const types = (payload?.facets?.types || [])
+    .map((facet) => typeof facet === "string" ? facet : facet?.value)
+    .filter(Boolean);
+  const players = (payload?.facets?.players || [])
+    .map((facet) => typeof facet === "string" ? facet : facet?.value)
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, "fr-CA"));
+
+  renderEventFilterOptions(types, players);
+}
+
+function eventFiltersRequireFullHistory() {
+  return Boolean(
+    normalizeEventSearch(eventSearch?.value) ||
+    selectedEventTypeValue() !== "all" ||
+    selectedEventPlayerValue() !== "all"
+  );
 }
 
 function eventPageNumbers(current, total) {
@@ -2045,8 +2158,14 @@ function readTerminalState() {
     page: Number(params.get("page") || saved.page || 1),
   };
   if (eventSearch) eventSearch.value = values.q;
-  if (eventTypeFilter) eventTypeFilter.value = values.type;
-  if (eventPlayerFilter) eventPlayerFilter.value = values.player;
+  if (eventTypeFilter) {
+    eventTypeFilter.dataset.pendingValue = values.type;
+    eventTypeFilter.value = values.type;
+  }
+  if (eventPlayerFilter) {
+    eventPlayerFilter.dataset.pendingValue = values.player;
+    eventPlayerFilter.value = values.player;
+  }
   eventCurrentPage = Math.max(1, values.page || 1);
   updateTerminalPageSize();
 }
@@ -2055,8 +2174,8 @@ function writeTerminalState() {
   if (!isTerminalRoute()) return;
   const state = {
     q: eventSearch?.value || "",
-    type: eventTypeFilter?.value || "all",
-    player: eventPlayerFilter?.value || "all",
+    type: selectedEventTypeValue(),
+    player: selectedEventPlayerValue(),
     page: eventCurrentPage,
   };
   localStorage.setItem("gaylemon-terminal-filters", JSON.stringify(state));
@@ -2070,16 +2189,235 @@ function writeTerminalState() {
   history.replaceState(null, "", `/terminal${query ? `?${query}` : ""}`);
 }
 
-function updateTerminalEvents() {
-  renderEvents();
+function renderEventStreamItems(visible, terminal, refinePageSize) {
+  if (!eventStream) return false;
+  if (!visible.length) {
+    eventStream.innerHTML = '<li class="event-stream__empty">Aucun écho ne correspond à cette recherche.</li>';
+    return false;
+  }
+
+  eventStream.innerHTML = visible.map((event) => {
+    const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
+    const timestamp = formatEventTime(event.occurredAt);
+    const accent = event.player ? playerColor(event.player) : meta.color;
+    const headline = compactEventHeadline(event, event.display?.headline || event.title);
+    const bullets = Array.isArray(event.display?.bullets) ? event.display.bullets : [];
+    const body = compactItemizedEventBody(event, event.display?.body || event.message, bullets);
+    const detailClass = bullets.length ? " event-line--with-bullets" : "";
+    const visual = event.icon
+      ? gameImage(event.icon, "", "event-line__portrait")
+      : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
+    return `
+      <li class="event-line event-line--${escapeHtml(event.type)}${detailClass}" style="--event-accent:${accent}">
+        <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.date)} · ${escapeHtml(timestamp.time)}</strong></time>
+        <span class="event-line__rail" aria-hidden="true"><i></i></span>
+        <span class="event-line__visual">${visual}</span>
+        <span class="event-line__content">
+          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em>${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em>${escapeHtml(event.base)}</em>` : ""}</span>
+          <strong>${escapeHtml(headline)}</strong>
+          <span class="event-line__body">${escapeHtml(body)}</span>
+          ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
+        </span>
+      </li>`;
+  }).join("");
+  return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+}
+
+function eventBulletQuantityTotal(bullets) {
+  return bullets.reduce((sum, bullet) => {
+    const match = String(bullet || "").match(/^[+-]?(\d+)/);
+    return sum + (match ? Number(match[1]) : 0);
+  }, 0);
+}
+
+function eventDetailItemsQuantityTotal(event, key) {
+  const items = Array.isArray(event.details?.items) ? event.details.items : [];
+  return items.reduce((sum, item) => sum + Number(item?.[key] || 0), 0);
+}
+
+function frenchPlural(value, singular, pluralForm) {
+  return value === 1 ? singular : pluralForm;
+}
+
+function compactEventHeadline(event, fallbackHeadline) {
+  if (event.type !== "production") return fallbackHeadline;
+  const player = String(event.player || "").trim();
+  const base = String(event.base || "").trim();
+  if (player && base) return `${player} termine une production à ${base}`;
+  if (player) return `${player} termine une production`;
+  if (base) return `${base} termine une production`;
+  return fallbackHeadline;
+}
+
+function compactProductionEventBody(event, fallbackBody, bullets) {
+  const added = eventBulletQuantityTotal(bullets) || eventDetailItemsQuantityTotal(event, "added");
+  const total = Number(event.details?.total || eventDetailItemsQuantityTotal(event, "count"));
+  if (!added) return fallbackBody;
+  const ready = added === 1
+    ? "1 ressource produite est prête."
+    : `${added.toLocaleString("fr-CA")} ressources produites sont prêtes.`;
+  return total > 0
+    ? `${ready} Stock de production actuel: ${total.toLocaleString("fr-CA")}.`
+    : ready;
+}
+
+function compactItemizedEventBody(event, fallbackBody, bullets) {
+  if (event.type === "production") return compactProductionEventBody(event, fallbackBody, bullets);
+  if (!bullets.length || !["craft", "fishing"].includes(event.type)) return fallbackBody;
+  const added = eventBulletQuantityTotal(bullets);
+  const total = Number(event.details?.total || 0);
+  const player = String(event.player || "").trim();
+  if (!added || !total || !player) return fallbackBody;
+
+  if (event.type === "craft") {
+    return `${player} termine ${added} ${frenchPlural(added, "fabrication", "fabrications")}. Total cumulé: ${total}.`;
+  }
+  return `${player} ramène ${added} ${frenchPlural(added, "prise de pêche", "prises de pêche")}. Total cumulé: ${total}.`;
+}
+
+function renderEventPaginationControls(pageCount) {
+  if (!eventPagination) return;
+  if (pageCount <= 1) {
+    eventPagination.innerHTML = "";
+    eventPagination.hidden = true;
+    return;
+  }
+
+  eventPagination.hidden = false;
+  const pages = eventPageNumbers(eventCurrentPage, pageCount);
+  let previousPage = 0;
+  const pageButtons = pages.map((page) => {
+    const gap = previousPage && page - previousPage > 1 ? '<span aria-hidden="true">…</span>' : "";
+    previousPage = page;
+    return `${gap}<button type="button" data-event-page="${page}"${page === eventCurrentPage ? ' class="is-current" aria-current="page"' : ""}>${page}</button>`;
+  }).join("");
+  eventPagination.innerHTML = `
+    <button type="button" data-event-page="${eventCurrentPage - 1}" ${eventCurrentPage === 1 ? "disabled" : ""}>Précédente</button>
+    <span class="event-pagination__pages">${pageButtons}</span>
+    <button type="button" data-event-page="${eventCurrentPage + 1}" ${eventCurrentPage === pageCount ? "disabled" : ""}>Suivante</button>`;
+}
+
+function eventIndexTotalEvents() {
+  return Number(eventsIndexSnapshot?.summary?.totalEvents || eventsIndexSnapshot?.summary?.events || 0);
+}
+
+function eventIndexPageSize() {
+  return Math.max(1, Number(eventsIndexSnapshot?.pageSize || eventExportPageSizeFallback));
+}
+
+function eventIndexPagePath(pageNumber) {
+  const page = Number(pageNumber) || 1;
+  const metadata = (eventsIndexSnapshot?.pages || []).find((entry) => Number(entry?.page) === page);
+  return String(metadata?.path || `data/public-events-page-${String(page).padStart(4, "0")}.json`).replace(/^\/+/, "");
+}
+
+function eventExportPageNumbersForWindow(start, end, pageSize) {
+  if (end <= start) return [];
+  const firstPage = Math.floor(start / pageSize) + 1;
+  const lastPage = Math.floor((end - 1) / pageSize) + 1;
+  return Array.from({ length: lastPage - firstPage + 1 }, (_, index) => firstPage + index);
+}
+
+async function loadEventExportPage(pageNumber) {
+  const page = Number(pageNumber) || 1;
+  if (eventPageCache.has(page)) return eventPageCache.get(page);
+  if (eventPagePromises.has(page)) return eventPagePromises.get(page);
+
+  const promise = readJson(eventIndexPagePath(page))
+    .then((payload) => {
+      const pagePayload = {
+        ...payload,
+        events: dedupeSessionFallbackEvents(payload?.events),
+      };
+      eventPageCache.set(page, pagePayload);
+      return pagePayload;
+    })
+    .finally(() => eventPagePromises.delete(page));
+  eventPagePromises.set(page, promise);
+  return promise;
+}
+
+async function collectPagedTerminalEvents() {
+  const totalEvents = eventIndexTotalEvents();
+  updateTerminalPageSize();
+  const terminalPageCount = Math.max(1, Math.ceil(totalEvents / terminalEventPageSize));
+  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), terminalPageCount);
+  const start = (eventCurrentPage - 1) * terminalEventPageSize;
+  const end = Math.min(start + terminalEventPageSize, totalEvents);
+  const exportPageSize = eventIndexPageSize();
+  const sourcePages = eventExportPageNumbersForWindow(start, end, exportPageSize);
+  const payloads = await Promise.all(sourcePages.map((page) => loadEventExportPage(page)));
+  const sourceStart = (sourcePages[0] - 1) * exportPageSize;
+  return payloads
+    .flatMap((payload) => payload.events || [])
+    .slice(start - sourceStart, end - sourceStart);
+}
+
+async function renderPagedTerminalEvents(refinePageSize = true) {
+  if (!isTerminalRoute() || !eventsIndexSnapshot || eventFiltersRequireFullHistory()) return false;
+
+  const totalEvents = eventIndexTotalEvents();
+  if (!totalEvents) {
+    if (eventResultCount) eventResultCount.textContent = "Aucun écho";
+    if (eventStream) eventStream.innerHTML = '<li class="event-stream__empty">Les premiers échos arrivent...</li>';
+    renderEventPaginationControls(1);
+    return true;
+  }
+
+  try {
+    updateTerminalPageSize();
+    const pageCount = Math.max(1, Math.ceil(totalEvents / terminalEventPageSize));
+    eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+    const start = (eventCurrentPage - 1) * terminalEventPageSize;
+    const end = Math.min(start + terminalEventPageSize, totalEvents);
+    const missingPages = eventExportPageNumbersForWindow(start, end, eventIndexPageSize())
+      .filter((page) => !eventPageCache.has(page));
+    if (missingPages.length && eventStream) {
+      eventStream.innerHTML = '<li class="event-stream__empty">Chargement des échos...</li>';
+    }
+
+    const visible = await collectPagedTerminalEvents();
+    const resultLabel = `${totalEvents.toLocaleString("fr-CA")} écho${totalEvents > 1 ? "s" : ""}`;
+    const updatedPageCount = Math.max(1, Math.ceil(totalEvents / terminalEventPageSize));
+    if (eventResultCount) {
+      eventResultCount.textContent = updatedPageCount > 1
+        ? `${resultLabel} · page ${eventCurrentPage} sur ${updatedPageCount}`
+        : resultLabel;
+    }
+    if (renderEventStreamItems(visible, true, refinePageSize)) {
+      await renderPagedTerminalEvents(false);
+      return true;
+    }
+    renderEventPaginationControls(updatedPageCount);
+    return true;
+  } catch {
+    const result = await loadEvents(true);
+    if (result.ok) renderEvents(false);
+    return result.ok;
+  }
+}
+
+async function updateTerminalEvents(refinePageSize = true) {
+  if (isTerminalRoute() && !eventsFullLoaded && eventFiltersRequireFullHistory()) {
+    if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
+    await loadEvents(true);
+  }
+  if (isTerminalRoute() && !eventsFullLoaded && !eventsIndexSnapshot) {
+    await loadEvents(true);
+  }
+  if (isTerminalRoute() && !eventsFullLoaded && eventsIndexSnapshot) {
+    await renderPagedTerminalEvents(refinePageSize);
+  } else {
+    renderEvents(refinePageSize);
+  }
   writeTerminalState();
 }
 
 function renderEvents(refinePageSize = true) {
   const events = dedupeSessionFallbackEvents(eventsSnapshot?.events);
   const query = normalizeEventSearch(eventSearch?.value);
-  const type = eventTypeFilter?.value || "all";
-  const player = eventPlayerFilter?.value || "all";
+  const type = selectedEventTypeValue();
+  const player = selectedEventPlayerValue();
   const filtered = events.filter((event) => {
     if (type !== "all" && event.type !== type) return false;
     if (player !== "all" && event.player !== player) return false;
@@ -2104,8 +2442,11 @@ function renderEvents(refinePageSize = true) {
   const start = (eventCurrentPage - 1) * pageSize;
   const visible = filtered.slice(start, start + pageSize);
 
+  const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
   const resultLabel = filtered.length === events.length
-    ? `${events.length} écho${events.length > 1 ? "s" : ""} archivé${events.length > 1 ? "s" : ""}`
+    ? (eventsSnapshot?.recent && totalEvents > events.length
+      ? `${events.length} échos récents affichés sur ${totalEvents.toLocaleString("fr-CA")}`
+      : `${events.length} écho${events.length > 1 ? "s" : ""}`)
     : `${filtered.length} résultat${filtered.length > 1 ? "s" : ""} sur ${events.length}`;
   if (eventResultCount) {
     eventResultCount.textContent = pageCount > 1
@@ -2113,63 +2454,24 @@ function renderEvents(refinePageSize = true) {
       : resultLabel;
   }
 
-  if (!visible.length) {
-    eventStream.innerHTML = '<li class="event-stream__empty">Aucun écho ne correspond à cette recherche.</li>';
-  } else {
-    eventStream.innerHTML = visible.map((event) => {
-      const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
-      const timestamp = formatEventTime(event.occurredAt);
-      const accent = event.player ? playerColor(event.player) : meta.color;
-      const headline = event.display?.headline || event.title;
-      const body = event.display?.body || event.message;
-      const bullets = Array.isArray(event.display?.bullets) ? event.display.bullets : [];
-      const visual = event.icon
-        ? gameImage(event.icon, "", "event-line__portrait")
-        : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
-      return `
-        <li class="event-line event-line--${escapeHtml(event.type)}" style="--event-accent:${accent}">
-          <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.date)} · ${escapeHtml(timestamp.time)}</strong></time>
-          <span class="event-line__rail" aria-hidden="true"><i></i></span>
-          <span class="event-line__visual">${visual}</span>
-          <span class="event-line__content">
-            <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em>${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em>${escapeHtml(event.base)}</em>` : ""}</span>
-            <strong>${escapeHtml(headline)}</strong>
-            <span>${escapeHtml(body)}</span>
-            ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
-          </span>
-        </li>`;
-    }).join("");
-    if (terminal && refinePageSize && refineRenderedTerminalPageSize()) {
-      renderEvents(false);
-      return;
-    }
-  }
-
-  if (pageCount <= 1) {
-    if (eventPagination) {
-      eventPagination.innerHTML = "";
-      eventPagination.hidden = true;
-    }
+  if (renderEventStreamItems(visible, terminal, refinePageSize)) {
+    renderEvents(false);
     return;
   }
-  eventPagination.hidden = false;
-  const pages = eventPageNumbers(eventCurrentPage, pageCount);
-  let previousPage = 0;
-  const pageButtons = pages.map((page) => {
-    const gap = previousPage && page - previousPage > 1 ? '<span aria-hidden="true">…</span>' : "";
-    previousPage = page;
-    return `${gap}<button type="button" data-event-page="${page}"${page === eventCurrentPage ? ' class="is-current" aria-current="page"' : ""}>${page}</button>`;
-  }).join("");
-  eventPagination.innerHTML = `
-    <button type="button" data-event-page="${eventCurrentPage - 1}" ${eventCurrentPage === 1 ? "disabled" : ""}>Précédente</button>
-    <span class="event-pagination__pages">${pageButtons}</span>
-    <button type="button" data-event-page="${eventCurrentPage + 1}" ${eventCurrentPage === pageCount ? "disabled" : ""}>Suivante</button>`;
+  renderEventPaginationControls(pageCount);
 }
 
 function renderEventSummaryCards(payload) {
   const events = dedupeSessionFallbackEvents(payload?.events);
   if (eventsState) {
-    eventsState.textContent = `${events.length} écho${events.length > 1 ? "s" : ""} archivé${events.length > 1 ? "s" : ""}`;
+    const totalEvents = Number(payload?.summary?.totalEvents || events.length);
+    if (totalEvents > events.length && payload?.recent) {
+      eventsState.textContent = `${totalEvents.toLocaleString("fr-CA")} écho${totalEvents > 1 ? "s" : ""}`;
+    } else if (payload?.truncated && totalEvents > events.length) {
+      eventsState.textContent = `${events.length} échos affichés sur ${totalEvents.toLocaleString("fr-CA")}`;
+    } else {
+      eventsState.textContent = `${events.length} écho${events.length > 1 ? "s" : ""}`;
+    }
     eventsState.dataset.state = "live";
   }
   registerDataUpdate("events", payload.updatedAt);
@@ -2509,6 +2811,13 @@ function renderPlayerDiscoveryProgress(progress) {
             <article><strong>${Number(records.fishCaught || 0)}</strong><span>prises de pêche</span></article>
             <article><strong>${Number(records.oilRigsCleared || 0)}</strong><span>plateformes nettoyées</span></article>
             <article><strong>${Number(records.itemsCrafted || 0).toLocaleString("fr-CA")}</strong><span>objets fabriqués</span></article>
+            <article><strong>${Number(records.uniqueItemsPickedUp || 0).toLocaleString("fr-CA")}</strong><span>objets uniques découverts</span></article>
+            <article><strong>${Number(records.notesFound || 0).toLocaleString("fr-CA")}</strong><span>notes trouvées</span></article>
+            <article><strong>${Number(records.arenaSoloClears || 0).toLocaleString("fr-CA")}</strong><span>arènes solo terminées</span></article>
+            <article><strong>${Number(records.raidBossDefeats || 0).toLocaleString("fr-CA")}</strong><span>boss de raid vaincus</span></article>
+            <article><strong>${Number(records.towerBossDefeats || bosses.towerDefeated || 0).toLocaleString("fr-CA")}</strong><span>boss de tour vaincus</span></article>
+            <article><strong>${Number(records.palRankups || 0).toLocaleString("fr-CA")}</strong><span>améliorations de Pals</span></article>
+            <article><strong>${Number(records.mutations || 0).toLocaleString("fr-CA")}</strong><span>mutations confirmées</span></article>
           </div>
           <section><h5>Quêtes en cours</h5><div class="journey-chip-grid">${activeQuests.length ? activeQuests.map((row) => `<span>${escapeHtml(row.name)}</span>`).join("") : "<p>Aucune quête active documentée.</p>"}</div></section>
           <section><h5>Quêtes terminées</h5><div class="journey-chip-grid">${completedQuests.length ? completedQuests.map((row) => `<span>${escapeHtml(row.name)}</span>`).join("") : "<p>Aucune quête publique documentée.</p>"}</div></section>
@@ -3212,20 +3521,51 @@ function setupLazyBaseData() {
   targets.forEach((target) => observer.observe(target));
 }
 
+function renderEventIndexSnapshot(payload) {
+  eventsIndexSnapshot = payload;
+  registerDataUpdate("events", payload?.updatedAt);
+  renderEventSyncStatus(new Date(), payload?.updatedAt);
+  if (eventsDisclosure?.open) renderEventFiltersFromFacets(payload);
+}
+
 async function loadEvents(silent = false) {
+  if (eventsFullLoadPromise) return eventsFullLoadPromise;
+
+  eventsFullLoadPromise = (async () => {
+    try {
+      const payload = await readJson("data/public-events.json");
+      const changed = isNewDataRevision("events", payload);
+      eventsFullLoaded = true;
+      if (changed || !eventsSnapshot) renderEventSnapshot(payload);
+      return { ok: true, changed };
+    } catch {
+      if (!silent) {
+        if (eventsState) eventsState.textContent = "En attente";
+        if (eventResultCount) eventResultCount.textContent = "Historique momentanément indisponible";
+        if (eventStream) eventStream.innerHTML = '<li class="event-stream__empty">Les événements apparaîtront après le prochain passage du collecteur.</li>';
+      }
+      return { ok: false, changed: false };
+    }
+  })();
+
+  const result = await eventsFullLoadPromise;
+  if (!result.ok) eventsFullLoadPromise = null;
+  return result;
+}
+
+async function loadEventsIndex(silent = false) {
   try {
-    const payload = await readJson("data/public-events.json");
-    const changed = isNewDataRevision("events", payload);
-    eventsFullLoaded = true;
-    if (changed) renderEventSnapshot(payload);
+    const payload = await readJson("data/public-events-index.json");
+    const previousRevision = eventsIndexSnapshot?.revision || "";
+    const changed = isNewDataRevision("eventsIndex", payload);
+    if (changed || previousRevision !== payload?.revision) {
+      eventPageCache.clear();
+      eventPagePromises.clear();
+    }
+    renderEventIndexSnapshot(payload);
     return { ok: true, changed };
   } catch {
-    if (!silent) {
-      eventsState.textContent = "En attente";
-      eventResultCount.textContent = "Historique momentanément indisponible";
-      eventStream.innerHTML = '<li class="event-stream__empty">Les événements apparaîtront après le prochain passage du collecteur.</li>';
-    }
-    return { ok: false, changed: false };
+    return loadEvents(silent);
   }
 }
 
@@ -3264,13 +3604,18 @@ function mergeEventPayload(payload) {
 }
 
 async function loadEventsRecent(silent = true) {
-  if (!eventsFullLoaded) return loadEvents(silent);
-  if (Date.now() - lastEventRecentRefreshAt < refreshEveryMs - 500) {
+  if (Date.now() - lastEventRecentRefreshAt < refreshEveryMs - 500 && eventsSnapshot) {
     return { ok: true, changed: false };
   }
   try {
     const payload = await readJson("data/public-events-recent.json");
     lastEventRecentRefreshAt = Date.now();
+    if (!eventsFullLoaded) {
+      const changed = isNewDataRevision("events", payload);
+      if (changed) renderEventSnapshot({ ...payload, recent: true });
+      return { ok: true, changed };
+    }
+
     const previousRevision = eventsSnapshot?.revision || "";
     const merged = mergeEventPayload(payload);
     const changed = merged.revision !== previousRevision || merged.events.length !== (eventsSnapshot?.events || []).length;
@@ -3308,9 +3653,15 @@ async function refreshDataInBackground() {
     return;
   }
   if (isTerminalRoute()) {
+    const eventRefresh = eventsFullLoaded
+      ? loadEventsRecent(true)
+      : loadEventsIndex(true).then(async (result) => {
+        if (result.ok && !eventsFullLoaded) await renderPagedTerminalEvents(false);
+        return result;
+      });
     const results = await Promise.all([
       loadMetrics(true),
-      loadEventsRecent(true),
+      eventRefresh,
     ]);
     const synchronizedSources = results.filter((result) => result.ok).length;
     const changedSources = results.filter((result) => result.changed).length;
@@ -3352,16 +3703,24 @@ readTerminalState();
 syncTerminalView();
 if (isTerminalRoute()) {
   if (eventsDisclosure) eventsDisclosure.open = true;
+  const terminalEventsLoad = eventFiltersRequireFullHistory()
+    ? loadEvents()
+    : loadEventsIndex().then(async (result) => {
+      if (result.ok && !eventsFullLoaded) await renderPagedTerminalEvents();
+      return result;
+    });
   Promise.all([
     loadMetrics(),
-    loadEvents(),
+    terminalEventsLoad,
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
-    if (eventsSnapshot) {
+    if (eventsFullLoaded && eventsSnapshot) {
       renderEventFilters(eventsSnapshot.events || []);
-      readTerminalState();
       renderEvents();
       writeTerminalState();
+    } else if (eventsIndexSnapshot) {
+      renderEventFiltersFromFacets(eventsIndexSnapshot);
+      void renderPagedTerminalEvents(false).then(() => writeTerminalState());
     }
   });
 } else if (isHeaderOnlyRoute()) {
@@ -3376,8 +3735,11 @@ if (isTerminalRoute()) {
   const initialBaseLoad = location.hash === "#carte"
     ? loadBases()
     : Promise.resolve({ ok: true, changed: false });
+  const initialEventsLoad = eventsDisclosure?.open
+    ? loadEvents()
+    : loadEventsRecent(true);
 
-  Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), loadEvents()]).then(() => {
+  Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), initialEventsLoad]).then(() => {
     document.documentElement.classList.add("data-loaded");
     setupLazyBaseData();
     const initialSection = ["chroniques", "classements", "carte", "evenements"]
@@ -3454,7 +3816,17 @@ eventsDisclosure?.addEventListener("toggle", () => {
     eventsDisclosure.open = true;
     return;
   }
-  if (!eventsDisclosure.open || !eventsSnapshot) return;
+  if (!eventsDisclosure.open) return;
+  if (!eventsFullLoaded) {
+    if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
+    void loadEvents(true).then(() => {
+      if (!eventsDisclosure.open || !eventsSnapshot) return;
+      renderEventFilters(eventsSnapshot.events || []);
+      renderEvents();
+    });
+    return;
+  }
+  if (!eventsSnapshot) return;
   renderEventFilters(eventsSnapshot.events || []);
   renderEvents();
 });
@@ -3633,16 +4005,16 @@ palSort.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollec
 palLoadMore.addEventListener("click", () => { palVisibleLimit += 24; renderPalCollection(); });
 inventorySearch.addEventListener("input", () => renderInventory(selectedPlayer));
 }
-eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; updateTerminalEvents(); });
-eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; updateTerminalEvents(); });
-eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; updateTerminalEvents(); });
+eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; void updateTerminalEvents(); });
+eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; void updateTerminalEvents(); });
+eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; void updateTerminalEvents(); });
 eventPagination?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-event-page]");
   if (!button || button.disabled) return;
   eventCurrentPage = Number(button.dataset.eventPage) || 1;
-  renderEvents();
-  writeTerminalState();
-  document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
+  void updateTerminalEvents().then(() => {
+    document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
+  });
 });
 palSearch?.addEventListener("keydown", clearSearchOnEscape);
 inventorySearch?.addEventListener("keydown", clearSearchOnEscape);
@@ -3691,9 +4063,8 @@ document.addEventListener("focusout", (event) => {
 window.addEventListener("resize", () => {
   if (activeTooltipTarget) positionContextTooltip(activeTooltipTarget);
   syncBackToTop();
-  if (isTerminalRoute() && eventsSnapshot && updateTerminalPageSize(true)) {
-    renderEvents();
-    writeTerminalState();
+  if (isTerminalRoute() && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
+    void updateTerminalEvents(false);
   }
   scheduleActiveNavigationUpdate();
 });

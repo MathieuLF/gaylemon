@@ -6,6 +6,7 @@ Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute de
 
 - scripts actifs sous `server/bin/`;
 - unités et minuteries `systemd`;
+- wrappers privilégiés sous `server/sbin/`;
 - règles `sysctl` et modèles `sudoers`;
 - collecteurs, analyseurs, tests et fixtures fictives;
 - scripts Windows;
@@ -27,6 +28,7 @@ Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute de
 | Dans Git | Sur Ubuntu |
 |---|---|
 | `server/bin/*` | `/srv/storage/steam/bin/*` ou `GAYLEMON_REMOTE_PROJECT_ROOT/server/bin/*` |
+| `server/sbin/*` | `/usr/local/sbin/*` |
 | `server/systemd/*` | `/etc/systemd/system/*` |
 | `server/sysctl/*` | `/etc/sysctl.d/*` |
 | `server/sudoers/*` | `/etc/sudoers.d/*` |

@@ -84,6 +84,16 @@ function Get-GaylemonConfig {
     $micrositePort = ConvertTo-GaylemonInt "GAYLEMON_MICROSITE_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_MICROSITE_PORT" "8787") 1 65535
     $apiLocalPort = ConvertTo-GaylemonInt "GAYLEMON_API_LOCAL_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_API_LOCAL_PORT" "8212") 1 65535
     $apiRemotePort = ConvertTo-GaylemonInt "GAYLEMON_API_REMOTE_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_API_REMOTE_PORT" "8212") 1 65535
+    $apiTunnelMode = (Get-GaylemonSetting $fileValues "GAYLEMON_API_TUNNEL_MODE" "docker").ToLowerInvariant()
+    if ($apiTunnelMode -notin @("docker", "windows-ssh")) {
+        throw "GAYLEMON_API_TUNNEL_MODE doit valoir 'docker' ou 'windows-ssh'. Valeur recue: '$apiTunnelMode'."
+    }
+    $defaultSshDirectory = Join-Path $HOME ".ssh"
+    $sshDirectory = Get-GaylemonSetting $fileValues "GAYLEMON_SSH_DIR" $defaultSshDirectory
+    if ([string]::IsNullOrWhiteSpace($sshDirectory)) {
+        $sshDirectory = $defaultSshDirectory
+    }
+    $sshDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($sshDirectory)
     $gamePort = ConvertTo-GaylemonInt "GAYLEMON_GAME_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_GAME_PORT" "8211") 1 65535
     $metricInterval = ConvertTo-GaylemonInt "GAYLEMON_METRIC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_INTERVAL_SECONDS" "60") 5 3600
     $metricUpdateTimeout = ConvertTo-GaylemonInt "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" "120") 30 3600
@@ -95,6 +105,7 @@ function Get-GaylemonConfig {
         ProjectRoot = $resolvedRoot
         EnvPath = Join-Path $resolvedRoot ".env"
         SshAlias = Get-GaylemonSetting $fileValues "GAYLEMON_SSH_ALIAS" "palworld"
+        SshDirectory = $sshDirectory
         ServerLanIp = Get-GaylemonSetting $fileValues "GAYLEMON_SERVER_LAN_IP" ""
         RemoteProjectRoot = $remoteProjectRoot
         RemoteProjectUser = $remoteProjectUser
@@ -107,6 +118,7 @@ function Get-GaylemonConfig {
         DockerMicrositeContainer = Get-GaylemonSetting $fileValues "GAYLEMON_DOCKER_MICROSITE_CONTAINER" "gaylemon-microsite"
         ApiLocalPort = $apiLocalPort
         ApiRemotePort = $apiRemotePort
+        ApiTunnelMode = $apiTunnelMode
         MetricUpdateTimeoutSeconds = $metricUpdateTimeout
         UptimeKumaBaseUrl = (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_BASE_URL" "").TrimEnd("/")
         UptimeKumaStatusSlug = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_STATUS_SLUG" "palworld"

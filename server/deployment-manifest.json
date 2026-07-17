@@ -16,8 +16,8 @@
       "source": "server/bin/palworld-announce.sh",
       "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-announce.sh",
       "owner": "root",
-      "group": "root",
-      "mode": "0755",
+      "group": "steam",
+      "mode": "0750",
       "validation": "bash",
       "restartUnit": null,
       "restartPolicy": "none"
@@ -26,8 +26,8 @@
       "source": "server/bin/palworld-api.sh",
       "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-api.sh",
       "owner": "root",
-      "group": "root",
-      "mode": "0755",
+      "group": "steam",
+      "mode": "0750",
       "validation": "bash",
       "restartUnit": null,
       "restartPolicy": "none"
@@ -36,8 +36,8 @@
       "source": "server/bin/palworld-backup.sh",
       "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-backup.sh",
       "owner": "root",
-      "group": "root",
-      "mode": "0755",
+      "group": "steam",
+      "mode": "0750",
       "validation": "bash",
       "restartUnit": null,
       "restartPolicy": "none"
@@ -76,8 +76,8 @@
       "source": "server/bin/palworld-kuma-push.sh",
       "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-kuma-push.sh",
       "owner": "root",
-      "group": "root",
-      "mode": "0755",
+      "group": "steam",
+      "mode": "0750",
       "validation": "bash",
       "restartUnit": null,
       "restartPolicy": "none"
@@ -161,6 +161,16 @@
       "validation": "bash",
       "restartUnit": "palworld-welcome.service",
       "restartPolicy": "recommended"
+    },
+    {
+      "source": "server/sbin/gaylemon-deploy-install",
+      "destination": "/usr/local/sbin/gaylemon-deploy-install",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
     },
     {
       "source": "server/systemd/cloudflare-update-dns.service",
@@ -355,6 +365,16 @@
     {
       "source": "server/sudoers/palworld-stats",
       "destination": "/etc/sudoers.d/palworld-stats",
+      "owner": "root",
+      "group": "root",
+      "mode": "0440",
+      "validation": "sudoers",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/sudoers/gaylemon-deploy",
+      "destination": "/etc/sudoers.d/gaylemon-deploy",
       "owner": "root",
       "group": "root",
       "mode": "0440",

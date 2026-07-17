@@ -1,6 +1,6 @@
 [Unit]
 Description=Palworld dedicated server
-Wants=network-online.target
+Wants=network-online.target palworld-welcome.service
 After=network-online.target
 
 [Service]

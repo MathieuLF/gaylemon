@@ -1,12 +1,26 @@
 {
   "version": 3,
-  "projection": { "version": 2 },
+  "projection": { "version": 4 },
   "ok": true,
   "updatedAt": "2026-07-11T12:00:00-04:00",
   "source": { "type": "palworld-built-in-backup", "backup": "2026.07.11-12.00.00" },
   "parser": { "name": "PalworldSaveTools", "commit": "example" },
   "summary": { "players": 2, "pals": 24, "guilds": 2, "bases": 3 },
-  "world": { "paldexSpecies": 288, "fastTravelPoints": 174, "discoverableAreas": 123, "knownBosses": 99 },
+  "world": {
+    "paldexSpecies": 288,
+    "fastTravelPoints": 174,
+    "discoverableAreas": 123,
+    "knownBosses": 99,
+    "deathDrops": [
+      {
+        "key": "drop_example_public_1",
+        "type": "character-drop",
+        "label": "Sac de récupération",
+        "player": "Aventuriere",
+        "position": { "mapX": 274, "mapY": 31, "leftPercent": 63.7, "topPercent": 48.45, "mapVisible": true }
+      }
+    ]
+  },
   "bases": [],
   "guilds": [
     { "name": "Explorateurs", "players": 1, "bases": 2, "campLevel": 18 }
@@ -107,7 +121,13 @@
           "fishSpecies": 4,
           "itemsCrafted": 325,
           "craftedItemTypes": 28,
-          "uniqueItemsPickedUp": 5
+          "uniqueItemsPickedUp": 5,
+          "notesFound": 2,
+          "arenaSoloClears": 1,
+          "mutations": 0,
+          "palRankups": 3,
+          "raidBossDefeats": 0,
+          "towerBossDefeats": 1
         },
         "paldex": {
           "encounteredSpecies": 48,
