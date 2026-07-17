@@ -175,6 +175,13 @@ class SaveSnapshotContractTests(unittest.TestCase):
         sections = [{
             "CraftItemCount": {"value": [{"key": "Wood", "value": 12}]},
             "FishingCountMap": {"value": [{"key": "Kelpsea", "value": 3}]},
+            "ItemPickupObtainForInstanceFlag": {"value": [{"key": "AncientPart", "value": True}]},
+            "NoteObtainForInstanceFlag": {"value": [{"key": "Note01", "value": True}]},
+            "ArenaSoloClearCount": {"value": 2},
+            "MutationCount": {"value": 1},
+            "PalRankupCount": {"value": 4},
+            "RaidBossDefeatCount": {"value": 1},
+            "TowerBossDefeatCount": {"value": 3},
         }]
         catalogs = {
             "items": {
@@ -187,6 +194,45 @@ class SaveSnapshotContractTests(unittest.TestCase):
         self.assertEqual(records["craftedItems"][0]["name"], "Bois")
         self.assertEqual(records["fishCaught"], 3)
         self.assertEqual(records["fish"][0]["icon"], "assets/game/icons/items/fish.webp")
+        self.assertEqual(records["uniqueItemsPickedUp"], 1)
+        self.assertEqual(records["notesFound"], 1)
+        self.assertEqual(records["arenaSoloClears"], 2)
+        self.assertEqual(records["mutations"], 1)
+        self.assertEqual(records["palRankups"], 4)
+        self.assertEqual(records["raidBossDefeats"], 1)
+        self.assertEqual(records["towerBossDefeats"], 3)
+
+    def test_death_drops_are_public_and_non_reversible(self):
+        world = {
+            "MapObjectSaveData": {
+                "value": {
+                    "values": [
+                        {
+                            "MapObjectId": {"value": "DroppedCharacter"},
+                            "Model": {"value": {"RawData": {"value": {
+                                "instance_id": "model-1",
+                                "initital_transform_cache": {
+                                    "translation": {"x": 1000, "y": 2000, "z": 3000}
+                                },
+                            }}}},
+                            "ConcreteModel": {"value": {"RawData": {"value": {
+                                "instance_id": "concrete-1",
+                                "stored_parameter_id": "stored-1",
+                                "owner_player_uid": "PLAYER-1",
+                            }}}},
+                        }
+                    ]
+                }
+            }
+        }
+        rows = snapshot.death_drop_state(world, {"player1": "Aventurière"})
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["key"].startswith("drop_"))
+        self.assertEqual(rows[0]["type"], "character-drop")
+        self.assertEqual(rows[0]["label"], "Sac de récupération")
+        self.assertEqual(rows[0]["player"], "Aventurière")
+        self.assertIn("mapX", rows[0]["position"])
+        snapshot.validate_public_payload({"world": {"deathDrops": rows}})
 
     def test_existing_snapshot_source_supports_fast_duplicate_detection(self):
         with tempfile.TemporaryDirectory() as directory:

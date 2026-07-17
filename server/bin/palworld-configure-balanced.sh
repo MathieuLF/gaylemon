@@ -22,7 +22,7 @@ if [ ! -f "$GAME_DIR/DefaultPalWorldSettings.ini" ]; then
 fi
 
 install -d -o steam -g steam -m 0755 "$(dirname "$CANONICAL_CFG")" "$(dirname "$TARGET_CFG")"
-install -o steam -g steam -m 0644 "$GAME_DIR/DefaultPalWorldSettings.ini" "$CANONICAL_CFG"
+install -o steam -g steam -m 0640 "$GAME_DIR/DefaultPalWorldSettings.ini" "$CANONICAL_CFG"
 
 set_setting() {
   local key="$1"
@@ -86,7 +86,7 @@ set_setting bAllowGlobalPalboxImport False
 set_setting EquipmentDurabilityDamageRate 1.050000
 set_setting MonsterFarmActionSpeedRate 1.000000
 
-install -o steam -g steam -m 0644 "$CANONICAL_CFG" "$TARGET_CFG"
+install -o steam -g steam -m 0640 "$CANONICAL_CFG" "$TARGET_CFG"
 chown -R steam:steam "$PALWORLD_DIR/config" "$GAME_DIR/Pal/Saved"
 
 echo "Palworld challenge configuration written to $TARGET_CFG."

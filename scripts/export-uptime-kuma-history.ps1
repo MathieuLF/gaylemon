@@ -646,7 +646,6 @@ function Get-PublicDataProbe {
         return [ordered]@{
             name = $Name
             status = "missing"
-            path = $Path
             updatedAt = $null
             ageSeconds = $null
             maxAgeSeconds = $MaxAgeSeconds
@@ -661,7 +660,6 @@ function Get-PublicDataProbe {
         return [ordered]@{
             name = $Name
             status = "invalid"
-            path = $Path
             updatedAt = $item.LastWriteTimeUtc.ToString("o")
             ageSeconds = [int][Math]::Round(($NowUtc - [DateTimeOffset]$item.LastWriteTimeUtc).TotalSeconds, 0)
             maxAgeSeconds = $MaxAgeSeconds
@@ -686,7 +684,6 @@ function Get-PublicDataProbe {
     return [ordered]@{
         name = $Name
         status = $status
-        path = $Path
         updatedAt = $updatedAt.ToString("o")
         contentUpdatedAt = if ($contentUpdatedAt) { $contentUpdatedAt.ToString("o") } else { $null }
         fileUpdatedAt = ([DateTimeOffset]$item.LastWriteTimeUtc).ToString("o")

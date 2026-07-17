@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "projection": {"version": 3},
+  "projection": {"version": 4},
   "ok": true,
   "updatedAt": "2026-07-12T09:00:00-04:00",
   "source": {
@@ -21,7 +21,22 @@
     "paldexSpecies": 288,
     "fastTravelPoints": 174,
     "discoverableAreas": 123,
-    "knownBosses": 99
+    "knownBosses": 99,
+    "deathDrops": [
+      {
+        "key": "drop_fixture_public_1",
+        "type": "character-drop",
+        "label": "Sac de récupération",
+        "player": "Aventurière",
+        "position": {
+          "mapX": 42,
+          "mapY": -17,
+          "leftPercent": 52.1,
+          "topPercent": 50.85,
+          "mapVisible": true
+        }
+      }
+    ]
   },
   "bases": [],
   "guilds": [
@@ -111,7 +126,13 @@
           "fishSpecies": 0,
           "itemsCrafted": 0,
           "craftedItemTypes": 0,
-          "uniqueItemsPickedUp": 0
+          "uniqueItemsPickedUp": 0,
+          "notesFound": 0,
+          "arenaSoloClears": 0,
+          "mutations": 0,
+          "palRankups": 0,
+          "raidBossDefeats": 0,
+          "towerBossDefeats": 0
         },
         "paldex": {
           "encounteredSpecies": 2,

@@ -40,10 +40,9 @@ Mathieu agrandit la base principale
 ```
 
 ```text
-Brian termine une nouvelle chaîne de production
-3 fours
-2 lignes électriques
-1 convoyeur
+Brian termine une production à Atelier du nord
+40 ressources produites sont prêtes. Stock de production actuel: 180.
++40 Lingot
 ```
 
 Le ton doit rester vivant, mais jamais inventé.

@@ -1,19 +1,20 @@
 {
   "version": 4,
   "ok": true,
-  "revision": "4:6:6",
+  "revision": "4:5:5:page:1",
   "updatedAt": "2026-07-12T12:00:00-04:00",
   "recent": false,
   "truncated": false,
+  "page": 1,
+  "pageSize": 250,
   "summary": {
-    "events": 6,
-    "totalEvents": 6,
+    "events": 5,
+    "totalEvents": 5,
     "firstAt": "2026-07-12T10:00:00-04:00",
-    "lastAt": "2026-07-12T12:00:00-04:00",
+    "lastAt": "2026-07-12T11:55:00-04:00",
     "types": {
       "build": 1,
       "capture": 1,
-      "death": 1,
       "join": 1,
       "maintenance": 1,
       "production": 1
@@ -21,30 +22,6 @@
     "reconciledReconnects": 0
   },
   "events": [
-    {
-      "key": "evt_example_death_1",
-      "id": 6,
-      "occurredAt": "2026-07-12T12:00:00-04:00",
-      "type": "death",
-      "player": "Aventuriere",
-      "guild": null,
-      "base": null,
-      "title": "Sac de récupération détecté",
-      "message": "Le sac de récupération d'Aventuriere apparaît sur Palpagos.",
-      "display": {
-        "headline": "Sac de récupération",
-        "body": "Le sac de récupération d'Aventuriere apparaît sur Palpagos.",
-        "bullets": []
-      },
-      "details": {
-        "dropType": "character-drop",
-        "status": "appeared",
-        "position": { "mapX": 274, "mapY": 31, "mapVisible": true }
-      },
-      "confidence": "confirmed",
-      "icon": null,
-      "source": "save"
-    },
     {
       "key": "evt_example_build_1",
       "id": 5,
@@ -54,20 +31,13 @@
       "guild": "Explorateurs",
       "base": "Base principale",
       "title": "Base agrandie",
-      "message": "Mathieu agrandit Base principale (+20 murs, +4 fondations et +2 portes).",
+      "message": "Mathieu agrandit Base principale.",
       "display": {
         "headline": "Mathieu agrandit la base principale",
         "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
         "bullets": ["+20 murs", "+4 fondations", "+2 portes"]
       },
-      "details": {
-        "structures": [
-          { "name": "Mur", "added": 20 },
-          { "name": "Fondation", "added": 4 },
-          { "name": "Porte", "added": 2 }
-        ],
-        "total": 148
-      },
+      "details": {},
       "confidence": "confirmed",
       "icon": null,
       "source": "save"
@@ -104,7 +74,7 @@
       "guild": "Explorateurs",
       "base": null,
       "title": "Capture réussie",
-      "message": "Aventurier capture 2 Lamball. Total enregistré: 5.",
+      "message": "Aventurier capture 2 Lamball.",
       "display": {
         "headline": "Capture réussie",
         "body": "Aventurier capture 2 Lamball. Total enregistré: 5.",

@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260714.11">
-    <script src="/assets/app.js?v=20260714.12" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260715.10">
+    <script src="/assets/app.js?v=20260715.10" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -126,7 +126,7 @@
           <li><strong>Ops Windows</strong><span><code>Gaylemon Ops</code> charge <code>scripts/lib/Gaylemon.Config.ps1</code>, vérifie SSH, lance les commandes locales et déclenche les opérations distantes autorisées.</span></li>
           <li><strong>Collecte live</strong><span><code>palworld-stats.timer</code> et les scripts API lisent l'API REST Palworld locale sur Ubuntu. Le site ne reçoit que <code>public-metrics.json</code>, pas le mot de passe admin ni l'API brute.</span></li>
           <li><strong>Snapshots de saves</strong><span><code>palworld-save-snapshot.timer</code> travaille sur une copie de sauvegarde terminée, lit les données avec PalworldSaveTools, puis écrit les contrats <code>public-save-index.json</code>, <code>public-save-snapshot.json</code> et <code>public-save-bases.json</code>.</span></li>
-          <li><strong>Journal d'événements</strong><span><code>palworld-events.timer</code> alimente SQLite, déduplique avec des clés stables, puis exporte <code>public-events.json</code> et <code>public-events-recent.json</code> pour le tableau de bord et le terminal.</span></li>
+          <li><strong>Journal d'événements</strong><span><code>palworld-events.timer</code> alimente SQLite, déduplique avec des clés stables, puis exporte <code>public-events.json</code> et <code>public-events-recent.json</code>. La sync Windows ajoute l'index et les pages JSON utilisés par le terminal.</span></li>
           <li><strong>Déploiement Ubuntu</strong><span><code>scripts/deployer-ubuntu.ps1</code> prépare le manifeste résolu, met en scène sous <code>/tmp/gaylemon-staging</code>, valide Bash/Python/systemd/sudoers/sysctl, puis sauvegarde sous <code>/var/backups/gaylemon-deploy</code> avant installation.</span></li>
           <li><strong>Publication statique</strong><span>Les synchronisations PowerShell recopient uniquement les exports publics dans <code>portal/data/</code>. Nginx sert ensuite le site sans accès aux bases SQLite privées, aux saves, aux secrets ou aux chemins internes.</span></li>
         </ol>
@@ -151,8 +151,9 @@
             <li><code>public-uptime.json</code>: résumé filtré de la page Uptime Kuma externe.</li>
             <li><code>public-stats.json</code>: sessions et agrégats joueurs publiables.</li>
             <li><code>public-save-*.json</code>: index, profils, bases, diagnostics et projections v3.</li>
-            <li><code>public-events.json</code>: historique complet chargé une fois par le terminal.</li>
+            <li><code>public-events.json</code>: historique complet, non plafonné, utilisé comme source canonique.</li>
             <li><code>public-events-recent.json</code>: flux récent léger, pollé au même rythme que le tableau de bord.</li>
+            <li><code>public-events-index.json</code> et <code>public-events-page-0001.json</code>: navigation paginée et chargement paresseux du terminal.</li>
           </ul>
         </article>
       </section>

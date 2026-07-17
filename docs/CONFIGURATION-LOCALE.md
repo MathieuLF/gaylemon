@@ -23,10 +23,12 @@ Le modèle complet est [.env.example](../.env.example).
 | Variable | Usage |
 |---|---|
 | `GAYLEMON_SSH_ALIAS` | alias SSH du serveur |
+| `GAYLEMON_SSH_DIR` | dossier SSH monté en lecture seule par le tunnel API |
 | `GAYLEMON_REMOTE_PROJECT_ROOT` | dossier du projet sur Ubuntu |
 | `GAYLEMON_REMOTE_STEAM_ROOT` | dossier Steam/Palworld |
 | `GAYLEMON_MICROSITE_PORT` | port local du microsite Docker |
 | `GAYLEMON_MICROSITE_PUBLIC_URL` | URL publique ouverte par la console |
+| `GAYLEMON_API_TUNNEL_MODE` | mode du tunnel REST: `docker` ou `windows-ssh` |
 | `GAYLEMON_API_LOCAL_PORT` | port local du tunnel REST |
 | `GAYLEMON_API_REMOTE_PORT` | port REST Palworld sur Ubuntu |
 | `GAYLEMON_UPTIME_KUMA_*` | lecture de la page Kuma publique |
@@ -37,6 +39,7 @@ Le modèle complet est [.env.example](../.env.example).
 Le `.env` du dépôt ne doit pas contenir de secrets durables.
 
 - Clé SSH: `~/.ssh`.
+- Clé SSH dédiée au tunnel Discord: dossier indiqué par `GAYLEMON_SSH_DIR`, si configuré.
 - Mot de passe admin Palworld: configuration Palworld sur Ubuntu.
 - Push Uptime Kuma: `/etc/palworld/kuma.env`.
 - Jetons DNS ou tunnel Cloudflare: fichiers d'infrastructure, hors dépôt.
@@ -56,6 +59,8 @@ ssh gaylemon "hostname"
 Le tunnel REST utilisé par le robot Discord est lancé par Docker Desktop:
 
 ```powershell
-docker compose up -d --build palworld-api-tunnel
+.\scripts\palworld-api-tunnel.ps1 start
 .\scripts\palworld-api-tunnel.ps1 status
 ```
+
+Par défaut, le conteneur lit `~/.ssh` en lecture seule. Pour limiter ce qui est monté dans Docker, créer un dossier SSH dédié avec seulement la clé, `config` et `known_hosts` nécessaires, puis renseigner `GAYLEMON_SSH_DIR`.

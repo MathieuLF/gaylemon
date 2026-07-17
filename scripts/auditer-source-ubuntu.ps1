@@ -91,9 +91,10 @@ emit_active_files() {
 
 emit_active_files script '__STEAM_ROOT__/bin'
 emit_active_files project-script '__PROJECT_ROOT__/server/bin'
+emit_active_files sbin /usr/local/sbin -name 'gaylemon-*'
 emit_active_files systemd /etc/systemd/system \( -name 'palworld*' -o -name 'cloudflare-update-dns*' \)
 emit_active_files sysctl /etc/sysctl.d -name '*palworld*'
-emit_active_files sudoers /etc/sudoers.d -name '*palworld*'
+emit_active_files sudoers /etc/sudoers.d \( -name '*palworld*' -o -name 'gaylemon-*' \)
 
 printf 'META\tprojectGit\t'
 if git -C '__PROJECT_ROOT__' rev-parse --is-inside-work-tree >/dev/null 2>&1; then

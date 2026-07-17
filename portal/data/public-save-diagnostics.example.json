@@ -17,7 +17,18 @@
     "warnings": 4,
     "playersParsed": 7,
     "palsParsed": 1216,
-    "basesParsed": 11
+    "basesParsed": 11,
+    "unknownStructures": {
+      "unknownAreas": 1,
+      "unknownBossFlags": 2,
+      "unknownFastTravelPoints": 0,
+      "unknownPalCaptureAssets": 1,
+      "unknownPalChallengeAssets": 0,
+      "unknownPaldeckAssets": 0,
+      "unknownPalProperties": 0,
+      "unknownTechnologies": 0,
+      "unresolvedBaseWorkers": 0
+    }
   },
   "output": {
     "snapshotBytes": 3617271,
@@ -25,7 +36,8 @@
     "basesBytes": 384723,
     "basesGzipBytes": 32690,
     "privateBasesBytes": 417525,
-    "historyArchiveBytes": 230112
+    "historyArchiveBytes": 230112,
+    "basesHistoryArchiveBytes": 32104
   },
   "parser": {
     "name": "PalworldSaveTools",

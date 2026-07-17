@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import json
 import math
 import re
@@ -38,8 +39,13 @@ DEFAULT_DIAGNOSTICS = Path(
     "/home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json"
 )
 DEFAULT_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-snapshot-history")
+DEFAULT_BASES_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-bases-history")
 DEFAULT_LOCK = Path("/home/gaylemon/Gaylemon/runtime/palworld-save-snapshot.lock")
-PROJECTION_VERSION = 3
+PROJECTION_VERSION = 4
+DEATH_DROP_LABELS = {
+    "DroppedCharacter": "Sac de récupération",
+    "DeathPenaltyChest": "Coffre de récupération",
+}
 
 RECORD_ALIASES = (
     "RecordData",
@@ -163,6 +169,12 @@ def guid(value) -> str:
 
 def uid_key(value) -> str:
     return guid(value).replace("-", "").casefold()
+
+
+def public_hash(*parts) -> str:
+    private = "\0".join(str(part or "") for part in parts)
+    digest = hashlib.sha256(private.encode("utf-8")).hexdigest()
+    return digest[:24]
 
 
 def nested(mapping, *keys, default=None):
@@ -348,6 +360,12 @@ def player_records(sections, catalogs=None):
         "uniqueItemsPickedUp": len(
             true_map_keys(record_property(sections, "ItemPickupObtainForInstanceFlag"))
         ),
+        "notesFound": len(true_map_keys(record_property(sections, "NoteObtainForInstanceFlag"))),
+        "arenaSoloClears": to_int(scalar(record_property(sections, "ArenaSoloClearCount")), 0),
+        "mutations": to_int(scalar(record_property(sections, "MutationCount")), 0),
+        "palRankups": to_int(scalar(record_property(sections, "PalRankupCount")), 0),
+        "raidBossDefeats": to_int(scalar(record_property(sections, "RaidBossDefeatCount")), 0),
+        "towerBossDefeats": to_int(scalar(record_property(sections, "TowerBossDefeatCount")), 0),
     }
 
 
@@ -403,6 +421,51 @@ def public_position(prop):
         "topPercent": round(max(0, min(100, (1000 - map_y) / 20)), 2),
         "mapVisible": map_visible,
     }
+
+
+def map_object_position(model: dict):
+    translation = nested(model, "initital_transform_cache", "translation", default=None)
+    if not translation:
+        translation = nested(model, "transform", "translation", default=None)
+    return public_position({"value": translation}) if isinstance(translation, dict) else None
+
+
+def player_names_by_uid(characters: list) -> dict:
+    return {
+        uid_key(player_uid(entry)): str(scalar(save_parameter(entry).get("NickName"), "Joueur"))
+        for entry in characters
+        if is_player(entry) and uid_key(player_uid(entry))
+    }
+
+
+def death_drop_state(world_data: dict, player_names: dict) -> list[dict]:
+    rows = []
+    map_objects = nested(world_data, "MapObjectSaveData", "value", "values", default=[])
+    for obj in map_objects:
+        map_object_id = str(scalar(obj.get("MapObjectId"), "") or "")
+        if map_object_id not in DEATH_DROP_LABELS:
+            continue
+        model = nested(obj, "Model", "value", "RawData", "value", default={})
+        concrete = nested(obj, "ConcreteModel", "value", "RawData", "value", default={})
+        owner_uid = uid_key(concrete.get("owner_player_uid"))
+        row = {
+            "key": f"drop_{public_hash(map_object_id, concrete.get('instance_id'), model.get('instance_id'), concrete.get('stored_parameter_id'), concrete.get('owner_player_uid'))}",
+            "type": (
+                "character-drop"
+                if map_object_id == "DroppedCharacter"
+                else "death-penalty-chest"
+            ),
+            "label": DEATH_DROP_LABELS[map_object_id],
+        }
+        player = player_names.get(owner_uid)
+        if player:
+            row["player"] = player
+        position = map_object_position(model)
+        if position:
+            row["position"] = position
+        rows.append(row)
+    rows.sort(key=lambda row: (row.get("type", ""), row.get("player", ""), row["key"]))
+    return rows
 
 
 def choose_backup(save_root: Path, minimum_age: int) -> Path:
@@ -1604,6 +1667,7 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
     bases = nested(world_data, "BaseCampSaveData", "value", default=[])
     containers = item_container_map(world_data)
     counters = Counter()
+    public_player_names = player_names_by_uid(characters)
 
     guild_by_player = {}
     public_guilds = []
@@ -1762,6 +1826,7 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
             "fastTravelPoints": len(catalogs["fastTravel"]),
             "discoverableAreas": len(catalogs["areas"]),
             "knownBosses": catalogs["bossTotal"],
+            "deathDrops": death_drop_state(world_data, public_player_names),
         },
         # Base details remain intentionally empty until their heavy decoders and
         # public location policy are validated independently.
@@ -1898,6 +1963,7 @@ def initial_diagnostics(args, started_at):
             "basesGzipBytes": None,
             "privateBasesBytes": None,
             "historyArchiveBytes": None,
+            "basesHistoryArchiveBytes": None,
         },
         "parser": {"name": "PalworldSaveTools", "commit": parser_commit(args.parser_repo)},
     }
@@ -1963,8 +2029,10 @@ def run(args):
             bases_payload = json_bytes(bases_snapshot)
             private_bases_payload = json_bytes(private_bases_snapshot)
             history_bytes = None
+            bases_history_bytes = None
             if not args.no_archive:
                 history_bytes = archive_hourly(args.history, snapshot, args.history_days)
+                bases_history_bytes = archive_hourly(args.bases_history, bases_snapshot, args.history_days)
             completed_at = datetime.now(timezone.utc).astimezone().isoformat()
             diagnostics["ok"] = True
             diagnostics["updatedAt"] = completed_at
@@ -1990,6 +2058,7 @@ def run(args):
                     "basesGzipBytes": len(gzip.compress(bases_payload, compresslevel=6)),
                     "privateBasesBytes": len(private_bases_payload),
                     "historyArchiveBytes": history_bytes,
+                    "basesHistoryArchiveBytes": bases_history_bytes,
                 }
             )
             write_atomic(args.diagnostics, diagnostics)
@@ -2020,6 +2089,7 @@ def parse_args():
     )
     parser.add_argument("--diagnostics", type=Path, default=DEFAULT_DIAGNOSTICS)
     parser.add_argument("--history", type=Path, default=DEFAULT_HISTORY)
+    parser.add_argument("--bases-history", type=Path, default=DEFAULT_BASES_HISTORY)
     parser.add_argument("--lock", type=Path, default=DEFAULT_LOCK)
     parser.add_argument("--history-days", type=int, default=30)
     parser.add_argument("--minimum-age", type=int, default=15)

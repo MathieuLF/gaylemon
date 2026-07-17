@@ -36,5 +36,5 @@ AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-ReadOnlyPaths=/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json /home/gaylemon/Gaylemon/runtime/public-save-bases.json /home/gaylemon/Gaylemon/runtime/save-snapshot-history /srv/storage/steam/servers/palworld/stats/stats.json
+ReadOnlyPaths=/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json /home/gaylemon/Gaylemon/runtime/public-save-bases.json /home/gaylemon/Gaylemon/runtime/save-snapshot-history /home/gaylemon/Gaylemon/runtime/save-bases-history /srv/storage/steam/servers/palworld/stats/stats.json
 ReadWritePaths=/home/gaylemon/Gaylemon/runtime

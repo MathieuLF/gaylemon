@@ -24,7 +24,6 @@
     {
       "name": "metrics",
       "status": "fresh",
-      "path": "portal/data/public-metrics.json",
       "updatedAt": "2026-07-14T11:59:50.0000000-04:00",
       "contentUpdatedAt": "2026-07-14T11:59:50.0000000-04:00",
       "fileUpdatedAt": "2026-07-14T15:59:50.0000000+00:00",

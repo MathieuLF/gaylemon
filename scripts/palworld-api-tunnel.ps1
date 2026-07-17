@@ -6,7 +6,13 @@ param(
 
     [int]$RemotePort = 0,
 
-    [string]$SshHost = ""
+    [string]$SshHost = "",
+
+    [string]$SshDirectory = "",
+
+    [AllowEmptyString()]
+    [ValidateSet("", "docker", "windows-ssh")]
+    [string]$Mode = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +22,9 @@ $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if ($LocalPort -le 0) { $LocalPort = $config.ApiLocalPort }
 if ($RemotePort -le 0) { $RemotePort = $config.ApiRemotePort }
 if (-not $SshHost) { $SshHost = $config.SshAlias }
+if (-not $SshDirectory) { $SshDirectory = $config.SshDirectory }
+if (-not $Mode) { $Mode = $config.ApiTunnelMode }
+$SshDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SshDirectory)
 
 $runtimeDirectory = Join-Path $ProjectRoot "runtime"
 New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
@@ -23,6 +32,29 @@ $PidFile = Join-Path $runtimeDirectory "palworld-api-tunnel.pid"
 $ForwardSpec = "127.0.0.1:${LocalPort}:127.0.0.1:${RemotePort}"
 $ComposeServiceName = "palworld-api-tunnel"
 $ContainerName = "gaylemon-palworld-api-tunnel"
+
+function Assert-TunnelPort {
+    param(
+        [string]$Name,
+        [int]$Port
+    )
+
+    if ($Port -lt 1 -or $Port -gt 65535) {
+        throw "$Name doit etre un port TCP entre 1 et 65535. Valeur recue: $Port."
+    }
+}
+
+function Assert-SshAlias {
+    param([string]$Alias)
+
+    if ([string]::IsNullOrWhiteSpace($Alias) -or $Alias -notmatch '^[A-Za-z0-9._@:-]+$' -or $Alias.StartsWith("-")) {
+        throw "Alias SSH invalide pour le tunnel API. Utiliser un alias simple de config SSH, par exemple 'palworld'."
+    }
+}
+
+Assert-TunnelPort "LocalPort" $LocalPort
+Assert-TunnelPort "RemotePort" $RemotePort
+Assert-SshAlias $SshHost
 
 function Write-Title {
     param([string]$Text)
@@ -83,15 +115,27 @@ function Wait-DockerEngine {
     throw "Docker Desktop ne repond pas apres $TimeoutSeconds secondes."
 }
 
+function Get-SshCommand {
+    $ssh = Get-Command ssh.exe -ErrorAction SilentlyContinue
+    if (-not $ssh) { $ssh = Get-Command ssh -ErrorAction SilentlyContinue }
+    if (-not $ssh) {
+        throw "Client SSH introuvable."
+    }
+
+    return $ssh.Source
+}
+
 function Invoke-TunnelCompose {
     param([string[]]$Arguments)
 
     $previousLocalPort = $env:GAYLEMON_API_LOCAL_PORT
     $previousRemotePort = $env:GAYLEMON_API_REMOTE_PORT
     $previousSshAlias = $env:GAYLEMON_SSH_ALIAS
+    $previousSshDirectory = $env:GAYLEMON_SSH_DIR
     $env:GAYLEMON_API_LOCAL_PORT = [string]$LocalPort
     $env:GAYLEMON_API_REMOTE_PORT = [string]$RemotePort
     $env:GAYLEMON_SSH_ALIAS = $SshHost
+    $env:GAYLEMON_SSH_DIR = $SshDirectory
 
     try {
         & docker compose --project-directory $ProjectRoot @Arguments
@@ -120,6 +164,29 @@ function Invoke-TunnelCompose {
         else {
             $env:GAYLEMON_SSH_ALIAS = $previousSshAlias
         }
+
+        if ($null -eq $previousSshDirectory) {
+            Remove-Item Env:\GAYLEMON_SSH_DIR -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:GAYLEMON_SSH_DIR = $previousSshDirectory
+        }
+    }
+}
+
+function Stop-DockerTunnelContainer {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    try {
+        & docker info *> $null
+        if ($LASTEXITCODE -eq 0) {
+            Invoke-TunnelCompose -Arguments @("stop", $ComposeServiceName)
+        }
+    }
+    catch {
+        Write-Host "WARN Arret du tunnel Docker ignore: $($_.Exception.Message)" -ForegroundColor Yellow
     }
 }
 
@@ -183,8 +250,12 @@ function Show-TunnelStatus {
     $containerLine = Get-TunnelContainerLine
     if ($containerLine) {
         $parts = $containerLine -split "\|", 3
-        Write-Host "OK Conteneur Docker: $($parts[0])" -ForegroundColor Green
-        Write-Host "Etat: $($parts[1])"
+        $dockerColor = if ($parts.Count -gt 1 -and $parts[1] -like "Up*") { "Green" } else { "Yellow" }
+        $dockerPrefix = if ($dockerColor -eq "Green") { "OK" } else { "WARN" }
+        Write-Host "$dockerPrefix Conteneur Docker: $($parts[0])" -ForegroundColor $dockerColor
+        if ($parts.Count -gt 1) {
+            Write-Host "Etat: $($parts[1])"
+        }
         if ($parts.Count -gt 2 -and $parts[2]) {
             Write-Host "Ports: $($parts[2])"
         }
@@ -204,7 +275,14 @@ function Show-TunnelStatus {
     $legacyProcesses = @(Get-LegacyTunnelProcesses)
     if ($legacyProcesses.Count -gt 0) {
         $ids = ($legacyProcesses | ForEach-Object { $_.ProcessId }) -join ", "
-        Write-Host "WARN Ancien tunnel SSH Windows encore actif: $ids" -ForegroundColor Yellow
+        Write-Host "OK Tunnel SSH Windows actif: $ids" -ForegroundColor Green
+    }
+
+    if (Test-Path -LiteralPath $SshDirectory -PathType Container) {
+        Write-Host "OK Dossier SSH source: $SshDirectory" -ForegroundColor Green
+    }
+    else {
+        Write-Host "WARN Dossier SSH source introuvable: $SshDirectory" -ForegroundColor Yellow
     }
 
     if (Test-LocalTcpPort -Port $LocalPort) {
@@ -217,10 +295,22 @@ function Show-TunnelStatus {
 }
 
 function Start-Tunnel {
+    if ($Mode -eq "windows-ssh") {
+        Start-WindowsSshTunnel
+        return
+    }
+
+    Start-DockerTunnel
+}
+
+function Start-DockerTunnel {
     Write-Title "Demarrage du tunnel API Palworld via Docker"
 
     Start-DockerDesktopIfAvailable
     Wait-DockerEngine
+    if (-not (Test-Path -LiteralPath $SshDirectory -PathType Container)) {
+        throw "Dossier SSH introuvable pour le tunnel API: $SshDirectory"
+    }
     Stop-LegacyTunnelProcesses
 
     Invoke-TunnelCompose -Arguments @("up", "-d", "--build", $ComposeServiceName)
@@ -229,18 +319,77 @@ function Start-Tunnel {
     Show-TunnelStatus
 }
 
+function Start-WindowsSshTunnel {
+    Write-Title "Demarrage du tunnel API Palworld via SSH Windows"
+
+    $sshPath = Get-SshCommand
+    Stop-DockerTunnelContainer
+    Stop-LegacyTunnelProcesses
+
+    $stdoutPath = Join-Path $runtimeDirectory "palworld-api-tunnel-windows.out.log"
+    $stderrPath = Join-Path $runtimeDirectory "palworld-api-tunnel-windows.err.log"
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+
+    $arguments = @(
+        "-N",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=15",
+        "-o", "ExitOnForwardFailure=yes",
+        "-o", "ForwardAgent=no",
+        "-o", "ForwardX11=no",
+        "-o", "PermitLocalCommand=no",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=3",
+        "-L", $ForwardSpec,
+        $SshHost
+    )
+
+    $process = Start-Process -FilePath $sshPath `
+        -ArgumentList $arguments `
+        -WindowStyle Hidden `
+        -PassThru `
+        -RedirectStandardOutput $stdoutPath `
+        -RedirectStandardError $stderrPath
+
+    Set-Content -LiteralPath $PidFile -Value ([string]$process.Id) -Encoding ASCII
+
+    $ready = $false
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Milliseconds 500
+        if ($process.HasExited) {
+            break
+        }
+        if (Test-LocalTcpPort -Port $LocalPort) {
+            $ready = $true
+            break
+        }
+    }
+
+    if (-not $ready) {
+        if (-not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        $errorTail = ""
+        if (Test-Path -LiteralPath $stderrPath) {
+            $errorTail = (Get-Content -LiteralPath $stderrPath -Tail 6 -ErrorAction SilentlyContinue | Out-String).Trim()
+        }
+        if ($errorTail) {
+            throw "Tunnel SSH Windows non disponible: $errorTail"
+        }
+        throw "Tunnel SSH Windows non disponible."
+    }
+
+    Write-Host "OK Tunnel SSH Windows demarre, PID $($process.Id)" -ForegroundColor Green
+    Show-TunnelStatus
+}
+
 function Stop-Tunnel {
     Write-Title "Arret du tunnel API Palworld"
 
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         try {
-            & docker info *> $null
-            if ($LASTEXITCODE -eq 0) {
-                Invoke-TunnelCompose -Arguments @("stop", $ComposeServiceName)
-            }
-            else {
-                Write-Host "WARN Docker Desktop ne repond pas; arret Docker ignore." -ForegroundColor Yellow
-            }
+            Stop-DockerTunnelContainer
         }
         catch {
             Write-Host "WARN Arret Docker impossible: $($_.Exception.Message)" -ForegroundColor Yellow
