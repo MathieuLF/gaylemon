@@ -16,10 +16,12 @@ class GaylemonDeployTests(unittest.TestCase):
         accepted = (
             "/srv/storage/steam/bin/palworld-update.sh",
             "/home/gaylemon/Gaylemon/server/bin/palworld-save-snapshot.py",
+            "/usr/local/sbin/gaylemon-deploy-install",
             "/etc/systemd/system/palworld-stats.timer",
             "/etc/systemd/system/cloudflare-update-dns.service",
             "/etc/sysctl.d/99-palworld-performance.conf",
             "/etc/sudoers.d/palworld-console",
+            "/etc/sudoers.d/gaylemon-deploy",
         )
         rejected = (
             "/etc/passwd",

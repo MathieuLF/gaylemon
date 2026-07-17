@@ -6,6 +6,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 
 - [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, Kuma et cloudflared.
 - [Source de vérité](SOURCE-DE-VERITE.md): quels fichiers Git représentent les fichiers actifs sur Ubuntu.
+- [Sécurité d'exploitation](SECURITE-EXPLOITATION.md): sudo borné, wrapper de déploiement et garde-fous.
 - [Sources](SOURCES.md): références externes utiles.
 
 ## Installer et travailler
@@ -18,6 +19,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 ## Exploiter
 
 - [Opérations](OPERATIONS.md): console, sauvegardes, mises à jour, stats et microsite.
+- [Bot Discord](BOT-DISCORD.md): tunnel REST local, configuration bot et garde-fous.
 - [Uptime Kuma](UPTIME-KUMA.md): intégration avec l'instance externe.
 - [Personnalisation](CUSTOMIZATION.md): annonces, bienvenue et profil de difficulté.
 - [Profil de configuration](CONFIGURATION-AUDIT.md): réglages PvE fournis.

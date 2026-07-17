@@ -23,7 +23,7 @@ Le Compose du projet contient les services locaux possédés par Gaylémon: `mic
 Le tunnel API reste local:
 
 ```powershell
-docker compose up -d --build palworld-api-tunnel
+.\scripts\palworld-api-tunnel.ps1 start
 ```
 
 ## Voir ce qui serait livré
@@ -63,6 +63,14 @@ L'installation:
 9. ne redémarre aucun service par défaut;
 10. relance l'audit.
 
+Quand le wrapper privilégié est installé, la phase root peut aussi passer par:
+
+```bash
+sudo -n /usr/local/sbin/gaylemon-deploy-install /tmp/gaylemon-staging/AAAAMMJJ-HHMMSS
+```
+
+Ce wrapper est borné aux zones de stage Gaylémon et ne demande aucun redémarrage d'unité. Il sert aux installations non interactives contrôlées après une mise en scène validée.
+
 Pour redémarrer un auxiliaire touché:
 
 ```powershell
@@ -85,6 +93,13 @@ Cette option doit rester réservée à une fenêtre annoncée.
 `server/deployment-manifest.json` liste les fichiers Ubuntu gérés par le dépôt: source, destination, propriétaire, mode, validation et politique de redémarrage.
 
 Tout nouveau fichier sous `server/bin`, `server/systemd`, `server/sysctl` ou `server/sudoers` doit être ajouté au manifeste.
+
+Les fichiers privilégiés d'installation non interactive sont aussi suivis:
+
+- `server/sbin/gaylemon-deploy-install` -> `/usr/local/sbin/gaylemon-deploy-install`;
+- `server/sudoers/gaylemon-deploy` -> `/etc/sudoers.d/gaylemon-deploy`.
+
+Les scripts qui lisent ou utilisent le mot de passe admin Palworld doivent rester limités au groupe `steam` et ne pas être déployés en `0755`. Si la console doit les appeler par SSH, ajouter l'utilisateur d'exploitation au groupe `steam` côté Ubuntu plutôt que d'élargir les permissions du script.
 
 ## Retour arrière
 

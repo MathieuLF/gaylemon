@@ -43,6 +43,8 @@ $requiredFiles = @(
     ".github\pull_request_template.md",
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
+    "config\exemples\bot.env.example",
+    "docs\BOT-DISCORD.md",
     "docs\README.md",
     "LICENSE",
     "README.md",
@@ -85,6 +87,43 @@ Write-Result (
     $nginxConfig.Contains('max-age=31536000, immutable') -and
     $nginxConfig.Contains('location ~* \.(?:css|js)$')
 ) "Cache long des assets statiques"
+Write-Result (
+    $nginxConfig.Contains('add_header X-Frame-Options "DENY" always;') -and
+    $nginxConfig.Contains('add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;') -and
+    $nginxConfig.Contains("add_header Content-Security-Policy `"base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'`" always;")
+) "Headers de securite du microsite"
+Write-Result (
+    $nginxConfig.Contains('location = /assets/game/.source-commit') -and
+    $nginxConfig.Contains('return 404;')
+) "Marqueur source cache non servi"
+
+$composeConfig = Get-Content -LiteralPath (Join-Path $ProjectRoot "compose.yaml") -Raw -Encoding UTF8
+$apiTunnelScript = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\palworld-api-tunnel.ps1") -Raw -Encoding UTF8
+$apiTunnelEntrypoint = Get-Content -LiteralPath (Join-Path $ProjectRoot "docker\palworld-api-tunnel\entrypoint.sh") -Raw -Encoding UTF8
+$botEnvExample = Get-Content -LiteralPath (Join-Path $ProjectRoot "config\exemples\bot.env.example") -Raw -Encoding UTF8
+Write-Result (
+    $composeConfig.Contains('127.0.0.1:${GAYLEMON_API_LOCAL_PORT:-8212}:${GAYLEMON_API_LOCAL_PORT:-8212}') -and
+    $composeConfig.Contains('source: ${GAYLEMON_SSH_DIR:-${USERPROFILE}/.ssh}') -and
+    $composeConfig.Contains('read_only: true') -and
+    $composeConfig.Contains('restart: unless-stopped')
+) "Tunnel API Docker local et persistant"
+Write-Result (
+    $apiTunnelScript.Contains('Assert-TunnelPort') -and
+    $apiTunnelScript.Contains('Assert-SshAlias') -and
+    $apiTunnelScript.Contains('[ValidateSet("", "docker", "windows-ssh")]') -and
+    $apiTunnelScript.Contains('Start-WindowsSshTunnel') -and
+    $apiTunnelScript.Contains('GAYLEMON_SSH_DIR') -and
+    $apiTunnelEntrypoint.Contains('ForwardAgent=no') -and
+    $apiTunnelEntrypoint.Contains('ForwardX11=no') -and
+    $apiTunnelEntrypoint.Contains('PermitLocalCommand=no') -and
+    $apiTunnelEntrypoint.Contains('validate_port') -and
+    $apiTunnelEntrypoint.Contains('*[!A-Za-z0-9._@:-]*')
+) "Tunnel API Docker durci"
+Write-Result (
+    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=http://127\.0\.0\.1:8212/v1/api$' -and
+    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=admin$' -and
+    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=REMPLACER_PAR_LE_MOT_DE_PASSE_ADMIN$'
+) "Configuration exemple du bot Discord"
 
 $eventsSyncSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\sync-palworld-events.ps1") -Raw -Encoding UTF8
 $metricsUpdaterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\update-microsite-metrics.ps1") -Raw -Encoding UTF8
@@ -97,6 +136,87 @@ Write-Result (
 Write-Result (
     $metricsUpdaterSource -match '\[int\]\$EventsIntervalMinutes\s*=\s*1\b'
 ) "Synchronisation minute des echos publics"
+
+$publicIdentityLeakErrors = [Collections.Generic.List[string]]::new()
+$publicExportTemp = Join-Path ([IO.Path]::GetTempPath()) ("gaylemon-public-export-validation-" + [guid]::NewGuid().ToString("N"))
+try {
+    New-Item -ItemType Directory -Force -Path $publicExportTemp | Out-Null
+    $sentinelAccountName = "SHOULD_NOT_BE_PUBLIC_ACCOUNT_NAME"
+    $sentinelNamedAccountName = "SHOULD_NOT_BE_PUBLIC_NAMED_ACCOUNT"
+    $expectedPublicName = "Nom Public"
+    $sampleMetrics = [ordered]@{
+        ok = $true
+        updatedAt = "2026-01-01T00:00:00Z"
+        info = [ordered]@{
+            serverName = "Validation"
+            description = "Validation"
+            version = "test"
+        }
+        metrics = [ordered]@{
+            currentPlayerCount = 1
+        }
+        players = @(
+            [ordered]@{
+                name = ""
+                accountName = $sentinelAccountName
+            },
+            [ordered]@{
+                name = $expectedPublicName
+                accountName = $sentinelNamedAccountName
+            }
+        )
+    }
+    $sampleStats = [ordered]@{
+        ok = $true
+        updatedAt = "2026-01-01T00:00:00Z"
+        collection = [ordered]@{}
+        server = [ordered]@{}
+        actors = [ordered]@{}
+        guilds = @()
+        players = @(
+            [ordered]@{
+                name = ""
+                accountName = $sentinelAccountName
+            },
+            [ordered]@{
+                name = $expectedPublicName
+                accountName = $sentinelNamedAccountName
+            }
+        )
+    }
+
+    [IO.File]::WriteAllText(
+        (Join-Path $publicExportTemp "metrics.json"),
+        (($sampleMetrics | ConvertTo-Json -Depth 8).TrimEnd() + [Environment]::NewLine),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        (Join-Path $publicExportTemp "stats.json"),
+        (($sampleStats | ConvertTo-Json -Depth 8).TrimEnd() + [Environment]::NewLine),
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    & (Join-Path $ProjectRoot "scripts\export-public-microsite-data.ps1") -DataDirectory $publicExportTemp | Out-Null
+    foreach ($publicFileName in @("public-metrics.json", "public-stats.json")) {
+        $publicPath = Join-Path $publicExportTemp $publicFileName
+        $publicText = Get-Content -LiteralPath $publicPath -Raw -Encoding UTF8
+        if ($publicText.Contains($sentinelAccountName) -or $publicText.Contains($sentinelNamedAccountName)) {
+            $publicIdentityLeakErrors.Add($publicFileName)
+        }
+        $publicPayload = $publicText | ConvertFrom-Json
+        $publicNames = @($publicPayload.players | ForEach-Object { [string]$_.name })
+        if ($expectedPublicName -notin $publicNames) {
+            $publicIdentityLeakErrors.Add("$publicFileName nom public absent")
+        }
+    }
+}
+catch {
+    $publicIdentityLeakErrors.Add($_.Exception.Message)
+}
+finally {
+    Remove-Item -LiteralPath $publicExportTemp -Recurse -Force -ErrorAction SilentlyContinue
+}
+Write-Result ($publicIdentityLeakErrors.Count -eq 0) "Exports publics sans accountName" ($publicIdentityLeakErrors -join ", ")
 
 $availabilityExporterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\export-uptime-kuma-history.ps1") -Raw -Encoding UTF8
 $availabilityExample = Get-Content -LiteralPath (Join-Path $ProjectRoot "portal\data\public-availability.example.json") -Raw -Encoding UTF8
@@ -169,7 +289,7 @@ try {
     $deploymentManifest = Get-GaylemonDeploymentManifest -ProjectRoot $ProjectRoot -Config $deploymentConfig
     $mappedSources = @($deploymentManifest.Entries | ForEach-Object Source)
     $deployableSources = @(
-        "bin", "systemd", "sysctl", "sudoers" | ForEach-Object {
+        "bin", "sbin", "systemd", "sysctl", "sudoers" | ForEach-Object {
             $directory = Join-Path $ProjectRoot "server\$_"
             Get-ChildItem -LiteralPath $directory -File | ForEach-Object {
                 $_.FullName.Substring($ProjectRoot.Length + 1).Replace("\", "/")
@@ -183,6 +303,21 @@ try {
     ) "Couverture du manifeste Ubuntu" (
         "non declares: $($unmappedSources -join ', '); mappings orphelins: $($orphanMappings -join ', ')"
     )
+
+    $apiWrapperSources = @(
+        "server/bin/palworld-announce.sh",
+        "server/bin/palworld-api.sh",
+        "server/bin/palworld-backup.sh",
+        "server/bin/palworld-kuma-push.sh"
+    )
+    $apiWrapperPermissionErrors = @(
+        $deploymentManifest.Entries |
+            Where-Object { $_.Source -in $apiWrapperSources -and ($_.Group -ne "steam" -or $_.Mode -ne "0750") } |
+            ForEach-Object { "$($_.Source):$($_.Group):$($_.Mode)" }
+    )
+    Write-Result (
+        $apiWrapperPermissionErrors.Count -eq 0
+    ) "Wrappers API Palworld limites au groupe steam" ($apiWrapperPermissionErrors -join ", ")
 }
 catch {
     Write-Result $false "Manifeste de deploiement Ubuntu" $_.Exception.Message
@@ -237,7 +372,12 @@ if (-not $SansBash) {
 
     if ($bashPath) {
         $bashErrors = [Collections.Generic.List[string]]::new()
-        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\bin") -Filter "*.sh" -File) {
+        $bashFiles = @(
+            Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\bin") -Filter "*.sh" -File
+            Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\sbin") -File
+            Get-Item -LiteralPath (Join-Path $ProjectRoot "docker\palworld-api-tunnel\entrypoint.sh")
+        )
+        foreach ($file in $bashFiles) {
             & $bashPath -n $file.FullName 2>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) { $bashErrors.Add($file.Name) }
         }

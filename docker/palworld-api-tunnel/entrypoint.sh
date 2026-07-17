@@ -5,9 +5,29 @@ SSH_ALIAS="${GAYLEMON_SSH_ALIAS:-palworld}"
 LOCAL_PORT="${GAYLEMON_API_LOCAL_PORT:-8212}"
 REMOTE_PORT="${GAYLEMON_API_REMOTE_PORT:-8212}"
 
-case "$LOCAL_PORT:$REMOTE_PORT" in
-  *[!0-9:]* | :* | *: | *::*)
-    echo "Invalid tunnel ports: local=$LOCAL_PORT remote=$REMOTE_PORT" >&2
+validate_port() {
+  name="$1"
+  value="$2"
+
+  case "$value" in
+    "" | *[!0-9]* | ??????*)
+      echo "Invalid $name tunnel port: $value" >&2
+      exit 64
+      ;;
+  esac
+
+  if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
+    echo "Invalid $name tunnel port: $value" >&2
+    exit 64
+  fi
+}
+
+validate_port "local" "$LOCAL_PORT"
+validate_port "remote" "$REMOTE_PORT"
+
+case "$SSH_ALIAS" in
+  "" | -* | *[!A-Za-z0-9._@:-]*)
+    echo "Invalid SSH alias for API tunnel: $SSH_ALIAS" >&2
     exit 64
     ;;
 esac
@@ -32,6 +52,9 @@ exec ssh \
   -o BatchMode=yes \
   -o ConnectTimeout=15 \
   -o ExitOnForwardFailure=yes \
+  -o ForwardAgent=no \
+  -o ForwardX11=no \
+  -o PermitLocalCommand=no \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=accept-new \
