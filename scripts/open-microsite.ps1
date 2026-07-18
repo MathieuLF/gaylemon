@@ -1,7 +1,11 @@
 param(
     [int]$Port = 0,
     [int]$MetricIntervalSeconds = 0,
+    [int]$EventSyncIntervalSeconds = 0,
+    [int]$EventSyncTimeoutSeconds = 0,
     [int]$UpdateTimeoutSeconds = 0,
+    [int]$SaveSnapshotSyncIntervalSeconds = 0,
+    [int]$SaveSnapshotSyncTimeoutSeconds = 0,
     [string]$PublicUrl = "",
     [switch]$NoOpen
 )
@@ -13,7 +17,11 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if ($Port -le 0) { $Port = $config.MicrositePort }
 if ($MetricIntervalSeconds -le 0) { $MetricIntervalSeconds = $config.MetricIntervalSeconds }
+if ($EventSyncIntervalSeconds -le 0) { $EventSyncIntervalSeconds = $config.EventSyncIntervalSeconds }
+if ($EventSyncTimeoutSeconds -le 0) { $EventSyncTimeoutSeconds = $config.EventSyncTimeoutSeconds }
 if ($UpdateTimeoutSeconds -le 0) { $UpdateTimeoutSeconds = $config.MetricUpdateTimeoutSeconds }
+if ($SaveSnapshotSyncIntervalSeconds -le 0) { $SaveSnapshotSyncIntervalSeconds = $config.SaveSnapshotSyncIntervalSeconds }
+if ($SaveSnapshotSyncTimeoutSeconds -le 0) { $SaveSnapshotSyncTimeoutSeconds = $config.SaveSnapshotSyncTimeoutSeconds }
 if (-not $PublicUrl) { $PublicUrl = $config.MicrositePublicUrl }
 $dataDirectory = Join-Path $ProjectRoot "portal\data"
 $originUrl = "http://127.0.0.1:$Port/"
@@ -173,6 +181,14 @@ Start-Process -FilePath $powerShellHost -ArgumentList @(
     $watcherScript,
     "-IntervalSeconds",
     "$MetricIntervalSeconds",
+    "-EventSyncIntervalSeconds",
+    "$EventSyncIntervalSeconds",
+    "-EventSyncTimeoutSeconds",
+    "$EventSyncTimeoutSeconds",
+    "-SaveSnapshotSyncIntervalSeconds",
+    "$SaveSnapshotSyncIntervalSeconds",
+    "-SaveSnapshotSyncTimeoutSeconds",
+    "$SaveSnapshotSyncTimeoutSeconds",
     "-UpdateTimeoutSeconds",
     "$UpdateTimeoutSeconds"
 ) -WindowStyle Hidden | Out-Null
@@ -180,7 +196,7 @@ Start-Process -FilePath $powerShellHost -ArgumentList @(
 Start-Sleep -Milliseconds 500
 $watcherProcess = Get-ActiveWatcherProcess
 if ($watcherProcess) {
-    Write-Host "Rafraichisseur de metriques: actif, PID $($watcherProcess.ProcessId), intervalle ${MetricIntervalSeconds}s, delai ${UpdateTimeoutSeconds}s."
+    Write-Host "Rafraichisseur local: actif, PID $($watcherProcess.ProcessId), métriques ${MetricIntervalSeconds}s, échos ${EventSyncIntervalSeconds}s, fiches ${SaveSnapshotSyncIntervalSeconds}s, delai ${UpdateTimeoutSeconds}s."
 }
 else {
     Write-Warning "Le rafraichisseur de metriques n'a pas pu etre confirme apres le demarrage."

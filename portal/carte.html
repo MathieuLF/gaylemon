@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="fr-CA">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Carte Gaylémon Palworld</title>
+    <meta name="description" content="Carte dédiée Gaylémon Palworld avec les positions connues des joueurs et les bases de Palpagos.">
+    <link rel="canonical" href="https://gaylemon.mathieu.pro/carte">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="site.webmanifest">
+    <meta name="theme-color" content="#259db9">
+    <meta property="og:title" content="Carte Gaylémon Palworld">
+    <meta property="og:description" content="Explore Palpagos avec les positions connues des joueurs et les bases publiques.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://gaylemon.mathieu.pro/carte">
+    <meta property="og:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png">
+    <meta property="og:image:alt" content="Carte Gaylémon Palworld de Palpagos">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Carte Gaylémon Palworld">
+    <meta name="twitter:description" content="Positions, bases et légende des joueurs sur Palpagos.">
+    <meta name="twitter:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png">
+    <link rel="stylesheet" href="/assets/styles.css?v=20260718.2">
+    <script src="/assets/app.js?v=20260718.4" defer></script>
+  </head>
+  <body class="map-view">
+    <div class="world-glow" aria-hidden="true"></div>
+    <header class="site-header" aria-label="Navigation principale">
+      <div class="site-header__inner">
+        <a class="site-brand" href="/" aria-label="Retour à l'accueil Gaylémon Palworld">
+          <span class="site-brand__emblem" aria-hidden="true">G</span>
+          <span><strong>Gaylémon</strong><small>Palworld</small></span>
+        </a>
+
+        <nav class="site-nav" aria-label="Sections du microsite">
+          <a href="/" data-section-link="accueil">Accueil</a>
+          <a href="/resume" data-section-link="resume">Résumé</a>
+          <a href="/classements" data-section-link="classements">Classements</a>
+          <a href="/carte" data-section-link="carte" class="is-active" aria-current="page">Carte</a>
+          <a href="/terminal" data-section-link="terminal">Terminal</a>
+          <a class="site-nav__discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="header">Discord <span aria-hidden="true">↗</span></a>
+        </nav>
+
+        <div class="site-header__telemetry">
+          <div class="site-header__players" id="header-players" aria-label="Joueurs actuellement en ligne" tabindex="0" aria-describedby="players-tooltip">
+            <i aria-hidden="true"></i>
+            <strong data-metric="players-current">--</strong>
+            <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
+            <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
+            <span class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
+              <span class="site-header__players-tooltip-kicker">Présences en direct</span>
+              <strong>Aucun joueur connecté</strong>
+              <p>Le serveur ne détecte personne en ligne pour le moment.</p>
+            </span>
+          </div>
+          <div class="site-header__updated">
+            <small>Dernières données</small>
+            <time id="site-last-updated"><span class="site-last-updated__full">En attente</span><span class="site-last-updated__short" aria-hidden="true">--:--</span></time>
+          </div>
+          <div class="site-header__refresh" aria-label="Actualisation automatique" data-state="countdown">
+            <span id="next-update" role="status" aria-live="polite" aria-atomic="true">Dans 01:15</span>
+            <span class="refresh-track" aria-hidden="true"><span id="refresh-progress"></span></span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="dedicated-main dedicated-main--map">
+      <section class="page-hero page-hero--map" aria-labelledby="archipelago-map-title">
+        <div>
+          <p class="eyebrow">Carte de Palpagos</p>
+          <h1 id="archipelago-map-title">Les aventuriers sur Palpagos</h1>
+          <p class="lede">Une carte dédiée pour lire les positions sans comprimer le dashboard. Les bases peuvent être affichées à la demande.</p>
+        </div>
+        <a class="dashboard-return-link" href="/" aria-label="Retour au tableau de bord">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 7.4 5.8 12l4.6 4.6 1.4-1.4L9.6 13H18v-2H9.6l2.2-2.2-1.4-1.4Z"/></svg>
+          <span>Tableau de bord</span>
+        </a>
+      </section>
+
+      <section class="panel map-panel archipelago-overview archipelago-overview--page" id="carte" aria-labelledby="map-panel-title">
+        <header class="panel__header archipelago-overview__heading">
+          <div>
+            <p class="eyebrow">Vue interactive</p>
+            <h2 id="map-panel-title">Carte active</h2>
+          </div>
+          <span class="world-data__state" id="bases-state">Chargement...</span>
+        </header>
+
+        <div class="map-disclosure__content">
+          <div class="archipelago-map-layout">
+            <figure class="archipelago-map">
+              <div class="archipelago-map__toolbar" aria-label="Contrôles de la carte">
+                <button type="button" data-map-action="zoom-out" aria-label="Dézoomer la carte" data-tooltip="Dézoomer">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5z"/></svg>
+                </button>
+                <output id="global-map-zoom" aria-live="polite">100 %</output>
+                <button type="button" data-map-action="zoom-in" aria-label="Zoomer la carte" data-tooltip="Zoomer">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+                </button>
+                <button type="button" data-map-action="reset" aria-label="Recentrer la carte" data-tooltip="Recentrer la carte">
+                  <svg class="map-center-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg>
+                </button>
+                <button type="button" id="map-fullscreen-toggle" data-map-action="fullscreen" aria-pressed="false" aria-label="Agrandir la carte" data-tooltip="Agrandir la carte">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h6v2H8.4l3 3L10 11.4l-3-3V11H5V5Zm8 0h6v6h-2V8.4l-3 3-1.4-1.4 3-3H13V5Zm-1.6 9-3 3H11v2H5v-6h2v2.6l3-3 1.4 1.4Zm4.2 3-3-3 1.4-1.4 3 3V13h2v6h-6v-2h2.6Z"/></svg>
+                </button>
+              </div>
+              <div class="archipelago-map__toolbar archipelago-map__toolbar--layers" aria-label="Affichage de la carte">
+                <button class="map-layer-toggle is-active" id="map-player-toggle" type="button" aria-pressed="true" data-tooltip="Masquer les joueurs">
+                  <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg></span><b>Joueurs</b>
+                </button>
+                <button class="map-base-toggle" id="map-base-toggle" type="button" aria-pressed="false" data-tooltip="Afficher les bases sur la carte">
+                  <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10.4 12 4l8 6.4v9.1h-5.4v-5.7H9.4v5.7H4z"/></svg></span><b>Afficher les bases</b><small id="map-base-count">0</small>
+                </button>
+                <button class="map-layer-toggle is-active" id="map-legend-toggle" type="button" aria-pressed="true" data-tooltip="Masquer la légende">
+                  <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 6h3v3H5V6Zm5 .4h9v2.2h-9V6.4ZM5 11h3v3H5v-3Zm5 .4h9v2.2h-9v-2.2ZM5 16h3v3H5v-3Zm5 .4h9v2.2h-9v-2.2Z"/></svg></span><b>Légende</b>
+                </button>
+              </div>
+              <div class="archipelago-map__viewport" id="global-map-viewport" tabindex="0" aria-label="Carte interactive de Palpagos. Utilise la molette, les boutons ou les touches plus et moins pour zoomer, puis glisse pour te déplacer.">
+                <div class="archipelago-map__scene" id="global-map-scene">
+                  <img data-src="assets/game/maps/T_WorldMap.webp" alt="Carte de Palpagos avec les positions connues des joueurs" draggable="false" decoding="async">
+                  <div class="archipelago-map__markers" id="global-player-markers"></div>
+                </div>
+              </div>
+              <figcaption id="global-map-caption">Chargement des positions...</figcaption>
+            </figure>
+            <div class="archipelago-legend" id="global-player-legend" aria-label="Joueurs présents sur la carte"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <button class="back-to-top" id="back-to-top" type="button" tabindex="-1" aria-label="Retourner en haut de la page" data-tooltip="Retour en haut" data-tooltip-placement="left">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+    </button>
+    <div class="context-tooltip" id="context-tooltip" role="tooltip" hidden></div>
+
+    <footer class="site-footer">
+      <div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>L'aventure continue!</span></div>
+      <nav class="site-footer__links" aria-label="Liens communautaires">
+        <a class="social-link social-link--github" href="/github" data-analytics-link="github" data-analytics-location="footer" aria-label="Lire la page technique Gaylémon Ops et GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a9.7 9.7 0 0 0-3.1 18.9v-2.2c-2.4.5-2.9-1-2.9-1-.4-1-.9-1.3-.9-1.3-.8-.5 0-.5 0-.5.8.1 1.3.9 1.3.9.7 1.3 1.8.9 2.3.7.1-.5.3-.9.5-1.1-1.9-.2-3.9-1-3.9-4.3 0-1 .4-1.8 1-2.4-.1-.2-.4-1.1.1-2.3 0 0 .8-.3 2.7.9a9.3 9.3 0 0 1 4.9 0c1.9-1.2 2.7-.9 2.7-.9.5 1.2.2 2.1.1 2.3.6.7 1 1.5 1 2.4 0 3.4-2 4.1-3.9 4.3.3.3.6.8.6 1.5v3.2A9.7 9.7 0 0 0 12 2.5Z"/></svg>
+          <span><strong>GitHub</strong><small>Dépôt et Gaylemon Ops</small></span><b aria-hidden="true">→</b>
+        </a>
+        <a class="social-link social-link--discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="footer" aria-label="Rejoindre le serveur Discord Gaylémon dans un nouvel onglet">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.1a13 13 0 0 1 9.6 0c1.5 2.2 2.4 4.7 2.6 7.3a12.6 12.6 0 0 1-3.7 1.9l-.9-1.2c.7-.3 1.3-.6 1.9-1.1a9.6 9.6 0 0 1-9.4 0c.6.5 1.2.8 1.9 1.1l-.9 1.2a12.6 12.6 0 0 1-3.7-1.9c.2-2.6 1.1-5.1 2.6-7.3ZM9.4 13c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6S8 10.5 8 11.4 8.6 13 9.4 13Zm5.2 0c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6-1.4.7-1.4 1.6.6 1.6 1.4 1.6Z"/></svg>
+          <span><strong>Discord</strong><small>Rejoindre la communauté</small></span><b aria-hidden="true">↗</b>
+        </a>
+        <button class="social-link social-link--top" id="footer-back-to-top" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+          <span><strong>Retour en haut</strong><small>Revenir au début de la page</small></span>
+        </button>
+      </nav>
+    </footer>
+  </body>
+</html>

@@ -196,7 +196,22 @@ Palworld écoute localement sur `8212/tcp`, mais UFW bloque l'accès entrant. Le
 
 Le mot de passe admin est lu sur Ubuntu. Il n'a pas à être copié dans ce dépôt.
 
-Les wrappers qui utilisent l'API REST Palworld sont limités au groupe `steam`. L'utilisateur SSH utilisé pour la console doit donc être membre de ce groupe s'il doit lancer `Metrics`, `Players`, `Update`, `Backup` ou les annonces.
+Les scripts qui lisent ou modifient le serveur doivent rester bornés. Deux modèles existent:
+
+- appartenance de l'utilisateur d'exploitation au groupe `steam` quand le script est exécutable par ce groupe;
+- sudoers limité quand une action précise doit rester appelée sans ouvrir les permissions du fichier.
+
+La règle `server/sudoers/palworld-api` autorise seulement ces lectures:
+
+```text
+/srv/storage/steam/bin/palworld-api.sh GET /info
+/srv/storage/steam/bin/palworld-api.sh GET /players
+/srv/storage/steam/bin/palworld-api.sh GET /metrics
+/srv/storage/steam/bin/palworld-api.sh GET /settings
+/srv/storage/steam/bin/palworld-api.sh GET /game-data
+```
+
+Elle ne donne pas accès à `bash`, `python`, `systemctl` ou une commande arbitraire. Pour `Update`, `Backup` ou les annonces, garder les permissions alignées avec le groupe `steam` ou ajouter un wrapper aussi borné que celui-ci.
 
 Pour le robot Discord, le tunnel local est géré par Docker Desktop:
 
@@ -241,6 +256,7 @@ portal/data/public-save-index.json
 portal/data/public-save-snapshot.json
 portal/data/public-save-bases.json
 portal/data/public-save-diagnostics.json
+portal/data/players/{slug}.json
 portal/data/public-events.json
 portal/data/public-events-recent.json
 portal/data/public-events-index.json
@@ -257,7 +273,11 @@ Synchronisations utiles:
 .\scripts\sync-palworld-game-assets.ps1
 ```
 
-Les métriques rapides et les échos sont synchronisés à la minute. Les données joueurs, profils, Pals, bases et index publics passent par la synchronisation snapshot, admissible toutes les 15 minutes côté Windows. Le navigateur relit les exports toutes les 75 secondes pour laisser le temps aux JSON de se stabiliser. Le panneau technique `Données du monde` garde son dernier diagnostic publié et le rafraîchit aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
+Les métriques rapides, les échos et les fiches joueurs ont des cadences distinctes. Par défaut, le watcher local relit les métriques aux 20 secondes, tente la sync des échos aux 20 secondes et lance une synchronisation indépendante des snapshots joueurs aux 60 secondes, sans chevauchement si la copie précédente est encore en cours. Les données joueurs, profils, Pals, bases, fichiers `players/{slug}.json` et index publics ne dépendent donc plus de la réussite des métriques rapides. Le navigateur relit les exports toutes les 20 secondes. Le panneau technique `Données du monde` garde son dernier diagnostic publié et le rafraîchit aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
+
+`public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
+
+Les fiches joueurs chargent `players/{slug}.json` à la demande. Le bouton d'export JSON regroupe les données publiques déjà disponibles: profil, apparence parsée quand elle existe, Pals en équipe, Pals en Palbox, autres Pals, bases, constructions, travailleurs, stockage et métadonnées des snapshots.
 
 Les projections publiques retirent les identifiants techniques, secrets, coordonnées brutes et détails de coffres. Un `accountName`, `playerId`, `userId`, Steam ID ou GUID Unreal ne doit pas être publié, même comme nom de secours.
 
@@ -271,15 +291,19 @@ Le collecteur `palworld-events.timer` alimente:
 /home/gaylemon/Gaylemon/runtime/public-events-recent.json
 ```
 
-Il publie les événements fiables: connexions, progression, captures déduites des compteurs, crafts, constructions regroupées, productions confirmées, recherches, bases, réparations, pêche et éclosions strictes.
+Il publie les événements fiables: arrivées, départs, reconnexions, progression, captures déduites des compteurs, crafts, constructions regroupées, productions confirmées, recherches, bases, réparations, pêche et éclosions strictes.
 
-Il ne publie pas les destructions, transferts, récoltes ou attributions ambiguës.
+Les fabrications et productions de sauvegarde sont compilées dans l'export public par fenêtres de 5 minutes, par joueur et par type d'écho. Les événements bruts restent dans SQLite pour audit, mais le terminal reçoit un écho synthétique quand plusieurs lots tombent dans la même fenêtre, avec les quantités et objets fusionnés dans `details.items`.
 
-L'export public complet n'est pas plafonné: le terminal doit pouvoir afficher tous les échos publiés. Le flux `public-events-recent.json` reste limité aux derniers échos pour alléger le tableau de bord.
+Il ne publie pas les destructions, transferts, récoltes, coffres ouverts, butins aléatoires ou attributions ambiguës quand la sauvegarde ne permet pas de relier l'action à un joueur avec certitude.
 
-La synchronisation Windows découpe aussi l'historique en `public-events-index.json` et `public-events-page-0001.json`, `public-events-page-0002.json`, etc. Ces fichiers ne remplacent pas l'export complet: ils servent seulement au chargement paresseux du terminal. Les filtres et recherches qui doivent couvrir tout l'historique peuvent toujours relire `public-events.json`.
+L'export public complet n'est pas plafonné: le terminal doit pouvoir afficher tous les échos publiés. Le flux `public-events-recent.json` garde une fenêtre chaude de 2 000 échos pour alléger le tableau de bord tout en couvrant les périodes d'activité dense entre deux reconstructions complètes.
 
-Les échos publics sont synchronisés à la minute avec le watcher local. Le tableau de bord relit le flux récent; le terminal paginé relit l'index et recharge la page visible quand la révision change.
+La synchronisation Windows découpe aussi l'historique en `public-events-index.json` et `public-events-page-0001.json`, `public-events-page-0002.json`, etc. Ces fichiers ne remplacent pas l'export complet: ils servent au chargement paresseux du terminal et au résumé quotidien `/resume`, qui compile seulement les pages touchant la journée choisie. Les filtres et recherches qui doivent couvrir tout l'historique peuvent toujours relire `public-events.json`. L'état local `public-events-sync-state.json` garde les dernières révisions distantes.
+
+Les échos publics sont synchronisés en priorité avec le watcher local, avant les métriques générales. Cette voie rapide lit le `public-events-recent.json` distant et met immédiatement à jour le flux récent, l'index et `public-events-page-0001.json`; la commande `.\scripts\sync-palworld-events.ps1` sans `-Fast` reste la reconstruction complète de tout l'historique paginé. Le tableau de bord relit le flux récent; `/terminal` relit l'index et recharge la page visible quand la révision change. Quand une recherche ou un filtre charge l'historique complet, le navigateur conserve la fenêtre chaude récente par-dessus cet historique pour ne pas masquer les derniers échos. Sa pagination s'adapte à la hauteur d'écran pour éviter un double scroll plein écran; la recherche et les filtres sont masqués par défaut et réouverts seulement au besoin.
+
+Les événements de bases utilisent le libellé public le plus utile possible. Quand une base peut être reliée à un joueur, le collecteur convertit les libellés globaux comme `Base 6` en `Base 1`, `Base 2`, etc. selon les bases de ce joueur. Le backfill `baseLabelBackfill` normalise aussi les anciens événements si le snapshot courant permet de retrouver la correspondance.
 
 ## Validation courante
 

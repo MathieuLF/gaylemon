@@ -39,10 +39,12 @@ RECONNECT_WINDOW_SECONDS = 120
 JOURNAL_UNITS = ("palworld.service", "palworld-update.service")
 STRUCTURED_EVENT_PREFIX = "GAYLEMON_EVENT"
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
-PUBLIC_EVENT_VERSION = 4
+PUBLIC_EVENT_VERSION = 5
 DEFAULT_BACKFILL_FROM = "2026-07-09T00:00:00-04:00"
-RECENT_EVENT_LIMIT = 250
+RECENT_EVENT_LIMIT = 2000
+ITEMIZED_EVENT_GROUP_WINDOW_SECONDS = 5 * 60
 CAPTURE_FINGERPRINT_RE = re.compile(r":capture:([^:]+):([^:]+):(\d+)$")
+SERVER_BASE_NAME_RE = re.compile(r"^Base\s+(?P<number>\d+)(?:\s*[·\-.–—]\s*.+)?$", re.IGNORECASE)
 NEW_RECORD_FIELDS = (
     "uniqueItemsPickedUp",
     "notesFound",
@@ -53,6 +55,16 @@ NEW_RECORD_FIELDS = (
     "towerBossDefeats",
 )
 SESSION_BOUNDARY_EXEMPT_SAVE_TYPES = {"death", "recovery"}
+PUBLIC_EVENT_ORDER_SQL = """
+    occurred_at DESC,
+    CASE
+      WHEN type = 'leave' AND source IN ('journal', 'players') THEN 0
+      WHEN source = 'save' THEN 1
+      WHEN type = 'join' AND source IN ('journal', 'players') THEN 2
+      ELSE 1
+    END ASC,
+    id DESC
+"""
 
 
 def now_iso() -> str:
@@ -650,6 +662,212 @@ def public_event(row: sqlite3.Row) -> dict:
     }
 
 
+def itemized_public_event_items(event: dict) -> list[dict]:
+    items = event.get("details", {}).get("items")
+    if isinstance(items, dict):
+        return [items]
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+    return []
+
+
+def itemized_public_event_added(event: dict) -> int:
+    return itemized_added_total(event.get("details") or {})
+
+
+def itemized_public_event_bucket(event: dict) -> datetime | None:
+    occurred_at = parse_timestamp(event.get("occurredAt"))
+    if occurred_at is None:
+        return None
+    minute = (occurred_at.minute // 5) * 5
+    return occurred_at.replace(minute=minute, second=0, microsecond=0)
+
+
+def itemized_public_group_owner(event: dict) -> str:
+    return str(event.get("player") or event.get("base") or event.get("guild") or "Monde").strip() or "Monde"
+
+
+def itemized_public_group_key(event: dict) -> tuple[str, str, str] | None:
+    if event.get("type") not in {"craft", "production"} or event.get("source") != "save":
+        return None
+    if itemized_public_event_added(event) <= 0:
+        return None
+    bucket = itemized_public_event_bucket(event)
+    if bucket is None:
+        return None
+    owner = itemized_public_group_owner(event).casefold()
+    return event["type"], owner, bucket.isoformat()
+
+
+def aggregate_itemized_public_items(events: list[dict]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    latest_keys: dict[str, tuple[datetime, int]] = {}
+    for event in sorted(
+        events,
+        key=lambda item: (
+            parse_timestamp(item.get("occurredAt")) or datetime.min.replace(tzinfo=timezone.utc),
+            int(item.get("id") or 0),
+        ),
+    ):
+        event_at = parse_timestamp(event.get("occurredAt")) or datetime.min.replace(tzinfo=timezone.utc)
+        event_id = int(event.get("id") or 0)
+        for item in itemized_public_event_items(event):
+            name = str(item.get("name") or "Objet").strip() or "Objet"
+            asset = str(item.get("asset") or "").strip()
+            key = (asset or name).casefold()
+            added = int(item.get("added") or item.get("count") or 0)
+            if added <= 0:
+                continue
+            current = grouped.setdefault(key, {
+                "name": name,
+                "asset": asset,
+                "icon": item.get("icon"),
+                "added": 0,
+                "count": 0,
+                "isNew": False,
+            })
+            current["added"] += added
+            current["isNew"] = bool(current["isNew"] or item.get("isNew"))
+            if not current.get("asset") and asset:
+                current["asset"] = asset
+            if not current.get("icon") and item.get("icon"):
+                current["icon"] = item.get("icon")
+            latest_key = latest_keys.get(key)
+            if latest_key is None or (event_at, event_id) >= latest_key:
+                current["name"] = name
+                current["count"] = int(item.get("count") or 0)
+                latest_keys[key] = (event_at, event_id)
+    return sorted(
+        grouped.values(),
+        key=lambda item: (-int(item.get("added") or 0), str(item.get("name") or "").casefold()),
+    )
+
+
+def latest_public_event(events: list[dict]) -> dict:
+    return max(
+        events,
+        key=lambda item: (
+            parse_timestamp(item.get("occurredAt")) or datetime.min.replace(tzinfo=timezone.utc),
+            int(item.get("id") or 0),
+        ),
+    )
+
+
+def aggregate_itemized_public_event(events: list[dict]) -> dict:
+    latest = latest_public_event(events)
+    event_type = latest["type"]
+    player = latest.get("player")
+    guild = latest.get("guild")
+    owner = itemized_public_group_owner(latest)
+    bucket = itemized_public_event_bucket(latest) or parse_timestamp(latest.get("occurredAt"))
+    window_end = bucket + timedelta(seconds=ITEMIZED_EVENT_GROUP_WINDOW_SECONDS) if bucket else None
+    items = aggregate_itemized_public_items(events)
+    added_total = sum(int(item.get("added") or 0) for item in items) or sum(itemized_public_event_added(event) for event in events)
+    batches = len(events)
+    bases = sorted(
+        {str(event.get("base") or "").strip() for event in events if str(event.get("base") or "").strip()},
+        key=str.casefold,
+    )
+    icon = next((item.get("icon") for item in items if item.get("icon")), latest.get("icon"))
+    fingerprint = f"public-group:{event_type}:{owner.casefold()}:{bucket.isoformat() if bucket else latest.get('occurredAt')}"
+
+    details = {
+        "bullets": quantity_bullets(items),
+        "items": items,
+        "aggregatedEvents": batches,
+        "windowMinutes": ITEMIZED_EVENT_GROUP_WINDOW_SECONDS // 60,
+    }
+    if bucket:
+        details["windowStart"] = bucket.isoformat()
+    if window_end:
+        details["windowEnd"] = window_end.isoformat()
+    if bases:
+        details["bases"] = bases
+
+    if event_type == "craft":
+        title = "Fabrications compilées"
+        total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
+        message = (
+            f"{owner} termine {added_total} {plural(added_total, 'fabrication')} en 5 min. "
+            f"Total cumulé: {total}."
+        ) if total > 0 else f"{owner} termine {added_total} {plural(added_total, 'fabrication')} en 5 min."
+        body = message
+        if total > 0:
+            details["total"] = total
+    else:
+        title = "Productions compilées"
+        base_label = ""
+        if len(bases) == 1:
+            base_label = f" à {bases[0]}"
+            total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
+            stock = f" Stock de production actuel: {total}." if total > 0 else ""
+            details["total"] = total
+        else:
+            totals_by_base: dict[str, int] = {}
+            for event in events:
+                base = str(event.get("base") or "").strip()
+                total = int((event.get("details") or {}).get("total") or 0)
+                if base and total > 0:
+                    totals_by_base[base] = max(totals_by_base.get(base, 0), total)
+            total = sum(totals_by_base.values())
+            base_label = f" dans {len(bases)} bases" if bases else ""
+            stock = f" Stock de production observé: {total}." if total > 0 else ""
+            if total > 0:
+                details["total"] = total
+        message = (
+            f"{owner} boucle {batches} {plural(batches, 'production')} en 5 min. "
+            f"{added_total} {plural(added_total, 'ressource produite est prête', 'ressources produites sont prêtes')}"
+            f"{base_label}.{stock}"
+        )
+        body = message
+
+    details.update({"headline": title, "body": body})
+    return {
+        "key": public_event_key(fingerprint),
+        "id": int(latest.get("id") or 0),
+        "occurredAt": latest.get("occurredAt"),
+        "type": event_type,
+        "player": player,
+        "guild": guild if all(event.get("guild") == guild for event in events) else None,
+        "base": bases[0] if len(bases) == 1 else None,
+        "title": title,
+        "message": message,
+        "display": {
+            "headline": title,
+            "body": body[:1000],
+            "bullets": details["bullets"][:8],
+        },
+        "details": public_details(details),
+        "confidence": "confirmed",
+        "icon": icon,
+        "source": "save",
+    }
+
+
+def group_itemized_public_events(events: list[dict]) -> list[dict]:
+    groups: dict[tuple[str, str, str], list[dict]] = {}
+    event_keys: dict[int, tuple[str, str, str]] = {}
+    for event in events:
+        key = itemized_public_group_key(event)
+        if key is None:
+            continue
+        groups.setdefault(key, []).append(event)
+        event_keys[int(event["id"])] = key
+
+    emitted = set()
+    grouped = []
+    for event in events:
+        key = event_keys.get(int(event["id"]))
+        if key is None or len(groups.get(key, [])) < 2:
+            grouped.append(event)
+            continue
+        if key in emitted:
+            continue
+        grouped.append(aggregate_itemized_public_event(groups[key]))
+        emitted.add(key)
+    return grouped
+
+
 def duplicate_session_event_ids(
     events: list[dict],
     tolerance_seconds: int = SESSION_EVENT_TOLERANCE_SECONDS,
@@ -759,7 +977,7 @@ def reconcile_public_events(rows, window_seconds: int = RECONNECT_WINDOW_SECONDS
                 "bullets": [],
             }
         reconciled.append(event)
-    return reconciled, len(reconnect_ids)
+    return group_itemized_public_events(reconciled), len(reconnect_ids)
 
 
 def archive_hour_key(path: Path, history_path: Path) -> str | None:
@@ -944,6 +1162,64 @@ def bases_state(payload: dict | None) -> dict:
     return bases
 
 
+def server_base_number(name: str | None) -> int | None:
+    match = SERVER_BASE_NAME_RE.match(str(name or "").strip())
+    if not match:
+        return None
+    return int(match.group("number"))
+
+
+def base_sort_key(base: dict) -> tuple[int, str]:
+    number = server_base_number(base.get("name"))
+    return (
+        number if number is not None else 1_000_000,
+        str(base.get("name") or "").casefold(),
+    )
+
+
+def player_base_label_index(bases: dict) -> dict[tuple[str, str], str]:
+    grouped: dict[str, list[dict]] = {}
+    for base in bases.values():
+        if server_base_number(base.get("name")) is None:
+            continue
+        for player in base.get("players") or []:
+            player_key = str(player).casefold()
+            grouped.setdefault(player_key, []).append(base)
+
+    labels: dict[tuple[str, str], str] = {}
+    for player_key, player_bases in grouped.items():
+        for index, base in enumerate(sorted(player_bases, key=base_sort_key), start=1):
+            labels[(player_key, str(base.get("name") or "").casefold())] = f"Base {index}"
+    return labels
+
+
+def public_base_name(base: dict, player: str | None, label_index: dict[tuple[str, str], str]) -> str:
+    raw_name = str(base.get("name") or "Base")
+    if player:
+        label = label_index.get((str(player).casefold(), raw_name.casefold()))
+        if label:
+            return label
+
+    players = [str(item) for item in base.get("players") or [] if str(item).strip()]
+    if len(players) == 1:
+        label = label_index.get((players[0].casefold(), raw_name.casefold()))
+        if label:
+            return label
+
+    return raw_name
+
+
+def base_label_details(details: dict, raw_name: str, public_name: str, player: str | None) -> dict:
+    if raw_name == public_name:
+        return details
+    enriched = dict(details)
+    enriched["baseName"] = public_name
+    enriched["rawBaseName"] = raw_name
+    if player:
+        enriched["baseLabelScope"] = player
+    return enriched
+
+
 def death_drops_state(payload: dict | None) -> dict:
     if not isinstance(payload, dict):
         return {}
@@ -991,7 +1267,12 @@ def named_catalog(rows) -> dict:
         name = str(row.get("name") or "").strip()
         if not name:
             continue
-        catalog[name.casefold()] = {"name": name, "icon": row.get("icon")}
+        item = {"name": name, "icon": row.get("icon")}
+        for field in ("asset", "level", "rank", "type"):
+            value = row.get(field)
+            if value not in (None, ""):
+                item[field] = value
+        catalog[name.casefold()] = item
     return catalog
 
 
@@ -1005,6 +1286,15 @@ def french_list(values: list[str], limit: int = 5) -> str:
     if len(displayed) == 1:
         return displayed[0]
     return f"{', '.join(displayed[:-1])} et {displayed[-1]}"
+
+
+def boss_public_label(boss: dict) -> str:
+    name = str(boss.get("name") or "Boss").strip() or "Boss"
+    try:
+        level = int(boss.get("level") or 0)
+    except (TypeError, ValueError):
+        level = 0
+    return f"{name} niveau {level}" if level > 0 else name
 
 
 def positive_catalog_changes(current: dict, previous: dict) -> list[dict]:
@@ -1567,11 +1857,13 @@ def compare_base_events(
     old_bases = previous.get("bases") or {}
     new_bases = current.get("bases") or {}
     active_player_keys = activity_player_keys(active_players)
+    base_labels = player_base_label_index(new_bases)
     for key, base in new_bases.items():
         old = old_bases.get(key)
         name = base["name"]
         guild = base.get("guild") or None
         player = base_event_player(base, active_player_keys)
+        display_name = public_base_name(base, player, base_labels)
         event_occurred_at = activity_event_time(active_players, player, occurred_at)
         if old is None:
             if active_player_keys is not None and player is None:
@@ -1583,15 +1875,15 @@ def compare_base_events(
                 event_type="base",
                 player=player,
                 guild=guild,
-                base=name,
+                base=display_name,
                 title="Nouvelle base",
-                message=f"{name} apparaît dans les chroniques de la guilde {guild or 'inconnue'}.",
+                message=f"{display_name} apparaît dans les chroniques de la guilde {guild or 'inconnue'}.",
                 source="save",
-                details={
-                    "headline": f"{player} établit {name}" if player else f"{name} rejoint l'aventure",
+                details=base_label_details({
+                    "headline": f"{player} établit {display_name}" if player else f"{display_name} rejoint l'aventure",
                     "body": f"La guilde {guild or 'inconnue'} compte une nouvelle base suivie.",
                     "bullets": [f"Camp niveau {base.get('campLevel')}"] if base.get("campLevel") else [],
-                },
+                }, name, display_name, player),
             )
             continue
 
@@ -1603,9 +1895,9 @@ def compare_base_events(
         if total_delta > 0 and structure_changes and (active_player_keys is None or player is not None):
             bullets = quantity_bullets(structure_changes)
             headline = (
-                f"{player} agrandit {name}"
+                f"{player} agrandit {display_name}"
                 if player
-                else f"{name} s'agrandit"
+                else f"{display_name} s'agrandit"
             )
             message = (
                 f"{headline}. "
@@ -1618,17 +1910,17 @@ def compare_base_events(
                 event_type="build",
                 player=player,
                 guild=guild,
-                base=name,
+                base=display_name,
                 title="Base agrandie",
                 message=message,
                 source="save",
-                details={
+                details=base_label_details({
                     "headline": headline,
                     "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
                     "bullets": bullets,
                     "structures": structure_changes,
                     "total": base.get("structuresTotal"),
-                },
+                }, name, display_name, player),
             )
 
         production_changes = positive_catalog_changes(
@@ -1639,9 +1931,9 @@ def compare_base_events(
             produced = sum(int(item["added"]) for item in production_changes)
             production_total = sum(int(item["count"]) for item in base.get("productionItems", {}).values())
             headline = (
-                f"{player} termine une production à {name}"
+                f"{player} termine une production à {display_name}"
                 if player
-                else f"{name} termine une production"
+                else f"{display_name} termine une production"
             )
             ready = (
                 "1 ressource produite est prête"
@@ -1660,18 +1952,18 @@ def compare_base_events(
                 event_type="production",
                 player=player,
                 guild=guild,
-                base=name,
+                base=display_name,
                 title="Production terminée",
                 message=message,
                 icon=production_changes[0].get("icon"),
                 source="save",
-                details={
+                details=base_label_details({
                     "headline": headline,
                     "body": body,
                     "bullets": quantity_bullets(production_changes),
                     "items": production_changes,
                     "total": production_total,
-                },
+                }, name, display_name, player),
             )
 
         old_damaged = int(old.get("structuresDamaged") or 0)
@@ -1679,9 +1971,9 @@ def compare_base_events(
         if damaged < old_damaged and (active_player_keys is None or player is not None):
             repaired = old_damaged - damaged
             headline = (
-                f"{player} remet {name} en état"
+                f"{player} remet {display_name} en état"
                 if player
-                else f"{name} reprend des couleurs"
+                else f"{display_name} reprend des couleurs"
             )
             add_event(
                 connection,
@@ -1690,15 +1982,15 @@ def compare_base_events(
                 event_type="repair",
                 player=player,
                 guild=guild,
-                base=name,
+                base=display_name,
                 title="Réparations confirmées",
                 message=f"{headline}: {repaired} structure{'' if repaired == 1 else 's'} réparée{'' if repaired == 1 else 's'}.",
                 source="save",
-                details={
+                details=base_label_details({
                     "headline": headline,
                     "body": "La sauvegarde confirme moins de structures endommagées.",
                     "bullets": [f"-{repaired} structure{'' if repaired == 1 else 's'} endommagée{'' if repaired == 1 else 's'}"],
-                },
+                }, name, display_name, player),
             )
 
         research_delta = int(base.get("researchCompleted") or 0) - int(old.get("researchCompleted") or 0)
@@ -1706,7 +1998,7 @@ def compare_base_events(
             headline = (
                 f"{player} fait progresser la recherche de guilde"
                 if player
-                else f"La recherche avance à {name}"
+                else f"La recherche avance à {display_name}"
             )
             add_event(
                 connection,
@@ -1715,15 +2007,15 @@ def compare_base_events(
                 event_type="research",
                 player=player,
                 guild=guild,
-                base=name,
+                base=display_name,
                 title="Recherche terminée",
                 message=f"{headline}: {research_delta} recherche{'' if research_delta == 1 else 's'} confirmée{'' if research_delta == 1 else 's'}.",
                 source="save",
-                details={
+                details=base_label_details({
                     "headline": headline,
                     "body": "La progression de laboratoire est confirmée dans la sauvegarde.",
                     "bullets": [f"+{research_delta} recherche{'' if research_delta == 1 else 's'}"],
-                },
+                }, name, display_name, player),
             )
 
 
@@ -1890,7 +2182,8 @@ def compare_snapshots(
                 if boss_key not in (old.get("bossDetails") or {})
             ]
             new_bosses.sort(key=lambda item: item["name"].casefold())
-            boss_names = french_list([boss["name"] for boss in new_bosses])
+            boss_labels = [boss_public_label(boss) for boss in new_bosses]
+            boss_names = french_list(boss_labels)
             message = (
                 f"{name} triomphe de {boss_names}."
                 if boss_names and len(new_bosses) == boss_delta
@@ -1898,16 +2191,27 @@ def compare_snapshots(
             )
             if boss_names and len(new_bosses) != boss_delta:
                 message += f" Adversaire{'' if len(new_bosses) == 1 else 's'} identifié{'' if len(new_bosses) == 1 else 's'}: {boss_names}."
+            title = "Boss vaincu" if boss_delta == 1 else "Boss vaincus"
+            details = {
+                "headline": title,
+                "body": message,
+                "bullets": boss_labels or [f"+{boss_delta} {plural(boss_delta, 'combat de boss', 'combats de boss')}"],
+                "total": player["bosses"],
+                "identified": len(new_bosses),
+            }
+            if new_bosses:
+                details["bosses"] = new_bosses
             add_event(
                 connection,
                 fingerprint=f"save:{player_occurred_at}:boss:{key}:{player['bosses']}",
                 occurred_at=player_occurred_at,
                 event_type="boss",
                 player=name,
-                title="Boss vaincu",
+                title=title,
                 message=message,
                 icon=new_bosses[0].get("icon") if new_bosses else None,
                 source="save",
+                details=details,
             )
 
         new_fast_travel = sorted(
@@ -2475,6 +2779,76 @@ def normalize_event_history(connection: sqlite3.Connection) -> dict:
     }
 
 
+def replace_base_label_text(value: str | None, raw_name: str, public_name: str) -> str | None:
+    if value is None or raw_name == public_name:
+        return value
+    return str(value).replace(raw_name, public_name)
+
+
+def normalize_base_labels(connection: sqlite3.Connection, bases_payload: dict | None) -> dict:
+    bases = bases_state(bases_payload)
+    label_index = player_base_label_index(bases)
+    if not bases or not label_index:
+        return {
+            "status": "skipped",
+            "reason": "no-current-base-labels",
+            "updated": 0,
+        }
+
+    bases_by_name = {
+        str(base.get("name") or "").casefold(): base
+        for base in bases.values()
+        if str(base.get("name") or "").strip()
+    }
+    rows = connection.execute(
+        """
+        SELECT id, type, player, guild, base, title, message, details_json
+        FROM events
+        WHERE source = 'save'
+          AND type IN ('base', 'build', 'production', 'repair', 'research')
+          AND base IS NOT NULL
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+
+    updated = 0
+    for row in rows:
+        raw_name = str(row["base"] or "")
+        base = bases_by_name.get(raw_name.casefold())
+        if not base:
+            continue
+        public_name = public_base_name(base, row["player"], label_index)
+        if public_name == raw_name:
+            continue
+
+        details = details_from_row(row)
+        for key in ("headline", "body"):
+            if key in details:
+                details[key] = replace_base_label_text(details.get(key), raw_name, public_name)
+        details = base_label_details(details, raw_name, public_name, row["player"])
+        connection.execute(
+            """
+            UPDATE events
+            SET base = ?, title = ?, message = ?, details_json = ?
+            WHERE id = ?
+            """,
+            (
+                public_name,
+                replace_base_label_text(row["title"], raw_name, public_name),
+                replace_base_label_text(row["message"], raw_name, public_name),
+                details_json_payload(details),
+                row["id"],
+            ),
+        )
+        updated += 1
+
+    return {
+        "status": "complete",
+        "updated": updated,
+        "labels": len(label_index),
+    }
+
+
 def purge_inactive_save_events(connection: sqlite3.Connection, stats_path: Path) -> dict:
     sessions = player_session_index(stats_path)
     if not sessions:
@@ -2582,14 +2956,15 @@ def write_export(
     connection: sqlite3.Connection,
     output: Path,
     recent_output: Path,
+    recent_limit: int = RECENT_EVENT_LIMIT,
 ) -> None:
     total_events = int(connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
     rows = connection.execute(
-        """
+        f"""
         SELECT id, fingerprint, occurred_at, type, player, guild, base, title,
                message, icon, source, details_json, confidence
         FROM events
-        ORDER BY occurred_at DESC, id DESC
+        ORDER BY {PUBLIC_EVENT_ORDER_SQL}
         """
     ).fetchall()
     events, reconnects = reconcile_public_events(rows)
@@ -2605,7 +2980,7 @@ def write_export(
     write_json_atomic(
         recent_output,
         export_payload(
-            events[:RECENT_EVENT_LIMIT],
+            events[:recent_limit],
             rows,
             reconnects,
             recent=True,
@@ -2619,6 +2994,7 @@ def main() -> None:
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--recent-output", type=Path, default=DEFAULT_RECENT_OUTPUT)
+    parser.add_argument("--recent-limit", type=int, default=RECENT_EVENT_LIMIT)
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
     parser.add_argument("--bases-snapshot", type=Path, default=DEFAULT_BASES_SNAPSHOT)
     parser.add_argument("--history", type=Path, default=DEFAULT_HISTORY)
@@ -2634,6 +3010,8 @@ def main() -> None:
     parser.add_argument("--max-backfill-load", type=float, default=4.5)
     parser.add_argument("--skip-archive-backfill", action="store_true")
     args = parser.parse_args()
+    if args.recent_limit < 1:
+        parser.error("--recent-limit doit être supérieur à zéro")
 
     connection = connect_database(args.database)
     try:
@@ -2672,9 +3050,10 @@ def main() -> None:
         recovery_report["raidBackfill"] = raid_backfill
         recovery_report["archiveBackfill"] = archive_backfill
         recovery_report["normalizationBackfill"] = normalize_event_history(connection)
+        recovery_report["baseLabelBackfill"] = normalize_base_labels(connection, load_snapshot(args.bases_snapshot))
         recovery_report["inactiveSaveEventCleanup"] = purge_inactive_save_events(connection, args.stats)
         write_recovery_report(args.recovery_report, recovery_report)
-        write_export(connection, args.output, args.recent_output)
+        write_export(connection, args.output, args.recent_output, args.recent_limit)
         connection.commit()
     finally:
         connection.close()

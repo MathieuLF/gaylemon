@@ -134,8 +134,13 @@ Write-Result (
     (Test-Path -LiteralPath (Join-Path $ProjectRoot "portal\data\public-events-page-0001.example.json"))
 ) "Pagination statique des echos publics"
 Write-Result (
-    $metricsUpdaterSource -match '\[int\]\$EventsIntervalMinutes\s*=\s*1\b'
-) "Synchronisation minute des echos publics"
+    $metricsUpdaterSource -match '\[int\]\$EventsIntervalSeconds\s*=\s*20\b' -and
+    $eventsSyncSource.Contains("public-events-sync-state.json") -and
+    $eventsSyncSource.Contains("recentRevision") -and
+    $eventsSyncSource -match '\[int\]\$RecentEventLimit\s*=\s*2000\b' -and
+    $metricsUpdaterSource.Contains("sync-palworld-events.ps1") -and
+    $metricsUpdaterSource.Contains("-Fast")
+) "Synchronisation rapide des echos publics"
 
 $publicIdentityLeakErrors = [Collections.Generic.List[string]]::new()
 $publicExportTemp = Join-Path ([IO.Path]::GetTempPath()) ("gaylemon-public-export-validation-" + [guid]::NewGuid().ToString("N"))
@@ -349,8 +354,26 @@ if (-not $SansTestsPython) {
         }
         Write-Result ($pythonSyntaxErrors.Count -eq 0) "Syntaxe Python" ($pythonSyntaxErrors -join ", ")
 
-        & $python.Source -m unittest discover -s (Join-Path $ProjectRoot "server\tests") -p "test_*.py" 2>&1 | Out-Host
-        Write-Result ($LASTEXITCODE -eq 0) "Tests Python"
+        $testOut = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-python-tests-$([guid]::NewGuid().ToString('N')).out"
+        $testErr = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-python-tests-$([guid]::NewGuid().ToString('N')).err"
+        try {
+            $testArgs = @(
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                (Join-Path $ProjectRoot "server\tests"),
+                "-p",
+                "test_*.py"
+            )
+            $testProcess = Start-Process -FilePath $python.Source -ArgumentList $testArgs -NoNewWindow -Wait -PassThru -RedirectStandardOutput $testOut -RedirectStandardError $testErr
+            if (Test-Path -LiteralPath $testOut) { Get-Content -LiteralPath $testOut | Out-Host }
+            if (Test-Path -LiteralPath $testErr) { Get-Content -LiteralPath $testErr | Out-Host }
+            Write-Result ($testProcess.ExitCode -eq 0) "Tests Python"
+        }
+        finally {
+            Remove-Item -LiteralPath $testOut, $testErr -ErrorAction SilentlyContinue
+        }
     }
     else {
         Add-Warning "Python absent; les tests du collecteur n'ont pas ete executes."
@@ -359,7 +382,9 @@ if (-not $SansTestsPython) {
 
 if (-not $SansBash) {
     $bashPath = $null
-    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+    $isWindowsVariable = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
+    $isWindowsHost = ($isWindowsVariable -and [bool]$isWindowsVariable.Value) -or $env:OS -eq "Windows_NT"
+    if ($isWindowsHost) {
         $gitBash = Join-Path $env:ProgramFiles "Git\bin\bash.exe"
         if (Test-Path -LiteralPath $gitBash) {
             $bashPath = $gitBash

@@ -4,7 +4,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 
 ## Comprendre
 
-- [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, Kuma et cloudflared.
+- [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, Kuma, routes publiques et contrats JSON.
 - [Source de vérité](SOURCE-DE-VERITE.md): quels fichiers Git représentent les fichiers actifs sur Ubuntu.
 - [Sécurité d'exploitation](SECURITE-EXPLOITATION.md): sudo borné, wrapper de déploiement et garde-fous.
 - [Sources](SOURCES.md): références externes utiles.
@@ -18,7 +18,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 
 ## Exploiter
 
-- [Opérations](OPERATIONS.md): console, sauvegardes, mises à jour, stats et microsite.
+- [Opérations](OPERATIONS.md): console, sauvegardes, mises à jour, stats, échos, terminal et microsite.
 - [Bot Discord](BOT-DISCORD.md): tunnel REST local, configuration bot et garde-fous.
 - [Uptime Kuma](UPTIME-KUMA.md): intégration avec l'instance externe.
 - [Personnalisation](CUSTOMIZATION.md): annonces, bienvenue et profil de difficulté.
@@ -26,9 +26,9 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 
 ## Données publiques
 
-- [Snapshot public v3](SAVE-SNAPSHOT-V3.md): contrat des données joueurs.
-- [Bases publiques v1](SAVE-BASES-V1.md): contrat des bases et stocks agrégés.
-- [Plan d'enrichissement](PLAN-ENRICHISSEMENT-SAUVEGARDES.md): historique des choix et reste à faire.
+- [Snapshot public v3](SAVE-SNAPSHOT-V3.md): contrat des données joueurs, fiches, Pals et export JSON.
+- [Bases publiques v1](SAVE-BASES-V1.md): contrat des bases, constructions, stockages et libellés publics.
+- [Plan d'enrichissement](PLAN-ENRICHISSEMENT-SAUVEGARDES.md): état du journal enrichi, terminal et limites volontaires.
 - [Publication du dépôt](PUBLIC-REPOSITORY.md): quoi publier, quoi garder local.
 
 Les données propres à l'instance réelle restent dans `.env`, `config/local/`, `runtime/` ou les fichiers ignorés sous `portal/data/`.

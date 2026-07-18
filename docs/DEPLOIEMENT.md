@@ -97,9 +97,24 @@ Tout nouveau fichier sous `server/bin`, `server/systemd`, `server/sysctl` ou `se
 Les fichiers privilégiés d'installation non interactive sont aussi suivis:
 
 - `server/sbin/gaylemon-deploy-install` -> `/usr/local/sbin/gaylemon-deploy-install`;
-- `server/sudoers/gaylemon-deploy` -> `/etc/sudoers.d/gaylemon-deploy`.
+- `server/sudoers/gaylemon-deploy` -> `/etc/sudoers.d/gaylemon-deploy`;
+- `server/sudoers/palworld-api` -> `/etc/sudoers.d/palworld-api`;
+- `server/sudoers/palworld-console` -> `/etc/sudoers.d/palworld-console`;
+- `server/sudoers/palworld-stats` -> `/etc/sudoers.d/palworld-stats`.
 
-Les scripts qui lisent ou utilisent le mot de passe admin Palworld doivent rester limités au groupe `steam` et ne pas être déployés en `0755`. Si la console doit les appeler par SSH, ajouter l'utilisateur d'exploitation au groupe `steam` côté Ubuntu plutôt que d'élargir les permissions du script.
+Les scripts qui lisent ou utilisent le mot de passe admin Palworld doivent rester limités au groupe `steam`, ou être appelés par une règle sudoers strictement allowlistée. Ne pas les déployer en `0755`.
+
+Pour les lectures API du microsite et de la console, `palworld-api` autorise seulement:
+
+```text
+palworld-api.sh GET /info
+palworld-api.sh GET /players
+palworld-api.sh GET /metrics
+palworld-api.sh GET /settings
+palworld-api.sh GET /game-data
+```
+
+Si une nouvelle action doit être lancée par SSH, choisir explicitement entre l'appartenance au groupe `steam` et un wrapper/sudoers limité. Ne pas élargir les permissions d'un script pour régler un problème d'accès.
 
 ## Retour arrière
 

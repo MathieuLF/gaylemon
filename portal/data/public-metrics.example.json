@@ -20,6 +20,11 @@
     "uptime": "1h 0m"
   },
   "players": [
-    { "name": "Aventuriere" }
+    {
+      "name": "Aventuriere",
+      "currentSessionStartedAt": "2026-01-01T11:42:00Z",
+      "onlineSinceAt": "2026-01-01T11:42:00Z",
+      "lastOnlineAt": "2026-01-01T12:00:00Z"
+    }
   ]
 }

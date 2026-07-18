@@ -19,7 +19,7 @@ Le profil fourni est adapté à un serveur privé de 8 à 12 joueurs:
 - REST API active, mais gardée locale;
 - backups Palworld internes activés;
 - liste des joueurs visible;
-- difficulté légèrement plus exigeante que le défaut, sans devenir punitive.
+- difficulté plus ferme que le défaut, sans devenir punitive.
 
 Aucun changement urgent n'est requis.
 
@@ -33,10 +33,14 @@ Aucun changement urgent n'est requis.
 | `bShowPlayerList` | `False` | `True` | confort joueurs |
 | `BaseCampWorkerMaxNum` | `15` | `18` | bases plus vivantes |
 | `BaseCampMaxNumInGuild` | `4` | `5` | marge pour le groupe |
-| `PalCaptureRate` | `1.0` | `0.95` | captures un peu plus exigeantes |
-| `CollectionDropRate` | `1.0` | `1.1` | collecte moins lente |
+| `NightTimeSpeedRate` | `1.0` | `0.70` | nuits plus présentes |
+| `PalCaptureRate` | `1.0` | `0.80` | captures nettement moins automatiques |
+| `CollectionDropRate` | `1.0` | `1.0` | collecte sans bonus |
 | `DeathPenalty` | variable | `Item` | compromis challenge/plaisir |
-| `PalEggDefaultHatchingTime` | `1.0` | `0.75` | incubation moins longue |
+| `PalEggDefaultHatchingTime` | `1.0` | `2.00` | incubation nettement plus lente |
+| `MonsterFarmActionSpeedRate` | `1.0` | `0.70` | breeding et production de ferme moins généreux |
+| `PlayerStomachDecreaceRate` | `1.0` | `1.15` | survie un peu plus présente |
+| `PlayerStaminaDecreaceRate` | `1.0` | `1.10` | endurance un peu moins gratuite |
 | `BuildObjectDeteriorationDamageRate` | `1.0` | `0.4` | bases moins pénibles à maintenir |
 | `ChatPostLimitPerMinute` | `30` | `20` | anti-spam léger |
 

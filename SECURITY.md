@@ -26,13 +26,18 @@ Le dépôt décrit seulement les fichiers non secrets. Les sauvegardes réelles,
 
 Les installations Ubuntu passent par `server/deployment-manifest.json`. Le script d'installation refuse les destinations hors allowlist, valide les fichiers avant copie, sauvegarde les fichiers remplacés et ne redémarre aucun service par défaut.
 
-L'accès `sudo` non interactif autorisé pour l'exploitation est volontairement limité à:
+Les accès `sudo` non interactifs autorisés pour l'exploitation sont volontairement limités à des commandes précises:
 
 ```text
 /usr/local/sbin/gaylemon-deploy-install
+/srv/storage/steam/bin/palworld-api.sh GET /info
+/srv/storage/steam/bin/palworld-api.sh GET /players
+/srv/storage/steam/bin/palworld-api.sh GET /metrics
+/srv/storage/steam/bin/palworld-api.sh GET /settings
+/srv/storage/steam/bin/palworld-api.sh GET /game-data
 ```
 
-Ce wrapper accepte seulement une zone de stage sous `/tmp/gaylemon-staging/AAAAMMJJ-HHMMSS`, puis délègue au script de déploiement versionné dans ce stage. Il ne donne pas un accès `sudo` général.
+Le wrapper de déploiement accepte seulement une zone de stage sous `/tmp/gaylemon-staging/AAAAMMJJ-HHMMSS`, puis délègue au script de déploiement versionné dans ce stage. La règle API lit seulement les endpoints allowlistés. Aucun de ces chemins ne doit donner un accès `sudo` général.
 
 ## Vecteurs sensibles
 
@@ -41,6 +46,7 @@ Ce wrapper accepte seulement une zone de stage sous `/tmp/gaylemon-staging/AAAAM
 - wrapper `/usr/local/sbin/gaylemon-deploy-install`;
 - API REST Palworld;
 - projections publiques des sauvegardes;
+- exports `public-metrics.json`, `players/{slug}.json` et `public-events-page-*.json`;
 - déploiement et mise à jour;
 - configuration Nginx.
 

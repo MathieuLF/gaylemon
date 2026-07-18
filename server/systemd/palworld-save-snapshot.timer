@@ -1,9 +1,9 @@
 [Unit]
-Description=Check for a fresh Palworld save snapshot every minute
+Description=Check for a fresh Palworld save snapshot every 30 seconds
 
 [Timer]
-OnBootSec=60s
-OnUnitInactiveSec=60s
+OnBootSec=45s
+OnUnitInactiveSec=30s
 AccuracySec=1s
 Persistent=true
 Unit=palworld-save-snapshot.service

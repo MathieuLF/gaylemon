@@ -353,6 +353,16 @@
       "restartPolicy": "none"
     },
     {
+      "source": "server/sudoers/palworld-api",
+      "destination": "/etc/sudoers.d/palworld-api",
+      "owner": "root",
+      "group": "root",
+      "mode": "0440",
+      "validation": "sudoers",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
       "source": "server/sudoers/palworld-console",
       "destination": "/etc/sudoers.d/palworld-console",
       "owner": "root",

@@ -186,7 +186,7 @@ class EventDetailsTests(unittest.TestCase):
                 "grappling gun": {"name": "Pistolet-grappin", "icon": "grapple.webp"},
             },
             bosses=1,
-            bossDetails={"chillette": {"name": "Chillet", "icon": "chillet.webp"}},
+            bossDetails={"chillette": {"name": "Chillet", "asset": "Chillet", "icon": "chillet.webp", "level": 11}},
             fastTravel=[*old["fastTravel"], "Fort en ruines"],
             relicRanks={"capture": {"name": "Puissance de capture", "rank": 2}},
         )
@@ -194,9 +194,15 @@ class EventDetailsTests(unittest.TestCase):
         events = self.events()
         messages = "\n".join(event["message"] for event in events)
         self.assertIn("Pistolet-grappin", messages)
-        self.assertIn("Aventuriere triomphe de Chillet", messages)
+        self.assertIn("Aventuriere triomphe de Chillet niveau 11", messages)
         self.assertIn("Aventuriere découvre Fort en ruines", messages)
         self.assertIn("Puissance de capture rang 2", messages)
+        boss_details = json.loads(self.connection.execute(
+            "SELECT details_json FROM events WHERE type = 'boss'"
+        ).fetchone()["details_json"])
+        self.assertEqual(boss_details["bosses"][0]["name"], "Chillet")
+        self.assertEqual(boss_details["bosses"][0]["asset"], "Chillet")
+        self.assertEqual(boss_details["bosses"][0]["level"], 11)
 
     def test_capture_and_five_capture_challenge_are_detailed(self):
         old = player_state(
@@ -425,6 +431,74 @@ class EventDetailsTests(unittest.TestCase):
         )
         self.assertIn("+30 Lingot", production_details["bullets"])
         self.assertEqual(production_details["total"], 40)
+
+    def test_server_numbered_base_events_use_player_relative_labels(self):
+        previous = {
+            "bases": {
+                "spartans::base 6 · spartans": {
+                    "name": "Base 6 · Spartans",
+                    "guild": "Spartans",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 10,
+                    "structuresDamaged": 0,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 10}},
+                    "productionItems": {},
+                    "researchCompleted": 0,
+                },
+                "spartans::base 17 · spartans": {
+                    "name": "Base 17 · Spartans",
+                    "guild": "Spartans",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 4,
+                    "structuresDamaged": 0,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 4}},
+                    "productionItems": {},
+                    "researchCompleted": 0,
+                },
+            }
+        }
+        current = {
+            "bases": {
+                "spartans::base 6 · spartans": {
+                    "name": "Base 6 · Spartans",
+                    "guild": "Spartans",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 12,
+                    "structuresDamaged": 0,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 12}},
+                    "productionItems": {},
+                    "researchCompleted": 0,
+                },
+                "spartans::base 17 · spartans": {
+                    "name": "Base 17 · Spartans",
+                    "guild": "Spartans",
+                    "players": ["Mathieu"],
+                    "structuresTotal": 5,
+                    "structuresDamaged": 0,
+                    "structureHighlights": {"mur": {"name": "Mur", "count": 5}},
+                    "productionItems": {},
+                    "researchCompleted": 0,
+                },
+            }
+        }
+
+        EVENTS.compare_base_events(
+            self.connection,
+            previous,
+            current,
+            "2026-07-12T18:00:00-04:00",
+        )
+        rows = self.connection.execute(
+            "SELECT base, message, details_json FROM events ORDER BY id"
+        ).fetchall()
+
+        self.assertEqual([row["base"] for row in rows], ["Base 1", "Base 2"])
+        self.assertIn("Mathieu agrandit Base 1", rows[0]["message"])
+        self.assertIn("Mathieu agrandit Base 2", rows[1]["message"])
+        details = json.loads(rows[0]["details_json"])
+        self.assertEqual(details["baseName"], "Base 1")
+        self.assertEqual(details["rawBaseName"], "Base 6 · Spartans")
+        self.assertEqual(details["baseLabelScope"], "Mathieu")
 
     def test_base_damage_increase_is_not_reported_as_raid(self):
         previous = {
@@ -775,8 +849,12 @@ class SessionReconciliationTests(unittest.TestCase):
 
     def public_events(self):
         rows = self.connection.execute(
-            "SELECT id, occurred_at, type, player, title, message, icon, source "
-            "FROM events ORDER BY occurred_at DESC, id DESC"
+            f"""
+            SELECT id, fingerprint, occurred_at, type, player, guild, base, title,
+                   message, icon, source, details_json, confidence
+            FROM events
+            ORDER BY {EVENTS.PUBLIC_EVENT_ORDER_SQL}
+            """
         ).fetchall()
         return EVENTS.reconcile_public_events(rows)
 
@@ -815,6 +893,144 @@ class SessionReconciliationTests(unittest.TestCase):
             [(event["type"], event["source"]) for event in events],
             [("leave", "journal"), ("join", "journal")],
         )
+
+    def test_public_order_places_leave_before_same_second_save_activity(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="journal:leave",
+            occurred_at="2026-07-13T11:00:00-04:00",
+            event_type="leave",
+            player="Alyross",
+            title="Fin d'expédition",
+            message="Alyross quitte l'archipel.",
+            source="journal",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:closing",
+            occurred_at="2026-07-13T11:00:00-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 2 fabrications.",
+            source="save",
+        )
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual(
+            [(event["type"], event["source"]) for event in events],
+            [("leave", "journal"), ("craft", "save")],
+        )
+
+    def test_public_export_groups_crafts_and_productions_into_five_minute_windows(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:craft:1",
+            occurred_at="2026-07-13T10:00:10-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 7 fabrications. Total cumulé: 7.",
+            icon="wood.webp",
+            source="save",
+            details={
+                "bullets": ["+7 Bois"],
+                "items": [{"name": "Bois", "asset": "wood", "added": 7, "count": 7, "icon": "wood.webp"}],
+                "total": 7,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:production:1",
+            occurred_at="2026-07-13T10:01:00-04:00",
+            event_type="production",
+            player="Alyross",
+            guild="PalaPaly",
+            base="Base 1",
+            title="Production terminée",
+            message="Alyross termine une production à Base 1. 5 ressources produites sont prêtes. Stock de production actuel: 8.",
+            icon="ingot.webp",
+            source="save",
+            details={
+                "bullets": ["+5 Lingot"],
+                "items": [{"name": "Lingot", "asset": "ingot", "added": 5, "count": 8, "icon": "ingot.webp"}],
+                "total": 8,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:craft:2",
+            occurred_at="2026-07-13T10:02:30-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 4 fabrications. Total cumulé: 17.",
+            icon="stone.webp",
+            source="save",
+            details={
+                "bullets": ["+4 Pierre"],
+                "items": [{"name": "Pierre", "asset": "stone", "added": 4, "count": 4, "icon": "stone.webp"}],
+                "total": 17,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:production:2",
+            occurred_at="2026-07-13T10:04:59-04:00",
+            event_type="production",
+            player="Alyross",
+            guild="PalaPaly",
+            base="Base 2",
+            title="Production terminée",
+            message="Alyross termine une production à Base 2. 7 ressources produites sont prêtes. Stock de production actuel: 15.",
+            icon="salad.webp",
+            source="save",
+            details={
+                "bullets": ["+7 Salade"],
+                "items": [{"name": "Salade", "asset": "salad", "added": 7, "count": 15, "icon": "salad.webp"}],
+                "total": 15,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:craft:3",
+            occurred_at="2026-07-13T10:06:00-04:00",
+            event_type="craft",
+            player="Alyross",
+            title="Fabrications terminées",
+            message="Alyross termine 3 fabrications. Total cumulé: 20.",
+            icon="wood.webp",
+            source="save",
+            details={
+                "bullets": ["+3 Bois"],
+                "items": [{"name": "Bois", "asset": "wood", "added": 3, "count": 10, "icon": "wood.webp"}],
+                "total": 20,
+            },
+        )
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual([event["type"] for event in events], ["craft", "production", "craft"])
+        self.assertEqual(events[0]["title"], "Fabrications terminées")
+        production = events[1]
+        craft = events[2]
+        self.assertEqual(production["title"], "Productions compilées")
+        self.assertIn("Alyross boucle 2 productions en 5 min", production["message"])
+        self.assertIn("12 ressources produites sont prêtes dans 2 bases", production["message"])
+        self.assertEqual(production["details"]["aggregatedEvents"], 2)
+        self.assertEqual(production["details"]["total"], 23)
+        self.assertEqual(production["details"]["bases"], ["Base 1", "Base 2"])
+        self.assertIn("+7 Salade", production["details"]["bullets"])
+        self.assertIn("+5 Lingot", production["details"]["bullets"])
+        self.assertEqual(craft["title"], "Fabrications compilées")
+        self.assertIn("Alyross termine 11 fabrications en 5 min", craft["message"])
+        self.assertEqual(craft["details"]["aggregatedEvents"], 2)
+        self.assertEqual(craft["details"]["total"], 17)
+        self.assertIn("+7 Bois", craft["details"]["bullets"])
+        self.assertIn("+4 Pierre", craft["details"]["bullets"])
 
     def test_old_orphan_leave_is_not_hidden(self):
         self.add_transition("2026-07-13T09:00:00-04:00", "join")
@@ -1010,6 +1226,30 @@ class PublicExportTests(unittest.TestCase):
         self.assertTrue(recent_payload["recent"])
         self.assertEqual(recent_payload["summary"]["totalEvents"], 6)
 
+    def test_recent_public_export_keeps_large_hot_window(self):
+        total = EVENTS.RECENT_EVENT_LIMIT + 25
+        for index in range(total):
+            EVENTS.add_event(
+                self.connection,
+                fingerprint=f"server:hot-window:{index}",
+                occurred_at=f"2026-07-13T{10 + index // 3600:02d}:{(index // 60) % 60:02d}:{index % 60:02d}-04:00",
+                event_type="server",
+                title=f"Écho {index}",
+                message=f"Message {index}",
+                source="journal",
+            )
+
+        output = self.root / "public-events.json"
+        recent = self.root / "public-events-recent.json"
+        EVENTS.write_export(self.connection, output, recent)
+
+        recent_payload = json.loads(recent.read_text(encoding="utf-8"))
+        self.assertTrue(recent_payload["recent"])
+        self.assertEqual(recent_payload["summary"]["events"], EVENTS.RECENT_EVENT_LIMIT)
+        self.assertEqual(recent_payload["summary"]["totalEvents"], total)
+        self.assertEqual(recent_payload["events"][0]["title"], f"Écho {total - 1}")
+        self.assertEqual(recent_payload["events"][-1]["title"], f"Écho {total - EVENTS.RECENT_EVENT_LIMIT}")
+
     def test_normalization_backfill_updates_legacy_itemized_events_and_removes_quest_duplicates(self):
         EVENTS.add_event(
             self.connection,
@@ -1154,6 +1394,48 @@ class PublicExportTests(unittest.TestCase):
             rows[6]["message"],
             "Alyross capture 2 Shroomer Noct. Total enregistré: 4.",
         )
+
+    def test_base_label_backfill_updates_identifiable_server_numbered_bases(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:legacy:build:base6",
+            occurred_at="2026-07-13T10:00:00-04:00",
+            event_type="build",
+            player="Mathieu",
+            guild="Spartans",
+            base="Base 6 · Spartans",
+            title="Base agrandie",
+            message="Mathieu agrandit Base 6 · Spartans. 2 nouvelles structures confirmées.",
+            source="save",
+            details={
+                "headline": "Mathieu agrandit Base 6 · Spartans",
+                "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+            },
+        )
+        bases_payload = {
+            "ok": True,
+            "bases": [
+                {"name": "Base 6 · Spartans", "guild": "Spartans", "players": ["Mathieu"]},
+                {"name": "Base 17 · Spartans", "guild": "Spartans", "players": ["Mathieu"]},
+            ],
+        }
+
+        report = EVENTS.normalize_base_labels(self.connection, bases_payload)
+        second_report = EVENTS.normalize_base_labels(self.connection, bases_payload)
+
+        self.assertEqual(report["updated"], 1)
+        self.assertEqual(second_report["updated"], 0)
+        row = self.connection.execute(
+            "SELECT base, message, details_json FROM events"
+        ).fetchone()
+        self.assertEqual(row["base"], "Base 1")
+        self.assertEqual(
+            row["message"],
+            "Mathieu agrandit Base 1. 2 nouvelles structures confirmées.",
+        )
+        details = json.loads(row["details_json"])
+        self.assertEqual(details["headline"], "Mathieu agrandit Base 1")
+        self.assertEqual(details["rawBaseName"], "Base 6 · Spartans")
 
 
 if __name__ == "__main__":
