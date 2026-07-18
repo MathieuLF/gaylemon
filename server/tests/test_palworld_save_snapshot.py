@@ -77,6 +77,68 @@ class SaveSnapshotContractTests(unittest.TestCase):
         self.assertEqual(snapshot.structure_category("BlastFurnace", {}), "Production")
         self.assertEqual(snapshot.structure_category("Wooden_foundation", {}), "Construction")
 
+    def test_world_drop_objects_are_not_counted_as_base_structures(self):
+        world = {
+            "GroupSaveDataMap": {"value": [{
+                "key": "guild-1",
+                "value": {"RawData": {"value": {
+                    "group_type": "EPalGroupType::Guild",
+                    "guild_name": "Spartans",
+                    "base_camp_level": 12,
+                }}},
+            }]},
+            "CharacterSaveParameterMap": {"value": []},
+            "CharacterContainerSaveData": {"value": []},
+            "MapObjectSaveData": {"value": {"values": [
+                {
+                    "MapObjectId": {"value": "CommonItemDrop3D"},
+                    "Model": {"value": {"RawData": {"value": {
+                        "base_camp_id_belong_to": "base-1",
+                        "instance_id": "drop-1",
+                        "hp": {"current": 1, "max": 1},
+                    }}}},
+                },
+                {
+                    "MapObjectId": {"value": "BuildObject_Wall"},
+                    "Model": {"value": {"RawData": {"value": {
+                        "base_camp_id_belong_to": "base-1",
+                        "instance_id": "wall-1",
+                        "hp": {"current": 100, "max": 100},
+                    }}}},
+                },
+            ]}},
+            "BaseCampSaveData": {"value": [{
+                "key": "base-1",
+                "value": {"RawData": {"value": {
+                    "group_id_belong_to": "guild-1",
+                    "name": "Base 1 · Spartans",
+                    "state": 1,
+                    "area_range": 100,
+                    "transform": {"translation": {"x": 0, "y": 0, "z": 0}},
+                }}},
+            }]},
+        }
+        catalogs = {
+            "structures": {
+                "wall": {"name": "Mur", "type_ui_display": "Construction"},
+            },
+            "items": {},
+        }
+
+        public, _private = snapshot.build_base_snapshots(
+            world,
+            catalogs,
+            "2026-07-13T10:00:00-04:00",
+            "backup",
+            "parser",
+            Counter(),
+        )
+
+        self.assertEqual(public["summary"]["structures"], 1)
+        self.assertEqual(public["bases"][0]["structures"]["total"], 1)
+        self.assertEqual(public["bases"][0]["structures"]["highlights"], [{"name": "Mur", "count": 1}])
+        self.assertNotIn("CommonItemDrop3D", json.dumps(public, ensure_ascii=False))
+
     def test_public_item_totals_aggregate_without_technical_ids(self):
         inventories = [
             {"items": [{"asset": "Wood", "name": "Wood", "count": 20, "icon": None, "category": "Material"}]},
