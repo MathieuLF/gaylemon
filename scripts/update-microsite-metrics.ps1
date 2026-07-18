@@ -6,9 +6,11 @@
     [int]$DiagnosticsRefreshAnchorHour = 1,
     [int]$DiagnosticsRefreshWindowMinutes = 15,
     [int]$EventsIntervalMinutes = 1,
+    [int]$EventsIntervalSeconds = 20,
     [int]$AssetAuditIntervalHours = 6,
     [switch]$FastOnly,
-    [switch]$ForceHeavy
+    [switch]$ForceHeavy,
+    [switch]$SkipEvents
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +76,7 @@ function Test-RefreshDue {
         [Parameter(Mandatory)] [string]$Path,
         [int]$IntervalMinutes = 0,
         [int]$IntervalHours = 0,
+        [int]$IntervalSeconds = 0,
         [switch]$Force
     )
 
@@ -81,7 +84,10 @@ function Test-RefreshDue {
     if ($FastOnly) { return $false }
     if (-not (Test-Path -LiteralPath $Path)) { return $true }
 
-    $interval = if ($IntervalHours -gt 0) {
+    $interval = if ($IntervalSeconds -gt 0) {
+        [TimeSpan]::FromSeconds([Math]::Max(5, $IntervalSeconds))
+    }
+    elseif ($IntervalHours -gt 0) {
         [TimeSpan]::FromHours($IntervalHours)
     }
     else {
@@ -136,10 +142,11 @@ function Invoke-OptionalRefresh {
         [Parameter(Mandatory)] [scriptblock]$ScriptBlock,
         [Parameter(Mandatory)] [string]$DuePath,
         [int]$IntervalMinutes = 0,
-        [int]$IntervalHours = 0
+        [int]$IntervalHours = 0,
+        [int]$IntervalSeconds = 0
     )
 
-    if (-not (Test-RefreshDue -Path $DuePath -IntervalMinutes $IntervalMinutes -IntervalHours $IntervalHours -Force:$ForceHeavy)) {
+    if (-not (Test-RefreshDue -Path $DuePath -IntervalMinutes $IntervalMinutes -IntervalHours $IntervalHours -IntervalSeconds $IntervalSeconds -Force:$ForceHeavy)) {
         Write-Host "$Label ignoré: dernière synchronisation encore fraîche."
         return
     }
@@ -224,6 +231,23 @@ catch {
     Write-UpdateWarning "Public uptime export failed: $($_.Exception.Message)"
 }
 
+if ($EventsIntervalSeconds -le 0) {
+    $EventsIntervalSeconds = [Math]::Max(5, $EventsIntervalMinutes * 60)
+}
+
+if (-not $SkipEvents) {
+try {
+    Invoke-OptionalRefresh `
+        -Label "Historique des échos" `
+        -DuePath (Join-Path $PSScriptRoot "..\portal\data\public-events-recent.json") `
+        -IntervalSeconds $EventsIntervalSeconds `
+        -ScriptBlock { & (Join-Path $PSScriptRoot "sync-palworld-events.ps1") -Fast | Out-Null }
+}
+catch {
+    Write-UpdateWarning "Public event history sync failed: $($_.Exception.Message)"
+}
+}
+
 try {
     Invoke-OptionalRefresh `
         -Label "Historique Uptime Kuma" `
@@ -266,17 +290,6 @@ try {
 }
 catch {
     Write-UpdateWarning "Public save diagnostics sync failed: $($_.Exception.Message)"
-}
-
-try {
-    Invoke-OptionalRefresh `
-        -Label "Historique des échos" `
-        -DuePath (Join-Path $PSScriptRoot "..\portal\data\public-events-recent.json") `
-        -IntervalMinutes $EventsIntervalMinutes `
-        -ScriptBlock { & (Join-Path $PSScriptRoot "sync-palworld-events.ps1") | Out-Null }
-}
-catch {
-    Write-UpdateWarning "Public event history sync failed: $($_.Exception.Message)"
 }
 
 $assetMarker = Join-Path $PSScriptRoot "..\portal\assets\game\.source-commit"

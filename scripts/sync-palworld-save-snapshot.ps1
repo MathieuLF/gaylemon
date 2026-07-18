@@ -82,7 +82,7 @@ function Read-RemoteJson {
         [switch]$Optional
     )
 
-    $raw = & ssh.exe $config.SshAlias "test -s '$RemotePath' && gzip -c '$RemotePath' | base64 -w0" 2>$null
+    $raw = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && gzip -c '$RemotePath' | base64 -w0" 2>$null
     if ($LASTEXITCODE -ne 0) {
         if ($Optional) { return $null }
         throw "Le fichier public distant n'est pas disponible: $RemotePath"
@@ -152,6 +152,48 @@ function Get-OptionalProperty($Value, [string]$Name) {
     if ($null -eq $Value) { return $null }
     if ($Value.PSObject.Properties.Name -notcontains $Name) { return $null }
     return $Value.$Name
+}
+
+function Get-GaylemonPathBytes {
+    param(
+        [Parameter(Mandatory)] [string[]]$RelativePaths,
+        [string[]]$ExcludeRelativeRoots = @()
+    )
+
+    $excludeRoots = @($ExcludeRelativeRoots | ForEach-Object {
+        $candidate = Join-Path $ProjectRoot $_
+        if (Test-Path -LiteralPath $candidate) {
+            (Resolve-Path -LiteralPath $candidate).Path.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        }
+        else {
+            $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($candidate).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        }
+    })
+
+    [long]$total = 0
+    foreach ($relativePath in $RelativePaths) {
+        $candidate = Join-Path $ProjectRoot $relativePath
+        if (-not (Test-Path -LiteralPath $candidate)) { continue }
+        $item = Get-Item -LiteralPath $candidate
+        $files = if ($item.PSIsContainer) {
+            Get-ChildItem -LiteralPath $item.FullName -File -Recurse -Force
+        }
+        else {
+            @($item)
+        }
+        foreach ($file in $files) {
+            $fullName = $file.FullName
+            $excluded = $false
+            foreach ($root in $excludeRoots) {
+                if ($fullName -eq $root -or $fullName.StartsWith($root + [IO.Path]::DirectorySeparatorChar) -or $fullName.StartsWith($root + [IO.Path]::AltDirectorySeparatorChar)) {
+                    $excluded = $true
+                    break
+                }
+            }
+            if (-not $excluded) { $total += [long]$file.Length }
+        }
+    }
+    return $total
 }
 
 function Convert-PublicPosition($Position) {
@@ -645,6 +687,10 @@ $public = [ordered]@{
                 favorites = @($_.pals.favorites | ForEach-Object {
                     [ordered]@{ name = [string]$_.name; count = [int]$_.count; icon = if ($_.icon) { [string]$_.icon } else { $null } }
                 })
+                team = @($_.pals.collection |
+                    Where-Object { [string]$_.container -eq "party" } |
+                    Select-Object -First 5 |
+                    ForEach-Object { Convert-PublicPal $_ })
                 collection = @($_.pals.collection | ForEach-Object { Convert-PublicPal $_ })
             }
             inventory = Convert-PublicInventory $_.inventory
@@ -675,6 +721,9 @@ $publicIndex = [ordered]@{
                 uniqueSpecies = $_.pals.uniqueSpecies
                 highestLevel = $_.pals.highestLevel
                 favorites = $_.pals.favorites
+                team = @($_.pals.collection |
+                    Where-Object { [string]$_.container -eq "party" } |
+                    Select-Object -First 5)
             }
             progress = Convert-PublicProgress $_.progress -SummaryOnly
         }
@@ -741,6 +790,13 @@ if ($sourceDiagnostics) {
     else {
         0
     }
+    $footprintDataBytes = Get-GaylemonPathBytes -RelativePaths @("portal\data", "portal\joueur")
+    $footprintMicrositeBytes = Get-GaylemonPathBytes -RelativePaths @("portal") -ExcludeRelativeRoots @("portal\assets", "portal\data", "portal\joueur")
+    $footprintAssetsBytes = Get-GaylemonPathBytes -RelativePaths @("portal\assets")
+    $footprintScriptsBytes = Get-GaylemonPathBytes -RelativePaths @("scripts")
+    $footprintServerBytes = Get-GaylemonPathBytes -RelativePaths @("server")
+    $footprintDockerBytes = Get-GaylemonPathBytes -RelativePaths @("docker", "compose.yaml", ".env.example", "config")
+    $footprintTotalBytes = $footprintDataBytes + $footprintMicrositeBytes + $footprintAssetsBytes + $footprintScriptsBytes + $footprintServerBytes + $footprintDockerBytes
     $unknownStructures = Get-OptionalProperty $sourceDiagnostics.parse "unknownStructures"
     $publicDiagnostics = [ordered]@{
         version = 1
@@ -802,6 +858,15 @@ if ($sourceDiagnostics) {
             worldMapWidth = 8192
             worldMapHeight = 8192
             treeMapBytes = if (Test-Path $treeMap) { (Get-Item $treeMap).Length } else { $null }
+        }
+        footprint = [ordered]@{
+            totalBytes = $footprintTotalBytes
+            publicDataBytes = $footprintDataBytes
+            micrositeBytes = $footprintMicrositeBytes
+            assetsBytes = $footprintAssetsBytes
+            scriptsBytes = $footprintScriptsBytes
+            serverBytes = $footprintServerBytes
+            dockerBytes = $footprintDockerBytes
         }
     }
     Assert-PublicPayload $publicDiagnostics

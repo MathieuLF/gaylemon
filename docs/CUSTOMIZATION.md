@@ -1,6 +1,6 @@
 # Personnalisation Palworld
 
-Le profil actuel vise un serveur privé PvE, assez calme pour jouer entre amis, avec un peu de résistance.
+Le profil actuel vise un serveur privé PvE, assez calme pour jouer entre amis, mais avec un défi plus présent.
 
 ## État actuel
 
@@ -37,15 +37,17 @@ Le watcher évite le spam et ne renvoie pas deux fois de suite le même message 
 
 ## Difficulté
 
-Quelques valeurs actives:
+Quelques valeurs du profil généré:
 
 | Paramètre | Valeur |
 |---|---:|
+| `NightTimeSpeedRate` | `0.700000` |
 | `ExpRate` | `1.000000` |
-| `PalCaptureRate` | `0.950000` |
-| `CollectionDropRate` | `1.100000` |
+| `PalCaptureRate` | `0.800000` |
+| `CollectionDropRate` | `1.000000` |
 | `DeathPenalty` | `Item` |
-| `PalEggDefaultHatchingTime` | `0.750000` |
+| `PalEggDefaultHatchingTime` | `2.000000` |
+| `MonsterFarmActionSpeedRate` | `0.700000` |
 | `BaseCampWorkerMaxNum` | `18` |
 
 Le profil est généré par:

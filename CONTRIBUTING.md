@@ -7,7 +7,7 @@ Les contributions sont bienvenues si elles gardent le serveur stable et les donn
 - Ouvrir une issue pour un changement de contrat JSON, de déploiement ou d'architecture.
 - Travailler sur une branche courte.
 - Utiliser seulement des données fictives.
-- Ne jamais joindre de sauvegarde réelle, `.env`, clé SSH ou jeton.
+- Ne jamais joindre de sauvegarde réelle, `.env`, clé SSH, jeton ou export public réel non anonymisé.
 
 ## Préparer le dépôt
 
@@ -24,6 +24,7 @@ L'initialisation ne doit pas écraser une config locale.
 - Garder les scripts Ubuntu compatibles Bash.
 - Tester les collecteurs Python quand ils changent.
 - Mettre à jour les exemples JSON avec les contrats publics.
+- Vérifier les routes `/`, `/terminal` et `/github` quand le microsite, les échos ou les métriques changent.
 - Ajouter tout nouveau fichier Ubuntu actif dans `server/deployment-manifest.json`.
 - Ne pas ajouter Uptime Kuma ou cloudflared au Compose.
 - Ne pas introduire de redémarrage implicite, surtout pour `palworld.service`.

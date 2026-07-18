@@ -1,24 +1,24 @@
 <!doctype html>
-<html lang="fr-CA" class="terminal-shell">
+<html lang="fr-CA">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Terminal des échos | Gaylémon Palworld</title>
-    <meta name="description" content="Explore le terminal complet des échos Gaylémon Palworld: constructions, productions, captures, recherches, bases et aventures des joueurs.">
+    <title>Résumé quotidien | Gaylémon Palworld</title>
+    <meta name="description" content="Résumé quotidien des grandes lignes du serveur Gaylémon: captures, productions, fabrications, niveaux, découvertes et faits marquants par joueur.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
-    <meta name="theme-color" content="#071219">
-    <meta name="color-scheme" content="dark light">
-    <link rel="canonical" href="https://gaylemon.mathieu.pro/terminal">
+    <meta name="theme-color" content="#176d70">
+    <meta name="color-scheme" content="light">
+    <link rel="canonical" href="https://gaylemon.mathieu.pro/resume">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="fr_CA">
     <meta property="og:site_name" content="Gaylémon Palworld">
-    <meta property="og:title" content="Terminal des échos | Gaylémon Palworld">
-    <meta property="og:description" content="Le journal complet et filtrable des aventures du serveur Gaylémon Palworld.">
-    <meta property="og:url" content="https://gaylemon.mathieu.pro/terminal">
+    <meta property="og:title" content="Résumé quotidien | Gaylémon Palworld">
+    <meta property="og:description" content="Les grandes lignes quotidiennes du serveur: joueurs actifs, captures, productions, fabrications, niveaux et moments marquants.">
+    <meta property="og:url" content="https://gaylemon.mathieu.pro/resume">
     <meta property="og:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png?v=20260713.2">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Terminal des échos | Gaylémon Palworld">
-    <meta name="twitter:description" content="Le journal complet et filtrable des aventures du serveur Gaylémon Palworld.">
+    <meta name="twitter:title" content="Résumé quotidien | Gaylémon Palworld">
+    <meta name="twitter:description" content="Les grandes lignes quotidiennes du serveur Gaylémon par joueur et par moment marquant.">
     <meta name="twitter:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png?v=20260713.2">
     <link rel="icon" href="/assets/favicon.svg?v=20260712.1" type="image/svg+xml">
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
@@ -47,7 +47,7 @@
       window.addEventListener('load', () => setTimeout(loadGoogleAnalytics, 8000), { once: true });
     </script>
   </head>
-  <body class="terminal-view">
+  <body class="digest-view">
     <div class="world-glow" aria-hidden="true"></div>
     <header class="site-header" aria-label="Navigation principale">
       <div class="site-header__inner">
@@ -57,10 +57,10 @@
         </a>
         <nav class="site-nav" aria-label="Sections du microsite">
           <a href="/" data-section-link="accueil">Accueil</a>
-          <a href="/resume" data-section-link="resume">Résumé</a>
+          <a href="/resume" data-section-link="resume" class="is-active" aria-current="page">Résumé</a>
           <a href="/classements" data-section-link="classements">Classements</a>
           <a href="/carte" data-section-link="carte">Carte</a>
-          <a href="/terminal" data-section-link="terminal" class="is-active" aria-current="page">Terminal</a>
+          <a href="/terminal" data-section-link="terminal">Terminal</a>
           <a class="site-nav__discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="header">Discord <span aria-hidden="true">↗</span></a>
         </nav>
         <div class="site-header__telemetry">
@@ -80,64 +80,89 @@
             <time id="site-last-updated"><span class="site-last-updated__full">En attente</span><span class="site-last-updated__short" aria-hidden="true">--:--</span></time>
           </div>
           <div class="site-header__refresh" aria-label="Actualisation automatique" data-state="countdown">
-            <span id="next-update" role="status" aria-live="polite" aria-atomic="true">Dans 00:30</span>
+            <span id="next-update" role="status" aria-live="polite" aria-atomic="true">Dans 00:20</span>
             <span class="refresh-track" aria-hidden="true"><span id="refresh-progress"></span></span>
           </div>
         </div>
       </div>
     </header>
 
-    <main>
-      <section class="panel events-panel disclosure" id="evenements" aria-labelledby="events-title">
-        <header class="terminal-page-heading panel__header">
+    <main class="daily-page">
+      <section class="panel daily-panel" aria-labelledby="daily-title">
+        <header class="daily-heading">
           <div>
-            <p class="eyebrow">Journal de Palpagos</p>
-            <h1 id="events-title">Terminal des échos</h1>
+            <p class="eyebrow">Résumé quotidien</p>
+            <h1 id="daily-title">La journée en clair</h1>
+            <p class="daily-lede">Grandes lignes de la journée: joueurs actifs, captures, fabrications, productions, bases, niveaux et moments qui sortent du lot.</p>
           </div>
-          <a class="dashboard-return-link terminal-return" href="/" aria-label="Retour au tableau de bord">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 7.4 5.8 12l4.6 4.6 1.4-1.4L9.6 13H18v-2H9.6l2.2-2.2-1.4-1.4Z"/></svg>
-            <span>Tableau de bord</span>
-          </a>
+          <div class="daily-heading__actions">
+            <a class="dashboard-return-link daily-return-link" href="/" aria-label="Retour au tableau de bord">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 7.4 5.8 12l4.6 4.6 1.4-1.4L9.6 13H18v-2H9.6l2.2-2.2-1.4-1.4Z"/></svg>
+              <span>Tableau de bord</span>
+            </a>
+            <div class="daily-controls" aria-label="Choisir la journée">
+              <button class="daily-nav-button" id="daily-previous" type="button" aria-label="Journée précédente">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3 9 12l5.7 5.7-1.4 1.4L6.2 12l7.1-7.1 1.4 1.4Z"/></svg>
+              </button>
+              <label class="daily-date-field">
+                <span>Journée</span>
+                <input id="daily-date" type="date">
+              </label>
+              <button class="daily-nav-button" id="daily-next" type="button" aria-label="Journée suivante">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.3 17.7 5.7-5.7-5.7-5.7 1.4-1.4 7.1 7.1-7.1 7.1-1.4-1.4Z"/></svg>
+              </button>
+            </div>
+          </div>
         </header>
-        <div class="events-disclosure__content disclosure__content">
-          <div class="event-console" aria-label="Historique public des événements Palworld">
-            <div class="event-console__topbar">
-              <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
-              <strong>palpagos://journal/public</strong>
-            </div>
-            <details class="event-controls" id="event-controls">
-              <summary>
-                <span>Recherche et filtres</span>
-                <b aria-hidden="true"></b>
-              </summary>
-              <div class="event-toolbar">
-                <label class="event-search">
-                  <span>Rechercher dans l'historique</span>
-                  <span class="event-search__field">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
-                    <input id="event-search" type="search" placeholder="Joueur, Pal, production..." autocomplete="off">
-                  </span>
-                </label>
-                <label>
-                  <span>Type</span>
-                  <select id="event-type-filter"><option value="all">Tous les événements</option></select>
-                </label>
-                <label>
-                  <span>Aventurier</span>
-                  <select id="event-player-filter"><option value="all">Tous les aventuriers</option></select>
-                </label>
-              </div>
-            </details>
-            <div class="event-console__summary">
-              <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
-              <time id="event-sync-status">Synchronisation en attente</time>
-            </div>
-            <ol class="event-stream" id="event-stream" aria-live="polite">
-              <li class="event-stream__empty">Les premiers échos arrivent...</li>
-            </ol>
-            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique" hidden></nav>
-          </div>
+
+        <div class="daily-source-row">
+          <span id="daily-status" role="status" aria-live="polite">Compilation de la journée...</span>
+          <time id="daily-updated-at">Synchronisation en attente</time>
         </div>
+
+        <div class="daily-metrics" id="daily-metrics" aria-label="Indicateurs de la journée"></div>
+
+        <div class="daily-overview">
+          <section class="daily-summary-block" aria-labelledby="daily-brief-title">
+            <h2 id="daily-brief-title">Journée en bref</h2>
+            <div id="daily-brief"></div>
+          </section>
+          <section class="daily-summary-block daily-summary-block--pulse" aria-labelledby="daily-pulse-title">
+            <h2 id="daily-pulse-title">Rythme</h2>
+            <div class="daily-hourly" id="daily-hourly" aria-label="Répartition horaire des échos"></div>
+          </section>
+        </div>
+
+        <section class="daily-section" aria-labelledby="daily-types-title">
+          <div class="daily-section__heading">
+            <div>
+              <p class="eyebrow">Éléments tangibles</p>
+              <h2 id="daily-types-title">Objets, productions et Pals</h2>
+            </div>
+          </div>
+          <div class="daily-tangibles" id="daily-types"></div>
+        </section>
+
+        <section class="daily-section" aria-labelledby="daily-players-title">
+          <div class="daily-section__heading">
+            <div>
+              <p class="eyebrow">Par aventurier</p>
+              <h2 id="daily-players-title">Résumé des joueurs</h2>
+            </div>
+          </div>
+          <div class="daily-players" id="daily-players"></div>
+        </section>
+
+        <section class="daily-section" aria-labelledby="daily-highlights-title">
+          <div class="daily-section__heading">
+            <div>
+              <p class="eyebrow">Moments marquants</p>
+              <h2 id="daily-highlights-title">Ce qui ressort</h2>
+            </div>
+            <a class="daily-terminal-link" href="/terminal">Voir le terminal complet</a>
+          </div>
+          <ol class="daily-highlights" id="daily-highlights"></ol>
+        </section>
       </section>
     </main>
 
