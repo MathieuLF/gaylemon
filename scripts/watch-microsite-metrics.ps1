@@ -1,5 +1,9 @@
 param(
-    [int]$IntervalSeconds = 60,
+    [int]$IntervalSeconds = 20,
+    [int]$EventSyncIntervalSeconds = 20,
+    [int]$EventSyncTimeoutSeconds = 60,
+    [int]$SaveSnapshotSyncIntervalSeconds = 60,
+    [int]$SaveSnapshotSyncTimeoutSeconds = 180,
     [int]$UpdateTimeoutSeconds = 120
 )
 
@@ -10,6 +14,10 @@ $pidPath = Join-Path $dataDirectory "metrics-watcher.pid"
 $logPath = Join-Path $dataDirectory "metrics-watcher.log"
 $recoveryAuditPending = $true
 $nextRecoveryAuditAt = Get-Date
+$saveSnapshotSyncProcess = $null
+$saveSnapshotSyncOutputPath = $null
+$saveSnapshotSyncErrorPath = $null
+$saveSnapshotSyncStartedAt = $null
 New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
 
 function Write-WatcherLog {
@@ -45,20 +53,21 @@ function Stop-ProcessTree {
 function Write-InterestingChildOutput {
     param(
         [string]$OutputPath,
-        [string]$ErrorPath
+        [string]$ErrorPath,
+        [string]$Label = "Child"
     )
 
     $interesting = "(?i)(warning|avertissement|failed|erreur|error|echou|échou)"
     if ($ErrorPath -and (Test-Path -LiteralPath $ErrorPath)) {
         Get-Content -LiteralPath $ErrorPath -ErrorAction SilentlyContinue |
             Where-Object { $_ -and $_.Trim() } |
-            ForEach-Object { Write-WatcherLog "Metrics update stderr: $_" }
+            ForEach-Object { Write-WatcherLog "${Label} stderr: $_" }
     }
 
     if ($OutputPath -and (Test-Path -LiteralPath $OutputPath)) {
         Get-Content -LiteralPath $OutputPath -ErrorAction SilentlyContinue |
             Where-Object { $_ -and $_.Trim() -match $interesting } |
-            ForEach-Object { Write-WatcherLog "Metrics update output: $_" }
+            ForEach-Object { Write-WatcherLog "${Label} output: $_" }
     }
 }
 
@@ -75,7 +84,8 @@ function Invoke-MetricsUpdate {
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            $updateScript
+            $updateScript,
+            "-SkipEvents"
         ) -WindowStyle Hidden -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -PassThru
 
         if (-not $process.WaitForExit([Math]::Max(5, $UpdateTimeoutSeconds) * 1000)) {
@@ -85,6 +95,38 @@ function Invoke-MetricsUpdate {
 
         if ($process.ExitCode -ne 0) {
             throw "Metrics update failed with exit code $($process.ExitCode)."
+        }
+    }
+    finally {
+        Write-InterestingChildOutput -OutputPath $outputPath -ErrorPath $errorPath
+        Remove-Item -LiteralPath $outputPath, $errorPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-EventHistorySync {
+    $syncScript = Join-Path $PSScriptRoot "sync-palworld-events.ps1"
+    $powerShellHost = Get-PowerShellHost
+    $runId = [Guid]::NewGuid().ToString("N")
+    $outputPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-events-$runId.out.log"
+    $errorPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-events-$runId.err.log"
+
+    try {
+        $process = Start-Process -FilePath $powerShellHost -ArgumentList @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $syncScript,
+            "-Fast"
+        ) -WindowStyle Hidden -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -PassThru
+
+        if (-not $process.WaitForExit([Math]::Max(15, $EventSyncTimeoutSeconds) * 1000)) {
+            Stop-ProcessTree -RootPid $process.Id
+            throw "Event history sync timed out after $EventSyncTimeoutSeconds seconds."
+        }
+
+        if ($process.ExitCode -ne 0) {
+            throw "Event history sync failed with exit code $($process.ExitCode)."
         }
     }
     finally {
@@ -115,6 +157,75 @@ function Invoke-RecoveryAudit {
     }
 }
 
+function Clear-SaveSnapshotSyncProcess {
+    if ($script:saveSnapshotSyncOutputPath -or $script:saveSnapshotSyncErrorPath) {
+        Write-InterestingChildOutput -OutputPath $script:saveSnapshotSyncOutputPath -ErrorPath $script:saveSnapshotSyncErrorPath -Label "Save snapshot sync"
+        Remove-Item -LiteralPath $script:saveSnapshotSyncOutputPath, $script:saveSnapshotSyncErrorPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($script:saveSnapshotSyncProcess) {
+        $script:saveSnapshotSyncProcess.Dispose()
+    }
+    $script:saveSnapshotSyncProcess = $null
+    $script:saveSnapshotSyncOutputPath = $null
+    $script:saveSnapshotSyncErrorPath = $null
+    $script:saveSnapshotSyncStartedAt = $null
+}
+
+function Update-SaveSnapshotSync {
+    param([datetime]$Now = (Get-Date))
+
+    if (-not $script:saveSnapshotSyncProcess) {
+        return
+    }
+
+    if (-not $script:saveSnapshotSyncProcess.HasExited) {
+        $elapsedSeconds = if ($script:saveSnapshotSyncStartedAt) {
+            ($Now - $script:saveSnapshotSyncStartedAt).TotalSeconds
+        }
+        else {
+            0
+        }
+        if ($elapsedSeconds -ge [Math]::Max(60, $SaveSnapshotSyncTimeoutSeconds)) {
+            Stop-ProcessTree -RootPid $script:saveSnapshotSyncProcess.Id
+            Write-WatcherLog "Save snapshot sync timed out after $SaveSnapshotSyncTimeoutSeconds seconds."
+            Clear-SaveSnapshotSyncProcess
+        }
+        return
+    }
+
+    if ($script:saveSnapshotSyncProcess.ExitCode -eq 0) {
+        Write-WatcherLog "Save snapshot sync completed."
+    }
+    else {
+        Write-WatcherLog "Save snapshot sync skipped: exit code $($script:saveSnapshotSyncProcess.ExitCode)."
+    }
+    Clear-SaveSnapshotSyncProcess
+}
+
+function Start-SaveSnapshotSync {
+    $syncScript = Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1"
+    $powerShellHost = Get-PowerShellHost
+    $runId = [Guid]::NewGuid().ToString("N")
+    $script:saveSnapshotSyncOutputPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-save-snapshot-$runId.out.log"
+    $script:saveSnapshotSyncErrorPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-save-snapshot-$runId.err.log"
+    $script:saveSnapshotSyncStartedAt = Get-Date
+
+    try {
+        $script:saveSnapshotSyncProcess = Start-Process -FilePath $powerShellHost -ArgumentList @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $syncScript
+        ) -WindowStyle Hidden -RedirectStandardOutput $script:saveSnapshotSyncOutputPath -RedirectStandardError $script:saveSnapshotSyncErrorPath -PassThru
+        Write-WatcherLog "Save snapshot sync started."
+    }
+    catch {
+        Write-WatcherLog "Save snapshot sync skipped: $($_.Exception.Message)"
+        Clear-SaveSnapshotSyncProcess
+    }
+}
+
 if (Test-Path -LiteralPath $pidPath) {
     $existingPid = (Get-Content -LiteralPath $pidPath -ErrorAction SilentlyContinue | Select-Object -First 1)
     if ($existingPid -as [int]) {
@@ -126,10 +237,33 @@ if (Test-Path -LiteralPath $pidPath) {
 }
 
 Set-Content -LiteralPath $pidPath -Value $PID -Encoding ASCII
-Write-WatcherLog "Metrics watcher started. Interval=${IntervalSeconds}s Timeout=${UpdateTimeoutSeconds}s PID=$PID."
+Write-WatcherLog "Microsite watcher started. MetricsInterval=${IntervalSeconds}s EventSyncInterval=${EventSyncIntervalSeconds}s SaveSnapshotInterval=${SaveSnapshotSyncIntervalSeconds}s MetricsTimeout=${UpdateTimeoutSeconds}s EventSyncTimeout=${EventSyncTimeoutSeconds}s SaveSnapshotTimeout=${SaveSnapshotSyncTimeoutSeconds}s PID=$PID."
 
 try {
+    $nextEventSyncAt = Get-Date
+    $nextSaveSnapshotSyncAt = Get-Date
     while ($true) {
+        $now = Get-Date
+        Update-SaveSnapshotSync -Now $now
+        if (-not $saveSnapshotSyncProcess -and $now -ge $nextSaveSnapshotSyncAt) {
+            Start-SaveSnapshotSync
+            $nextSaveSnapshotSyncAt = (Get-Date).AddSeconds([Math]::Max(15, $SaveSnapshotSyncIntervalSeconds))
+        }
+
+        $eventSyncAttempted = $false
+        if ((Get-Date) -ge $nextEventSyncAt) {
+            $eventSyncAttempted = $true
+            try {
+                Invoke-EventHistorySync
+                Write-WatcherLog "Event history sync completed."
+                $nextEventSyncAt = (Get-Date).AddSeconds([Math]::Max(5, $EventSyncIntervalSeconds))
+            }
+            catch {
+                Write-WatcherLog "Event history sync skipped: $($_.Exception.Message)"
+                $nextEventSyncAt = (Get-Date).AddSeconds([Math]::Max(10, [Math]::Min(60, $EventSyncIntervalSeconds)))
+            }
+        }
+
         try {
             Invoke-MetricsUpdate
             Write-WatcherLog "Metrics update completed."
@@ -147,12 +281,28 @@ try {
         }
         catch {
             Write-WatcherLog "Metrics update skipped: $($_.Exception.Message)"
+            if ($eventSyncAttempted) {
+                Start-Sleep -Seconds ([Math]::Max(5, $IntervalSeconds))
+                continue
+            }
+            try {
+                Invoke-EventHistorySync
+                Write-WatcherLog "Event history sync completed after skipped metrics update."
+                $nextEventSyncAt = (Get-Date).AddSeconds([Math]::Max(5, $EventSyncIntervalSeconds))
+            }
+            catch {
+                Write-WatcherLog "Event history sync skipped after metrics failure: $($_.Exception.Message)"
+            }
         }
 
         Start-Sleep -Seconds ([Math]::Max(5, $IntervalSeconds))
     }
 }
 finally {
+    if ($saveSnapshotSyncProcess -and -not $saveSnapshotSyncProcess.HasExited) {
+        Stop-ProcessTree -RootPid $saveSnapshotSyncProcess.Id
+    }
+    Clear-SaveSnapshotSyncProcess
     Write-WatcherLog "Metrics watcher stopped. PID=$PID."
     Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
 }

@@ -95,7 +95,11 @@ function Get-GaylemonConfig {
     }
     $sshDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($sshDirectory)
     $gamePort = ConvertTo-GaylemonInt "GAYLEMON_GAME_PORT" (Get-GaylemonSetting $fileValues "GAYLEMON_GAME_PORT" "8211") 1 65535
-    $metricInterval = ConvertTo-GaylemonInt "GAYLEMON_METRIC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_INTERVAL_SECONDS" "60") 5 3600
+    $metricInterval = ConvertTo-GaylemonInt "GAYLEMON_METRIC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_INTERVAL_SECONDS" "20") 5 3600
+    $eventSyncInterval = ConvertTo-GaylemonInt "GAYLEMON_EVENT_SYNC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_EVENT_SYNC_INTERVAL_SECONDS" "20") 5 3600
+    $eventSyncTimeout = ConvertTo-GaylemonInt "GAYLEMON_EVENT_SYNC_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_EVENT_SYNC_TIMEOUT_SECONDS" "60") 15 3600
+    $saveSnapshotSyncInterval = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" "60") 15 3600
+    $saveSnapshotSyncTimeout = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_TIMEOUT_SECONDS" "180") 60 3600
     $metricUpdateTimeout = ConvertTo-GaylemonInt "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" "120") 30 3600
     $uptimeKumaMonitorId = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_KUMA_MONITOR_ID" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_MONITOR_ID" "1") 1 ([int]::MaxValue)
     $uptimeHistoryDays = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_HISTORY_DAYS" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_HISTORY_DAYS" "90") 1 3650
@@ -115,6 +119,10 @@ function Get-GaylemonConfig {
         MicrositeOriginUrl = "http://127.0.0.1:$micrositePort/"
         MicrositePublicUrl = Get-GaylemonSetting $fileValues "GAYLEMON_MICROSITE_PUBLIC_URL" "http://127.0.0.1:$micrositePort/"
         MetricIntervalSeconds = $metricInterval
+        EventSyncIntervalSeconds = $eventSyncInterval
+        EventSyncTimeoutSeconds = $eventSyncTimeout
+        SaveSnapshotSyncIntervalSeconds = $saveSnapshotSyncInterval
+        SaveSnapshotSyncTimeoutSeconds = $saveSnapshotSyncTimeout
         DockerMicrositeContainer = Get-GaylemonSetting $fileValues "GAYLEMON_DOCKER_MICROSITE_CONTAINER" "gaylemon-microsite"
         ApiLocalPort = $apiLocalPort
         ApiRemotePort = $apiRemotePort

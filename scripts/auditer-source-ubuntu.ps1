@@ -110,7 +110,11 @@ printf 'META\tsaveToolsHead\t%s\n' "$(git -C "$tools_path" rev-parse HEAD 2>/dev
 printf 'META\tsaveToolsRemote\t%s\n' "$(git -C "$tools_path" remote get-url origin 2>/dev/null || printf 'unknown')"
 '@
 
-$remoteScript = $remoteScript.Replace("__MANIFEST_BASE64__", $manifestBase64).Replace("__PROJECT_ROOT__", $config.RemoteProjectRoot).Replace("__STEAM_ROOT__", $config.RemoteSteamRoot)
+$remoteScript = $remoteScript.
+    Replace("__MANIFEST_BASE64__", $manifestBase64).
+    Replace("__PROJECT_ROOT__", $config.RemoteProjectRoot).
+    Replace("__STEAM_ROOT__", $config.RemoteSteamRoot).
+    Replace("`r`n", "`n")
 $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
 $lines = @(& ssh.exe -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "printf '%s' '$encodedScript' | base64 -d | bash" 2>&1)
 if ($LASTEXITCODE -ne 0) {

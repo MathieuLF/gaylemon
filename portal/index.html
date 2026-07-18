@@ -33,8 +33,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/styles.css?v=20260715.10">
-  <script src="assets/app.js?v=20260715.10" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260718.2">
+  <script src="assets/app.js?v=20260718.4" defer></script>
 
     <script type="application/ld+json">
       {
@@ -76,26 +76,31 @@
     <div class="world-glow" aria-hidden="true"></div>
     <header class="site-header" aria-label="Navigation principale">
       <div class="site-header__inner">
-        <a class="site-brand" href="#accueil" aria-label="Retour à l'accueil Gaylémon Palworld">
+        <a class="site-brand" href="/" aria-label="Retour à l'accueil Gaylémon Palworld">
           <span class="site-brand__emblem" aria-hidden="true">G</span>
           <span><strong>Gaylémon</strong><small>Palworld</small></span>
         </a>
 
         <nav class="site-nav" aria-label="Sections du microsite">
-          <a href="#accueil" data-section-link="accueil" class="is-active" aria-current="page">Accueil</a>
-          <a href="#chroniques" data-section-link="chroniques">Aventuriers</a>
-          <a href="#classements" data-section-link="classements">Classements</a>
-          <a href="#carte" data-section-link="carte">Carte</a>
-          <a href="#evenements" data-section-link="evenements">Échos</a>
+          <a href="/" data-section-link="accueil" class="is-active" aria-current="page">Accueil</a>
+          <a href="/resume" data-section-link="resume">Résumé</a>
+          <a href="/classements" data-section-link="classements">Classements</a>
+          <a href="/carte" data-section-link="carte">Carte</a>
+          <a href="/terminal" data-section-link="terminal">Terminal</a>
           <a class="site-nav__discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="header">Discord <span aria-hidden="true">↗</span></a>
         </nav>
 
         <div class="site-header__telemetry">
-          <div class="site-header__players" id="header-players" aria-label="Joueurs actuellement en ligne">
+          <div class="site-header__players" id="header-players" aria-label="Joueurs actuellement en ligne" tabindex="0" aria-describedby="players-tooltip">
             <i aria-hidden="true"></i>
             <strong data-metric="players-current">--</strong>
             <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
             <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
+            <span class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
+              <span class="site-header__players-tooltip-kicker">Présences en direct</span>
+              <strong>Aucun joueur connecté</strong>
+              <p>Le serveur ne détecte personne en ligne pour le moment.</p>
+            </span>
           </div>
           <div class="site-header__updated">
             <small>Dernières données</small>
@@ -109,13 +114,31 @@
       </div>
     </header>
 
-    <section class="hero" id="accueil" aria-labelledby="site-title">
+    <section class="hero dashboard-hero" id="accueil" aria-labelledby="site-title">
       <div class="hero__copy">
-        <p class="eyebrow">Serveur Palworld privé</p>
+        <p class="eyebrow">Tableau de bord Palworld</p>
         <h1 id="site-title">Gaylémon Palworld</h1>
         <p class="lede">
-          Ici, tu suis l'état du serveur, la progression des aventuriers, leurs statistiques, leurs Pals et leurs découvertes.
+          Les métriques du serveur, les specs publiques et les fiches des joueurs sont réunies ici. Les vues lourdes ont maintenant leurs pages dédiées.
         </p>
+        <div class="dashboard-hero__routes" aria-label="Pages dédiées">
+          <a class="dashboard-hero__route dashboard-hero__route--terminal" href="/terminal" aria-label="Ouvrir le terminal des échos">
+            <span class="dashboard-hero__route-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4V5Zm2 2v10h12V7H6Zm2.1 2.1 3.2 2.9-3.2 2.9-1.2-1.3 1.8-1.6-1.8-1.6 1.2-1.3Zm4.3 4.8h4.1v1.7h-4.1v-1.7Z"/></svg></span>
+            <strong>Terminal</strong><span>Échos complets</span><em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8.5 5.8 14.7 12l-6.2 6.2 1.8 1.8 8-8-8-8-1.8 1.8Z"/></svg></em>
+          </a>
+          <a class="dashboard-hero__route dashboard-hero__route--map" href="/carte" aria-label="Ouvrir la carte de Palpagos">
+            <span class="dashboard-hero__route-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Zm3.6 4.9-1.8 5.4-5.4 1.8 1.8-5.4 5.4-1.8Zm-3.6 2.5a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z"/></svg></span>
+            <strong>Carte</strong><span>Positions et bases</span><em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8.5 5.8 14.7 12l-6.2 6.2 1.8 1.8 8-8-8-8-1.8 1.8Z"/></svg></em>
+          </a>
+          <a class="dashboard-hero__route dashboard-hero__route--rankings" href="/classements" aria-label="Ouvrir les classements des joueurs">
+            <span class="dashboard-hero__route-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 4h10v3h3v2.2a4.8 4.8 0 0 1-4.2 4.7A5.2 5.2 0 0 1 13 16.7V19h3v2H8v-2h3v-2.3a5.2 5.2 0 0 1-2.8-2.8A4.8 4.8 0 0 1 4 9.2V7h3V4Zm0 5H6v.2A2.8 2.8 0 0 0 7.5 12 8.2 8.2 0 0 1 7 9Zm10 0a8.2 8.2 0 0 1-.5 3A2.8 2.8 0 0 0 18 9.2V9h-1Z"/></svg></span>
+            <strong>Classements</strong><span>Palmarès des joueurs</span><em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8.5 5.8 14.7 12l-6.2 6.2 1.8 1.8 8-8-8-8-1.8 1.8Z"/></svg></em>
+          </a>
+          <a class="dashboard-hero__route dashboard-hero__route--daily" href="/resume" aria-label="Ouvrir les résumés quotidiens">
+            <span class="dashboard-hero__route-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h12v18H6V3Zm2 2v14h8V5H8Zm1.5 3h5v1.6h-5V8Zm0 3.1h5v1.6h-5v-1.6Zm0 3.1H13v1.6H9.5v-1.6Z"/></svg></span>
+            <strong>Résumés</strong><span>Journées compilées</span><em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8.5 5.8 14.7 12l-6.2 6.2 1.8 1.8 8-8-8-8-1.8 1.8Z"/></svg></em>
+          </a>
+        </div>
       </div>
     </section>
 
@@ -216,6 +239,7 @@
             <article data-world-data-card="events"><span>Chroniques</span><strong data-world-data="events">--</strong><small data-world-data-note="events">Échos</small></article>
             <article data-world-data-card="last-event"><span>Dernier écho</span><strong data-world-data="last-event">--</strong><small data-world-data-note="last-event">Journal public</small></article>
             <article data-world-data-card="contracts"><span>Contrats publics</span><strong data-world-data="contracts">--</strong><small data-world-data-note="contracts">Versions chargées</small></article>
+            <article data-world-data-card="footprint"><span>Poids publié</span><strong data-world-data="footprint">--</strong><small data-world-data-note="footprint">Données, microsite, assets, scripts et serveur</small></article>
             <article><span>Carte visuelle</span><strong data-world-data="map">--</strong><small>Image interactive de Palpagos</small></article>
             <article><span>Analyseur</span><strong data-world-data="parser">--</strong><small data-world-data-note="parser">PalworldSaveTools</small></article>
           </div>
@@ -242,171 +266,47 @@
           <span><strong data-save-summary="technologies">--</strong> technologies apprises</span>
         </div>
 
-        <details class="section-disclosure disclosure disclosure--chronicles" open data-disclosure-key="chronicles-content-v3" data-closed-label="Explorer les aventuriers" data-open-label="Masquer les aventuriers">
-          <summary class="section-disclosure__summary disclosure__summary">
-            <span><strong>Fiches des aventuriers</strong><small>Découvre leurs Pals, leurs collections et leur progression.</small></span>
-            <span class="disclosure__toggle"><span class="disclosure__label">Explorer les aventuriers</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 9.7 5.3 5.2 5.3-5.2 1.4 1.4-6.7 6.6-6.7-6.6 1.4-1.4Z"/></svg></span>
-          </summary>
-
-          <div class="disclosure__content chronicles-content">
-            <div class="adventurer-grid" id="save-players">
-              <p class="save-empty">Les chroniques apparaîtront après la prochaine sauvegarde du monde.</p>
-            </div>
+        <div class="player-showcase-intro">
+          <div>
+            <p class="eyebrow">Fiches publiques</p>
+            <h3>Les joueurs au premier plan</h3>
           </div>
-        </details>
+          <p>Chaque fiche ouvre les Pals, le Paldex, l'inventaire, les bases et l'export JSON d'analyse personnelle.</p>
+        </div>
+
+        <div class="adventurer-grid adventurer-grid--home" id="save-players">
+          <p class="save-empty">Les chroniques apparaîtront après la prochaine sauvegarde du monde.</p>
+        </div>
       </section>
 
-      <details class="panel leaderboard-panel disclosure" id="classements" aria-labelledby="leaderboard-title" data-disclosure-key="leaderboards-v1" data-closed-label="Afficher les classements" data-open-label="Masquer les classements">
-        <summary class="panel__header leaderboard-panel__heading disclosure__summary">
-          <div>
-            <p class="eyebrow">Palmarès de Palpagos</p>
-            <h2 id="leaderboard-title">Classements</h2>
-          </div>
-          <span class="disclosure__toggle"><span class="disclosure__label">Afficher les classements</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 9.7 5.3 5.2 5.3-5.2 1.4 1.4-6.7 6.6-6.7-6.6 1.4-1.4Z"/></svg></span>
-        </summary>
-
-        <div class="leaderboard-content disclosure__content">
-          <div class="leaderboard-toolbar">
-            <label class="leaderboard-search">
-              <span>Rechercher un aventurier</span>
-              <span class="leaderboard-search__field">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
-                <input id="leaderboard-search" type="search" placeholder="Nom ou guilde..." autocomplete="off">
-              </span>
-            </label>
-            <label>
-              <span>Catégorie</span>
-              <select id="leaderboard-category">
-                <option value="progression">Progression</option>
-                <option value="collection">Collections</option>
-                <option value="combat">Combat</option>
-                <option value="exploration">Exploration</option>
-                <option value="activity">Activité</option>
-              </select>
-            </label>
-            <label>
-              <span>Présence</span>
-              <select id="leaderboard-presence">
-                <option value="all">Tous les joueurs</option>
-                <option value="online">En ligne maintenant</option>
-                <option value="offline">Hors ligne</option>
-              </select>
-            </label>
-            <span class="leaderboard-result-count" id="leaderboard-result-count" aria-live="polite">Préparation du classement...</span>
-          </div>
-
-          <div class="leaderboard-podium" id="leaderboard-podium" aria-label="Podium du classement"></div>
-
-          <div class="leaderboard-table-wrap">
-            <table class="leaderboard-table">
-              <caption class="visually-hidden">Classement comparatif des aventuriers</caption>
-              <thead id="leaderboard-head"></thead>
-              <tbody id="leaderboard-body">
-                <tr><td colspan="7">Les résultats apparaîtront avec les prochaines données.</td></tr>
-              </tbody>
-            </table>
-          </div>
+      <section class="dashboard-pages" aria-labelledby="dashboard-pages-title">
+        <div class="dashboard-pages__heading">
+          <p class="eyebrow">Pages spécialisées</p>
+          <h2 id="dashboard-pages-title">Explorer Palpagos autrement</h2>
         </div>
-      </details>
-
-      <details class="panel map-panel archipelago-overview disclosure" id="carte" aria-labelledby="archipelago-map-title" data-disclosure-key="world-map-v1" data-closed-label="Afficher la carte" data-open-label="Masquer la carte">
-        <summary class="panel__header archipelago-overview__heading disclosure__summary">
-          <div>
-            <p class="eyebrow">Carte de Palpagos</p>
-            <h2 id="archipelago-map-title">Les aventuriers sur Palpagos</h2>
-          </div>
-          <span class="disclosure__toggle"><span class="disclosure__label">Afficher la carte</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 9.7 5.3 5.2 5.3-5.2 1.4 1.4-6.7 6.6-6.7-6.6 1.4-1.4Z"/></svg></span>
-        </summary>
-        <div class="map-disclosure__content disclosure__content">
-          <div class="archipelago-map-layout">
-          <figure class="archipelago-map">
-            <div class="archipelago-map__toolbar" aria-label="Contrôles de la carte">
-              <button type="button" data-map-action="zoom-out" aria-label="Dézoomer la carte" title="Dézoomer">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 11h14v2H5z"/></svg>
-              </button>
-              <output id="global-map-zoom" aria-live="polite">100 %</output>
-              <button type="button" data-map-action="zoom-in" aria-label="Zoomer la carte" title="Zoomer">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
-              </button>
-              <button type="button" data-map-action="reset" aria-label="Recentrer la carte" title="Recentrer la carte">
-                <svg class="map-center-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg>
-              </button>
-              <button class="map-base-toggle" id="map-base-toggle" type="button" aria-pressed="false" title="Afficher les bases sur la carte">
-                <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10.4 12 4l8 6.4v9.1h-5.4v-5.7H9.4v5.7H4z"/></svg></span><b>Afficher les bases</b><small id="map-base-count">0</small>
-              </button>
-            </div>
-            <div class="archipelago-map__viewport" id="global-map-viewport" tabindex="0" aria-label="Carte interactive de Palpagos. Utilise la molette, les boutons ou les touches plus et moins pour zoomer, puis glisse pour te déplacer.">
-              <div class="archipelago-map__scene" id="global-map-scene">
-                <img data-src="assets/game/maps/T_WorldMap.webp" alt="Carte de Palpagos avec les positions connues des joueurs" draggable="false" decoding="async">
-                <div class="archipelago-map__markers" id="global-player-markers"></div>
-              </div>
-            </div>
-            <figcaption id="global-map-caption">Chargement des positions...</figcaption>
-          </figure>
-          <div class="archipelago-legend" id="global-player-legend" aria-label="Joueurs présents sur la carte"></div>
-          </div>
-        </div>
-      </details>
-
-      <details class="panel events-panel disclosure" id="evenements" aria-labelledby="events-title" data-disclosure-key="public-events-v1" data-closed-label="Afficher les échos" data-open-label="Masquer les échos">
-        <summary class="panel__header events-panel__heading disclosure__summary">
-          <div>
-            <p class="eyebrow">Journal de Palpagos</p>
-            <h2 id="events-title">Les échos de l'aventure</h2>
-          </div>
-          <a class="terminal-open-button" href="/terminal" target="_blank" rel="noopener" aria-label="Ouvrir la version plein écran du terminal dans un nouvel onglet">
-            <span class="terminal-open-button__icon" aria-hidden="true">▸</span>
-            <span class="terminal-open-button__copy">
-              <strong>Terminal plein écran</strong>
-              <small>Version complète des échos</small>
-            </span>
+        <div class="dashboard-page-grid">
+          <a class="dashboard-page-card dashboard-page-card--terminal" href="/terminal">
+            <span>Terminal</span>
+            <strong>Les échos en plein écran</strong>
+            <small>Recherche, filtres et journal complet.</small>
           </a>
-          <span class="events-panel__summary-meta">
-            <span class="panel__status"><span id="events-state">Chargement...</span></span>
-            <span class="disclosure__toggle"><span class="disclosure__label">Afficher les échos</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 9.7 5.3 5.2 5.3-5.2 1.4 1.4-6.7 6.6-6.7-6.6 1.4-1.4Z"/></svg></span>
-          </span>
-        </summary>
-
-        <div class="events-disclosure__content disclosure__content">
-          <div class="event-console" aria-label="Historique public des événements Palworld">
-          <div class="event-console__topbar">
-            <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
-            <strong>palpagos://journal/public</strong>
-          </div>
-
-          <div class="event-toolbar">
-            <label class="event-search">
-              <span>Rechercher dans l'historique</span>
-              <span class="event-search__field">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
-                <input id="event-search" type="search" placeholder="Joueur, Pal, production..." autocomplete="off">
-              </span>
-            </label>
-            <label>
-              <span>Type</span>
-              <select id="event-type-filter">
-                <option value="all">Tous les événements</option>
-              </select>
-            </label>
-            <label>
-              <span>Aventurier</span>
-              <select id="event-player-filter">
-                <option value="all">Tous les aventuriers</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="event-console__summary">
-            <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
-            <time id="event-sync-status">Synchronisation en attente</time>
-          </div>
-          <ol class="event-stream" id="event-stream" aria-live="polite">
-            <li class="event-stream__empty">Les premiers échos arrivent...</li>
-          </ol>
-            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique" hidden></nav>
-          </div>
+          <a class="dashboard-page-card dashboard-page-card--map" href="/carte">
+            <span>Carte</span>
+            <strong>Palpagos en vue dédiée</strong>
+            <small>Positions connues, bases et légende.</small>
+          </a>
+          <a class="dashboard-page-card dashboard-page-card--rankings" href="/classements">
+            <span>Classements</span>
+            <strong>Comparer les progressions</strong>
+            <small>Niveaux, collections, combat et activité.</small>
+          </a>
+          <a class="dashboard-page-card dashboard-page-card--daily" href="/resume">
+            <span>Résumés quotidiens</span>
+            <strong>Lire la journée compilée</strong>
+            <small>Faits marquants par joueur et par date.</small>
+          </a>
         </div>
-      </details>
+      </section>
     </main>
 
     <dialog class="expedition-dialog" id="expedition-dialog" aria-labelledby="expedition-player-name">
@@ -425,6 +325,7 @@
             </div>
           </div>
           <div class="dialog-actions">
+            <button class="dialog-export" id="expedition-export" type="button" aria-live="polite" data-player-export data-export-label="Exporter JSON">Exporter JSON</button>
             <button class="dialog-share" id="expedition-share" type="button" aria-live="polite">Partager la fiche</button>
             <button class="dialog-close" id="expedition-close" type="button" aria-label="Fermer la fiche" data-tooltip="Fermer la fiche" data-tooltip-placement="left">×</button>
           </div>

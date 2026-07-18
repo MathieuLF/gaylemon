@@ -20,9 +20,13 @@ Il contient:
 
 Le microsite fusionne les ressources par type. Il affiche la base, jamais le coffre exact.
 
+Les noms techniques ou trop génériques produits par la sauvegarde peuvent être gardés dans le snapshot des bases quand ils décrivent la base globale. Dans les échos, le collecteur préfère un libellé relatif au joueur quand il peut le relier avec certitude: `Base 1`, `Base 2`, `Base 3`, selon les bases de ce joueur plutôt que selon le total mondial des bases.
+
 ## Historique horaire
 
 `runtime/save-bases-history/` conserve une archive horaire du snapshot public des bases. Cet historique permet au journal des échos de rejouer les hausses de structures endommagées et de publier les raids sans recréer les événements déjà connus.
+
+Le backfill `baseLabelBackfill` peut aussi normaliser les anciens événements de bases quand le snapshot courant permet d'établir la correspondance entre la base globale et le joueur concerné.
 
 ## Ce qui reste privé
 
@@ -38,6 +42,8 @@ Chaque fiche joueur charge les stocks à la demande. L'interface permet:
 - filtre par catégorie;
 - vues toutes sources, coffres, production et stockage de guilde;
 - pagination des ressources.
+
+Le bouton `Exporter JSON` d'une fiche joueur reprend ces données publiques pour produire un fichier d'analyse contenant bases, constructions, travailleurs, stockage agrégé et stockage de guilde relié au joueur. Le fichier exporté ne contient pas le détail exact des coffres privés.
 
 ## Coût observé
 

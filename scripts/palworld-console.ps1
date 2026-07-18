@@ -586,6 +586,13 @@ function Restart-Palworld {
         return
     }
 
+    Write-StatusLine Info "Application du profil serveur avant le redémarrage."
+    Invoke-Remote -Command "sudo -n '$($config.RemoteSteamRoot)/bin/palworld-configure-balanced.sh'"
+    if ($script:LastActionExitCode -ne 0) {
+        Write-StatusLine Error "Configuration serveur refusée ou échouée; redémarrage annulé."
+        return
+    }
+
     Invoke-RemoteSystemctl -Verb "restart" -Unit "palworld.service"
     Write-StatusLine Ok "Redémarrage demandé. État actuel:"
     Invoke-Remote -Command "systemctl status palworld.service --no-pager -l"
@@ -783,7 +790,7 @@ function Show-MainMenu {
         Write-MenuItem "8" (Get-Icon "Backup") "Lancer un backup" "confirmation requise" "Green"
         Write-MenuItem "9" (Get-Icon "Backup") "Lister les backups" "archives disponibles" "DarkGreen"
         Write-MenuItem "10" (Get-Icon "Update") "Lancer une update" "annonce, backup, confirmation UPDATE" "Blue"
-        Write-MenuItem "11" (Get-Icon "Restart") "Redémarrer Palworld" "confirmation RESTART" "Red"
+        Write-MenuItem "11" (Get-Icon "Restart") "Appliquer la config et redémarrer Palworld" "confirmation RESTART" "Red"
         Write-MenuItem "12" (Get-Icon "Restart") "Redémarrer le watcher de bienvenue" "" "Yellow"
         Write-MenuItem "13" (Get-Icon "Web") "Forcer un push Uptime Kuma" "" "Magenta"
 

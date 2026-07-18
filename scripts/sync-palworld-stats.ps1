@@ -26,7 +26,7 @@ else {
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 
 $remotePath = "$($config.RemotePalworldRoot)/stats/stats.json"
-$raw = & ssh.exe $config.SshAlias "test -s '$remotePath' && base64 -w0 '$remotePath'" 2>$null
+$raw = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$remotePath' && base64 -w0 '$remotePath'" 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "Remote stats file is not available yet: $remotePath"
 }

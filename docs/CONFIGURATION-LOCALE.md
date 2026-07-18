@@ -28,6 +28,10 @@ Le modèle complet est [.env.example](../.env.example).
 | `GAYLEMON_REMOTE_STEAM_ROOT` | dossier Steam/Palworld |
 | `GAYLEMON_MICROSITE_PORT` | port local du microsite Docker |
 | `GAYLEMON_MICROSITE_PUBLIC_URL` | URL publique ouverte par la console |
+| `GAYLEMON_METRIC_INTERVAL_SECONDS` | cadence locale des métriques rapides du microsite |
+| `GAYLEMON_EVENT_SYNC_INTERVAL_SECONDS` | cadence locale de synchronisation rapide des échos |
+| `GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS` | cadence locale de synchronisation des fiches joueurs, Pals, bases et constructions |
+| `GAYLEMON_*_TIMEOUT_SECONDS` | délais maximums des synchronisations locales avant abandon du cycle en cours |
 | `GAYLEMON_API_TUNNEL_MODE` | mode du tunnel REST: `docker` ou `windows-ssh` |
 | `GAYLEMON_API_LOCAL_PORT` | port local du tunnel REST |
 | `GAYLEMON_API_REMOTE_PORT` | port REST Palworld sur Ubuntu |

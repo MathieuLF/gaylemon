@@ -2,6 +2,10 @@ param(
     [int]$MicrositePort = 0,
     [int]$ApiLocalPort = 0,
     [int]$MetricIntervalSeconds = 0,
+    [int]$EventSyncIntervalSeconds = 0,
+    [int]$EventSyncTimeoutSeconds = 0,
+    [int]$SaveSnapshotSyncIntervalSeconds = 0,
+    [int]$SaveSnapshotSyncTimeoutSeconds = 0,
     [int]$UpdateTimeoutSeconds = 0
 )
 
@@ -13,6 +17,10 @@ $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if ($MicrositePort -le 0) { $MicrositePort = $config.MicrositePort }
 if ($ApiLocalPort -le 0) { $ApiLocalPort = $config.ApiLocalPort }
 if ($MetricIntervalSeconds -le 0) { $MetricIntervalSeconds = $config.MetricIntervalSeconds }
+if ($EventSyncIntervalSeconds -le 0) { $EventSyncIntervalSeconds = $config.EventSyncIntervalSeconds }
+if ($EventSyncTimeoutSeconds -le 0) { $EventSyncTimeoutSeconds = $config.EventSyncTimeoutSeconds }
+if ($SaveSnapshotSyncIntervalSeconds -le 0) { $SaveSnapshotSyncIntervalSeconds = $config.SaveSnapshotSyncIntervalSeconds }
+if ($SaveSnapshotSyncTimeoutSeconds -le 0) { $SaveSnapshotSyncTimeoutSeconds = $config.SaveSnapshotSyncTimeoutSeconds }
 if ($UpdateTimeoutSeconds -le 0) { $UpdateTimeoutSeconds = $config.MetricUpdateTimeoutSeconds }
 $LogDirectory = Join-Path $ProjectRoot "portal\data"
 $LogPath = Join-Path $LogDirectory "local-services.log"
@@ -39,7 +47,15 @@ catch {
 }
 
 try {
-    & (Join-Path $PSScriptRoot "open-microsite.ps1") -Port $MicrositePort -MetricIntervalSeconds $MetricIntervalSeconds -UpdateTimeoutSeconds $UpdateTimeoutSeconds -NoOpen | ForEach-Object {
+    & (Join-Path $PSScriptRoot "open-microsite.ps1") `
+        -Port $MicrositePort `
+        -MetricIntervalSeconds $MetricIntervalSeconds `
+        -EventSyncIntervalSeconds $EventSyncIntervalSeconds `
+        -EventSyncTimeoutSeconds $EventSyncTimeoutSeconds `
+        -SaveSnapshotSyncIntervalSeconds $SaveSnapshotSyncIntervalSeconds `
+        -SaveSnapshotSyncTimeoutSeconds $SaveSnapshotSyncTimeoutSeconds `
+        -UpdateTimeoutSeconds $UpdateTimeoutSeconds `
+        -NoOpen | ForEach-Object {
         Write-LocalLog $_
     }
 }
