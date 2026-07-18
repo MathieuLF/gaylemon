@@ -539,6 +539,31 @@ class EventDetailsTests(unittest.TestCase):
             self.connection.execute("SELECT COUNT(*) FROM events WHERE type = 'raid'").fetchone()[0],
             0,
         )
+        row = self.connection.execute(
+            "SELECT type, title, message, details_json FROM events"
+        ).fetchone()
+        self.assertEqual(row["type"], "base")
+        self.assertEqual(row["title"], "Base endommagée")
+        self.assertIn("3 structures endommagées en plus", row["message"])
+        details = json.loads(row["details_json"])
+        self.assertEqual(details["damagedTotal"], 4)
+        self.assertIn("+3 structures endommagées", details["bullets"])
+
+    def test_base_state_ignores_world_drop_structure_highlights(self):
+        state = EVENTS.base_state({
+            "name": "Base 1",
+            "guild": "Spartans",
+            "structures": {
+                "total": 5,
+                "highlights": [
+                    {"name": "Mur", "count": 2},
+                    {"name": "CommonDropItem3D", "count": 3},
+                ],
+            },
+        })
+
+        self.assertEqual(state["structuresTotal"], 2)
+        self.assertEqual(state["structureHighlights"], {"mur": {"name": "Mur", "count": 2}})
 
     def test_inactive_player_snapshot_changes_are_not_published(self):
         EVENTS.compare_snapshots(
@@ -1032,6 +1057,113 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertIn("+7 Bois", craft["details"]["bullets"])
         self.assertIn("+4 Pierre", craft["details"]["bullets"])
 
+    def test_public_export_groups_base_activity_into_five_minute_windows(self):
+        samples = [
+            (
+                "save:build:1",
+                "2026-07-13T10:01:00-04:00",
+                "build",
+                "Base agrandie",
+                "Alyross agrandit Base 1. 2 nouvelles structures confirmées.",
+                {
+                    "bullets": ["+2 Mur"],
+                    "structures": [{"name": "Mur", "asset": "wall", "added": 2, "count": 12}],
+                    "total": 12,
+                },
+            ),
+            (
+                "save:repair:1",
+                "2026-07-13T10:02:00-04:00",
+                "repair",
+                "Réparations confirmées",
+                "Alyross remet Base 1 en état: 1 structure réparée.",
+                {"bullets": ["-1 structure endommagée"]},
+            ),
+            (
+                "save:base-damage:1",
+                "2026-07-13T10:02:30-04:00",
+                "base",
+                "Base endommagée",
+                "Alyross constate des dégâts à Base 1: 2 structures endommagées en plus.",
+                {"bullets": ["+2 structures endommagées"], "damagedTotal": 2},
+            ),
+            (
+                "save:research:1",
+                "2026-07-13T10:03:00-04:00",
+                "research",
+                "Recherche terminée",
+                "Alyross fait progresser la recherche de guilde: 1 recherche confirmée.",
+                {"bullets": ["+1 recherche"]},
+            ),
+            (
+                "save:repair:2",
+                "2026-07-13T10:03:20-04:00",
+                "repair",
+                "Réparations confirmées",
+                "Alyross remet Base 1 en état: 2 structures réparées.",
+                {"bullets": ["-2 structures endommagées"]},
+            ),
+            (
+                "save:build:2",
+                "2026-07-13T10:03:40-04:00",
+                "build",
+                "Base agrandie",
+                "Alyross agrandit Base 1. 3 nouvelles structures confirmées.",
+                {
+                    "bullets": ["+3 Fondation"],
+                    "structures": [{"name": "Fondation", "asset": "foundation", "added": 3, "count": 3}],
+                    "total": 15,
+                },
+            ),
+            (
+                "save:base-damage:2",
+                "2026-07-13T10:04:00-04:00",
+                "base",
+                "Base endommagée",
+                "Alyross constate des dégâts à Base 1: 1 structure endommagée en plus.",
+                {"bullets": ["+1 structure endommagée"], "damagedTotal": 3},
+            ),
+            (
+                "save:research:2",
+                "2026-07-13T10:04:30-04:00",
+                "research",
+                "Recherche terminée",
+                "Alyross fait progresser la recherche de guilde: 2 recherches confirmées.",
+                {"bullets": ["+2 recherches"]},
+            ),
+        ]
+        for fingerprint, occurred_at, event_type, title, message, details in samples:
+            EVENTS.add_event(
+                self.connection,
+                fingerprint=fingerprint,
+                occurred_at=occurred_at,
+                event_type=event_type,
+                player="Alyross",
+                guild="PalaPaly",
+                base="Base 1",
+                title=title,
+                message=message,
+                source="save",
+                details=details,
+            )
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        by_type = {event["type"]: event for event in events}
+        self.assertEqual(set(by_type), {"build", "repair", "base", "research"})
+        self.assertEqual(by_type["build"]["title"], "Constructions compilées")
+        self.assertIn("Alyross confirme 5 nouvelles structures confirmées en 5 min à Base 1", by_type["build"]["message"])
+        self.assertEqual(by_type["build"]["details"]["aggregatedEvents"], 2)
+        self.assertEqual(by_type["build"]["details"]["total"], 15)
+        self.assertIn("+3 Fondation", by_type["build"]["details"]["bullets"])
+        self.assertEqual(by_type["repair"]["title"], "Réparations compilées")
+        self.assertIn("Alyross répare 3 structures en 5 min à Base 1", by_type["repair"]["message"])
+        self.assertEqual(by_type["base"]["title"], "Dégâts de base compilés")
+        self.assertIn("Alyross compte 3 structures endommagées en plus en 5 min à Base 1", by_type["base"]["message"])
+        self.assertEqual(by_type["research"]["title"], "Recherches compilées")
+        self.assertIn("Alyross confirme 3 recherches en 5 min à Base 1", by_type["research"]["message"])
+
     def test_old_orphan_leave_is_not_hidden(self):
         self.add_transition("2026-07-13T09:00:00-04:00", "join")
         self.add_transition("2026-07-13T09:30:00-04:00", "leave")
@@ -1394,6 +1526,61 @@ class PublicExportTests(unittest.TestCase):
             rows[6]["message"],
             "Alyross capture 2 Shroomer Noct. Total enregistré: 4.",
         )
+
+    def test_world_drop_build_noise_is_removed_from_history(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:legacy:build:drop-only",
+            occurred_at="2026-07-13T10:00:00-04:00",
+            event_type="build",
+            player="Mathieu",
+            guild="Spartans",
+            base="Base 1",
+            title="Base agrandie",
+            message="Mathieu agrandit Base 1. 3 nouvelles structures confirmées.",
+            source="save",
+            details={
+                "headline": "Mathieu agrandit Base 1",
+                "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+                "bullets": ["+3 CommonItemDrop3D"],
+                "structures": [{"name": "CommonItemDrop3D", "asset": "CommonItemDrop3D", "added": 3, "count": 3}],
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:legacy:build:mixed",
+            occurred_at="2026-07-13T10:01:00-04:00",
+            event_type="build",
+            player="Mathieu",
+            guild="Spartans",
+            base="Base 1",
+            title="Base agrandie",
+            message="Mathieu agrandit Base 1. 4 nouvelles structures confirmées.",
+            source="save",
+            details={
+                "headline": "Mathieu agrandit Base 1",
+                "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+                "bullets": ["+2 Mur", "+2 CommonDropItem3D"],
+                "structures": [
+                    {"name": "Mur", "asset": "Wall", "added": 2, "count": 12},
+                    {"name": "CommonDropItem3D", "asset": "CommonDropItem3D", "added": 2, "count": 2},
+                ],
+            },
+        )
+
+        report = EVENTS.normalize_event_history(self.connection)
+
+        self.assertEqual(report["worldDropBuildUpdated"], 1)
+        self.assertEqual(report["worldDropBuildRemoved"], 1)
+        rows = self.connection.execute(
+            "SELECT message, details_json FROM events WHERE type = 'build'"
+        ).fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["message"], "Mathieu agrandit Base 1. 2 nouvelles structures confirmées.")
+        self.assertNotIn("CommonDropItem3D", rows[0]["details_json"])
+        self.assertNotIn("CommonItemDrop3D", rows[0]["details_json"])
+        details = json.loads(rows[0]["details_json"])
+        self.assertEqual(details["bullets"], ["+2 Mur"])
 
     def test_base_label_backfill_updates_identifiable_server_numbered_bases(self):
         EVENTS.add_event(

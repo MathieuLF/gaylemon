@@ -662,13 +662,42 @@ def public_event(row: sqlite3.Row) -> dict:
     }
 
 
-def itemized_public_event_items(event: dict) -> list[dict]:
-    items = event.get("details", {}).get("items")
-    if isinstance(items, dict):
-        return [items]
-    if isinstance(items, list):
-        return [item for item in items if isinstance(item, dict)]
+ITEMIZED_PUBLIC_GROUP_TYPES = {"craft", "production", "build", "repair", "base", "research"}
+WORLD_DROP_STRUCTURE_NAMES = {"commondropitem3d", "commonitemdrop3d"}
+
+
+def is_world_drop_structure_name(value: str | None) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    tail = re.split(r"[/\\]", text)[-1]
+    normalized = re.sub(r"[\s_-]+", "", tail).casefold()
+    return normalized in WORLD_DROP_STRUCTURE_NAMES or any(
+        marker in normalized for marker in WORLD_DROP_STRUCTURE_NAMES
+    )
+
+
+def public_detail_rows(details: dict, key: str) -> list[dict]:
+    rows = details.get(key)
+    if isinstance(rows, dict):
+        return [rows]
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
     return []
+
+
+def itemized_public_event_items(event: dict) -> list[dict]:
+    details = event.get("details") or {}
+    rows = public_detail_rows(details, "items")
+    if event.get("type") == "build":
+        rows = [*rows, *public_detail_rows(details, "structures")]
+    return [
+        row for row in rows
+        if not (
+            is_world_drop_structure_name(row.get("name"))
+            or is_world_drop_structure_name(row.get("asset"))
+        )
+    ]
 
 
 def itemized_public_event_added(event: dict) -> int:
@@ -688,7 +717,9 @@ def itemized_public_group_owner(event: dict) -> str:
 
 
 def itemized_public_group_key(event: dict) -> tuple[str, str, str] | None:
-    if event.get("type") not in {"craft", "production"} or event.get("source") != "save":
+    if event.get("type") not in ITEMIZED_PUBLIC_GROUP_TYPES or event.get("source") != "save":
+        return None
+    if int((event.get("details") or {}).get("aggregatedEvents") or 0) > 0:
         return None
     if itemized_public_event_added(event) <= 0:
         return None
@@ -743,6 +774,18 @@ def aggregate_itemized_public_items(events: list[dict]) -> list[dict]:
     )
 
 
+def aggregate_itemized_public_bullets(events: list[dict]) -> list[str]:
+    bullets = []
+    for event in events:
+        details = event.get("details") or {}
+        for bullet in details.get("bullets") or []:
+            text = str(bullet or "").strip()
+            if not text or is_world_drop_structure_name(text):
+                continue
+            bullets.append(text)
+    return bullets[:8]
+
+
 def latest_public_event(events: list[dict]) -> dict:
     return max(
         events,
@@ -772,17 +815,39 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
     fingerprint = f"public-group:{event_type}:{owner.casefold()}:{bucket.isoformat() if bucket else latest.get('occurredAt')}"
 
     details = {
-        "bullets": quantity_bullets(items),
-        "items": items,
+        "bullets": quantity_bullets(items) or aggregate_itemized_public_bullets(events),
         "aggregatedEvents": batches,
         "windowMinutes": ITEMIZED_EVENT_GROUP_WINDOW_SECONDS // 60,
     }
+    if items:
+        if event_type == "build":
+            details["structures"] = items
+        else:
+            details["items"] = items
     if bucket:
         details["windowStart"] = bucket.isoformat()
     if window_end:
         details["windowEnd"] = window_end.isoformat()
     if bases:
         details["bases"] = bases
+
+    def total_observed_by_base() -> int:
+        if len(bases) == 1:
+            return max(int((event.get("details") or {}).get("total") or 0) for event in events)
+        totals_by_base: dict[str, int] = {}
+        for grouped_event in events:
+            base = str(grouped_event.get("base") or "").strip()
+            total = int((grouped_event.get("details") or {}).get("total") or 0)
+            if base and total > 0:
+                totals_by_base[base] = max(totals_by_base.get(base, 0), total)
+        return sum(totals_by_base.values())
+
+    def base_scope_label(single_prefix: str = "à") -> str:
+        if len(bases) == 1:
+            return f" {single_prefix} {bases[0]}"
+        if len(bases) > 1:
+            return f" dans {len(bases)} bases"
+        return ""
 
     if event_type == "craft":
         title = "Fabrications compilées"
@@ -794,7 +859,7 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         body = message
         if total > 0:
             details["total"] = total
-    else:
+    elif event_type == "production":
         title = "Productions compilées"
         base_label = ""
         if len(bases) == 1:
@@ -818,6 +883,39 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
             f"{owner} boucle {batches} {plural(batches, 'production')} en 5 min. "
             f"{added_total} {plural(added_total, 'ressource produite est prête', 'ressources produites sont prêtes')}"
             f"{base_label}.{stock}"
+        )
+        body = message
+    elif event_type == "build":
+        title = "Constructions compilées"
+        total = total_observed_by_base()
+        if total > 0:
+            details["total"] = total
+        message = (
+            f"{owner} confirme {added_total} "
+            f"{plural(added_total, 'nouvelle structure confirmée', 'nouvelles structures confirmées')} "
+            f"en 5 min{base_scope_label()}."
+        )
+        body = message
+    elif event_type == "repair":
+        title = "Réparations compilées"
+        message = (
+            f"{owner} répare {added_total} {plural(added_total, 'structure')} "
+            f"en 5 min{base_scope_label()}."
+        )
+        body = message
+    elif event_type == "research":
+        title = "Recherches compilées"
+        message = (
+            f"{owner} confirme {added_total} {plural(added_total, 'recherche')} "
+            f"en 5 min{base_scope_label()}."
+        )
+        body = message
+    else:
+        title = "Dégâts de base compilés"
+        message = (
+            f"{owner} compte {added_total} "
+            f"{plural(added_total, 'structure endommagée', 'structures endommagées')} "
+            f"en plus en 5 min{base_scope_label()}."
         )
         body = message
 
@@ -1120,21 +1218,30 @@ def base_state(row: dict) -> dict:
         for player in row.get("players") or []
         if str(player).strip()
     ]
+    structure_highlights = {}
+    world_drop_structures = 0
+    for item in structures.get("highlights") or []:
+        if not isinstance(item, dict):
+            continue
+        count = int(item.get("count") or 0)
+        if count <= 0:
+            continue
+        name = str(item.get("name") or "Structure")
+        if is_world_drop_structure_name(name):
+            world_drop_structures += count
+            continue
+        structure_highlights[name.casefold()] = {
+            "name": name,
+            "count": count,
+        }
     return {
         "name": str(row.get("name") or "Base"),
         "guild": str(row.get("guild") or ""),
         "players": sorted(players, key=str.casefold),
-        "structuresTotal": int(structures.get("total") or 0),
+        "structuresTotal": max(0, int(structures.get("total") or 0) - world_drop_structures),
         "structuresDamaged": int(structures.get("damaged") or 0),
         "structuresUnfinished": int(structures.get("unfinished") or 0),
-        "structureHighlights": {
-            str(item.get("name") or "").casefold(): {
-                "name": str(item.get("name") or "Structure"),
-                "count": int(item.get("count") or 0),
-            }
-            for item in structures.get("highlights") or []
-            if isinstance(item, dict) and int(item.get("count") or 0) > 0
-        },
+        "structureHighlights": structure_highlights,
         "productionItems": {
             str(item.get("name") or "").casefold(): {
                 "name": str(item.get("name") or "Production"),
@@ -1371,8 +1478,10 @@ def delta_event(
 
 def detail_items_quantity_total(details: dict, key: str) -> int:
     total = 0
-    for item in details.get("items") or []:
-        if isinstance(item, dict):
+    for collection_key in ("items", "structures"):
+        for item in public_detail_rows(details, collection_key):
+            if is_world_drop_structure_name(item.get("name")) or is_world_drop_structure_name(item.get("asset")):
+                continue
             total += int(item.get(key) or 0)
     return total
 
@@ -1990,6 +2099,37 @@ def compare_base_events(
                     "headline": headline,
                     "body": "La sauvegarde confirme moins de structures endommagées.",
                     "bullets": [f"-{repaired} structure{'' if repaired == 1 else 's'} endommagée{'' if repaired == 1 else 's'}"],
+                }, name, display_name, player),
+            )
+        elif damaged > old_damaged and (active_player_keys is None or player is not None):
+            damaged_delta = damaged - old_damaged
+            headline = (
+                f"{player} constate des dégâts à {display_name}"
+                if player
+                else f"{display_name} encaisse des dégâts"
+            )
+            add_event(
+                connection,
+                fingerprint=f"save:{event_occurred_at}:base-damage:{key}:{damaged}",
+                occurred_at=event_occurred_at,
+                event_type="base",
+                player=player,
+                guild=guild,
+                base=display_name,
+                title="Base endommagée",
+                message=(
+                    f"{headline}: {damaged_delta} "
+                    f"{plural(damaged_delta, 'structure endommagée', 'structures endommagées')} en plus."
+                ),
+                source="save",
+                details=base_label_details({
+                    "headline": headline,
+                    "body": "La sauvegarde confirme davantage de structures endommagées.",
+                    "bullets": [
+                        f"+{damaged_delta} "
+                        f"{plural(damaged_delta, 'structure endommagée', 'structures endommagées')}"
+                    ],
+                    "damagedTotal": damaged,
                 }, name, display_name, player),
             )
 
@@ -2666,6 +2806,93 @@ def normalized_capture_event(
     return title, message
 
 
+def cleaned_world_drop_build_details(details: dict) -> tuple[dict, int, int, bool]:
+    normalized = dict(details)
+    structures = public_detail_rows(normalized, "structures")
+    kept_structures = []
+    removed_total = 0
+    for structure in structures:
+        if is_world_drop_structure_name(structure.get("name")) or is_world_drop_structure_name(structure.get("asset")):
+            removed_total += max(1, int(structure.get("added") or structure.get("count") or 0))
+            continue
+        kept_structures.append(structure)
+
+    bullets = [str(bullet).strip() for bullet in normalized.get("bullets") or [] if str(bullet).strip()]
+    kept_bullets = [bullet for bullet in bullets if not is_world_drop_structure_name(bullet)]
+    changed = removed_total > 0 or kept_bullets != bullets
+
+    if structures:
+        if kept_structures:
+            normalized["structures"] = kept_structures
+            normalized["bullets"] = quantity_bullets(kept_structures)
+        else:
+            normalized.pop("structures", None)
+            normalized["bullets"] = kept_bullets
+    elif kept_bullets != bullets:
+        normalized["bullets"] = kept_bullets
+
+    kept_total = detail_items_quantity_total(normalized, "added") or quantity_total_from_bullets(
+        normalized.get("bullets") or []
+    )
+    return normalized, kept_total, removed_total, changed
+
+
+def normalize_world_drop_build_events(connection: sqlite3.Connection) -> tuple[int, int, list[int]]:
+    rows = connection.execute(
+        """
+        SELECT id, fingerprint, occurred_at, type, player, guild, base, title,
+               message, icon, source, details_json, confidence
+        FROM events
+        WHERE source = 'save'
+          AND type = 'build'
+          AND (
+            details_json LIKE '%CommonDropItem3D%'
+            OR details_json LIKE '%CommonItemDrop3D%'
+            OR message LIKE '%CommonDropItem3D%'
+            OR message LIKE '%CommonItemDrop3D%'
+          )
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+
+    updated = 0
+    deleted_ids = []
+    for row in rows:
+        details = details_from_row(row)
+        normalized, kept_total, _removed_total, changed = cleaned_world_drop_build_details(details)
+        if not changed:
+            continue
+        if kept_total <= 0:
+            deleted_ids.append(int(row["id"]))
+            continue
+
+        headline = str(normalized.get("headline") or "").strip()
+        if not headline:
+            message = str(row["message"] or "")
+            headline = message.split(". ", 1)[0].strip() or str(row["title"] or "Base agrandie")
+        normalized["headline"] = headline
+        normalized["body"] = "De nouvelles structures sont confirmées dans la sauvegarde."
+        message = (
+            f"{headline}. {kept_total} "
+            f"{plural(kept_total, 'nouvelle structure confirmée', 'nouvelles structures confirmées')}."
+        )
+        connection.execute(
+            """
+            UPDATE events
+            SET message = ?, details_json = ?
+            WHERE id = ?
+            """,
+            (message, details_json_payload(normalized), row["id"]),
+        )
+        updated += 1
+
+    if deleted_ids:
+        placeholders = ",".join("?" for _ in deleted_ids)
+        connection.execute(f"DELETE FROM events WHERE id IN ({placeholders})", deleted_ids)
+
+    return updated, len(deleted_ids), deleted_ids[:25]
+
+
 def normalize_event_history(connection: sqlite3.Connection) -> dict:
     rows = connection.execute(
         """
@@ -2694,6 +2921,8 @@ def normalize_event_history(connection: sqlite3.Connection) -> dict:
             (title, message, details_json, row["id"]),
         )
         itemized_updated += 1
+
+    world_drop_updated, world_drop_removed, world_drop_removed_ids = normalize_world_drop_build_events(connection)
 
     rows = connection.execute(
         """
@@ -2776,6 +3005,9 @@ def normalize_event_history(connection: sqlite3.Connection) -> dict:
         "captureDuplicatesRemoved": len(capture_duplicate_ids),
         "captureDuplicateIds": capture_duplicate_ids[:25],
         "captureMessagesUpdated": capture_messages_updated,
+        "worldDropBuildUpdated": world_drop_updated,
+        "worldDropBuildRemoved": world_drop_removed,
+        "worldDropBuildRemovedIds": world_drop_removed_ids,
     }
 
 

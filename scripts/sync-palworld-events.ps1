@@ -36,6 +36,25 @@ function Get-OptionalProperty {
     return $Value.$Name
 }
 
+function Set-OptionalProperty {
+    param(
+        $Value,
+        [Parameter(Mandatory)] [string]$Name,
+        $PropertyValue
+    )
+
+    if ($null -eq $Value) { return }
+    if ($Value -is [System.Collections.IDictionary]) {
+        $Value[$Name] = $PropertyValue
+        return
+    }
+    if ($Value.PSObject.Properties.Name -contains $Name) {
+        $Value.$Name = $PropertyValue
+        return
+    }
+    $Value | Add-Member -NotePropertyName $Name -NotePropertyValue $PropertyValue
+}
+
 function Read-JsonFile {
     param([Parameter(Mandatory)] [string]$Path)
 
@@ -336,6 +355,38 @@ function Convert-ToPositiveInt {
     }
 }
 
+$ItemizedPublicGroupTypes = @("craft", "production", "build", "repair", "base", "research")
+$WorldDropStructureNames = @("commondropitem3d", "commonitemdrop3d")
+
+function Test-WorldDropStructureName {
+    param($Value)
+
+    $text = ([string]$Value).Trim()
+    if (-not $text) { return $false }
+    $tail = @($text -split '[\\/]')[-1]
+    $normalized = ($tail -replace '[\s_-]+', '').ToLowerInvariant()
+    if ($WorldDropStructureNames -contains $normalized) { return $true }
+    foreach ($name in $WorldDropStructureNames) {
+        if ($normalized.Contains($name)) { return $true }
+    }
+    return $false
+}
+
+function Get-DetailRows {
+    param(
+        $Details,
+        [Parameter(Mandatory)] [string]$Name
+    )
+
+    if ($null -eq $Details) { return @() }
+    $rows = Get-OptionalProperty $Details $Name
+    if ($null -eq $rows) { return @() }
+    if ($rows -is [array]) {
+        return @($rows | Where-Object { $null -ne $_ })
+    }
+    return @($rows)
+}
+
 function Get-FrenchPlural {
     param(
         [Parameter(Mandatory)] [int]$Value,
@@ -361,12 +412,19 @@ function Get-ItemizedEventItems {
 
     $details = Get-ItemizedEventDetails -Event $Event
     if ($null -eq $details) { return @() }
-    $items = Get-OptionalProperty $details "items"
-    if ($null -eq $items) { return @() }
-    if ($items -is [array]) {
-        return @($items | Where-Object { $null -ne $_ })
+    $rows = [System.Collections.ArrayList]::new()
+    foreach ($item in (Get-DetailRows -Details $details -Name "items")) {
+        [void]$rows.Add($item)
     }
-    return @($items)
+    if ([string](Get-OptionalProperty $Event "type") -eq "build") {
+        foreach ($item in (Get-DetailRows -Details $details -Name "structures")) {
+            [void]$rows.Add($item)
+        }
+    }
+    return @($rows | Where-Object {
+        -not (Test-WorldDropStructureName (Get-OptionalProperty $_ "name")) -and
+        -not (Test-WorldDropStructureName (Get-OptionalProperty $_ "asset"))
+    })
 }
 
 function Get-ItemizedEventAddedTotal {
@@ -385,6 +443,7 @@ function Get-ItemizedEventAddedTotal {
     $details = Get-ItemizedEventDetails -Event $Event
     $bullets = if ($details) { Get-OptionalProperty $details "bullets" } else { @() }
     foreach ($bullet in @($bullets)) {
+        if (Test-WorldDropStructureName $bullet) { continue }
         if ([string]$bullet -match '^[+-]?(\d+)') {
             $total += [int]$Matches[1]
         }
@@ -424,7 +483,7 @@ function Get-ItemizedGroupKey {
 
     $type = [string](Get-OptionalProperty $Event "type")
     $sourceName = [string](Get-OptionalProperty $Event "source")
-    if ($type -notin @("craft", "production") -or $sourceName -ne "save") { return $null }
+    if ($type -notin $ItemizedPublicGroupTypes -or $sourceName -ne "save") { return $null }
 
     $details = Get-ItemizedEventDetails -Event $Event
     if ((Convert-ToPositiveInt (Get-OptionalProperty $details "aggregatedEvents")) -gt 0) { return $null }
@@ -528,6 +587,57 @@ function Get-EventMaxDetailTotal {
     return $total
 }
 
+function Get-ObservedDetailTotalByBase {
+    param(
+        [array]$Events,
+        [array]$Bases
+    )
+
+    if ($Bases.Count -eq 1) {
+        return Get-EventMaxDetailTotal -Events $Events
+    }
+
+    $totalsByBase = @{}
+    foreach ($event in $Events) {
+        $base = ([string](Get-OptionalProperty $event "base")).Trim()
+        $detailsForEvent = Get-ItemizedEventDetails -Event $event
+        $totalForEvent = Convert-ToPositiveInt (Get-OptionalProperty $detailsForEvent "total")
+        if ($base -and $totalForEvent -gt 0) {
+            if (-not $totalsByBase.ContainsKey($base) -or $totalForEvent -gt $totalsByBase[$base]) {
+                $totalsByBase[$base] = $totalForEvent
+            }
+        }
+    }
+
+    $total = 0
+    foreach ($value in $totalsByBase.Values) { $total += [int]$value }
+    return $total
+}
+
+function Get-BaseScopeLabel {
+    param([array]$Bases)
+
+    if ($Bases.Count -eq 1) { return " à $($Bases[0])" }
+    if ($Bases.Count -gt 1) { return " dans $($Bases.Count) bases" }
+    return ""
+}
+
+function Get-AggregatedEventBullets {
+    param([array]$Events)
+
+    $bullets = [System.Collections.ArrayList]::new()
+    foreach ($event in $Events) {
+        $details = Get-ItemizedEventDetails -Event $event
+        foreach ($bullet in @((Get-OptionalProperty $details "bullets"))) {
+            $text = ([string]$bullet).Trim()
+            if (-not $text) { continue }
+            if (Test-WorldDropStructureName $text) { continue }
+            [void]$bullets.Add($text)
+        }
+    }
+    return @($bullets | Select-Object -First 8)
+}
+
 function New-AggregatedItemizedPublicEvent {
     param([Parameter(Mandatory)] [array]$Events)
 
@@ -572,11 +682,23 @@ function New-AggregatedItemizedPublicEvent {
     }
     if (-not $icon) { $icon = Get-OptionalProperty $latest "icon" }
 
+    $bullets = Get-QuantityBullets -Items $items
+    if ($bullets.Count -lt 1) {
+        $bullets = Get-AggregatedEventBullets -Events $Events
+    }
+
     $details = [ordered]@{
-        bullets = Get-QuantityBullets -Items $items
-        items = $items
+        bullets = $bullets
         aggregatedEvents = $batches
         windowMinutes = [int]($ItemizedEventGroupWindowSeconds / 60)
+    }
+    if ($items.Count -gt 0) {
+        if ($eventType -eq "build") {
+            $details["structures"] = $items
+        }
+        else {
+            $details["items"] = $items
+        }
     }
     if ($bucket) { $details["windowStart"] = $bucket.ToString("o") }
     if ($windowEnd) { $details["windowEnd"] = $windowEnd.ToString("o") }
@@ -594,7 +716,7 @@ function New-AggregatedItemizedPublicEvent {
             $message = "$owner termine $addedTotal $label en 5 min."
         }
     }
-    else {
+    elseif ($eventType -eq "production") {
         $title = "Productions compilées"
         $resourceLabel = Get-FrenchPlural -Value $addedTotal -Singular "ressource produite est prête" -Plural "ressources produites sont prêtes"
         if ($bases.Count -eq 1) {
@@ -623,6 +745,32 @@ function New-AggregatedItemizedPublicEvent {
         }
         $productionLabel = Get-FrenchPlural -Value $batches -Singular "production"
         $message = "$owner boucle $batches $productionLabel en 5 min. $addedTotal $resourceLabel$baseLabel.$stock"
+    }
+    elseif ($eventType -eq "build") {
+        $title = "Constructions compilées"
+        $total = Get-ObservedDetailTotalByBase -Events $Events -Bases $bases
+        if ($total -gt 0) { $details["total"] = $total }
+        $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "nouvelle structure confirmée" -Plural "nouvelles structures confirmées"
+        $baseLabel = Get-BaseScopeLabel -Bases $bases
+        $message = "$owner confirme $addedTotal $structureLabel en 5 min$baseLabel."
+    }
+    elseif ($eventType -eq "repair") {
+        $title = "Réparations compilées"
+        $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure"
+        $baseLabel = Get-BaseScopeLabel -Bases $bases
+        $message = "$owner répare $addedTotal $structureLabel en 5 min$baseLabel."
+    }
+    elseif ($eventType -eq "research") {
+        $title = "Recherches compilées"
+        $researchLabel = Get-FrenchPlural -Value $addedTotal -Singular "recherche"
+        $baseLabel = Get-BaseScopeLabel -Bases $bases
+        $message = "$owner confirme $addedTotal $researchLabel en 5 min$baseLabel."
+    }
+    else {
+        $title = "Dégâts de base compilés"
+        $damageLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure endommagée" -Plural "structures endommagées"
+        $baseLabel = Get-BaseScopeLabel -Bases $bases
+        $message = "$owner compte $addedTotal $damageLabel en plus en 5 min$baseLabel."
     }
 
     $details["headline"] = $title
@@ -690,6 +838,91 @@ function Group-ItemizedPublicEvents {
     return @($grouped)
 }
 
+function Repair-WorldDropBuildEvent {
+    param($Event)
+
+    if ([string](Get-OptionalProperty $Event "type") -ne "build") { return $Event }
+    $details = Get-OptionalProperty $Event "details"
+    if ($null -eq $details) { return $Event }
+
+    $structures = Get-DetailRows -Details $details -Name "structures"
+    $keptStructures = [System.Collections.ArrayList]::new()
+    $removed = 0
+    foreach ($structure in $structures) {
+        if (
+            (Test-WorldDropStructureName (Get-OptionalProperty $structure "name")) -or
+            (Test-WorldDropStructureName (Get-OptionalProperty $structure "asset"))
+        ) {
+            $removed += [Math]::Max(1, (Convert-ToPositiveInt (Get-OptionalProperty $structure "added")))
+            continue
+        }
+        [void]$keptStructures.Add($structure)
+    }
+
+    $bullets = @(
+        foreach ($bullet in @((Get-OptionalProperty $details "bullets"))) {
+            $text = ([string]$bullet).Trim()
+            if ($text) { $text }
+        }
+    )
+    $keptBullets = @($bullets | Where-Object { -not (Test-WorldDropStructureName $_) })
+    $changed = $removed -gt 0 -or $keptBullets.Count -ne $bullets.Count
+    if (-not $changed) { return $Event }
+
+    $keptTotal = 0
+    foreach ($structure in $keptStructures) {
+        $added = Convert-ToPositiveInt (Get-OptionalProperty $structure "added")
+        if ($added -le 0) { $added = Convert-ToPositiveInt (Get-OptionalProperty $structure "count") }
+        $keptTotal += $added
+    }
+    if ($keptTotal -le 0) {
+        foreach ($bullet in $keptBullets) {
+            if ([string]$bullet -match '^[+-]?(\d+)') {
+                $keptTotal += [int]$Matches[1]
+            }
+        }
+    }
+    if ($keptTotal -le 0) { return $null }
+
+    if ($keptStructures.Count -gt 0) {
+        Set-OptionalProperty -Value $details -Name "structures" -PropertyValue @($keptStructures)
+        Set-OptionalProperty -Value $details -Name "bullets" -PropertyValue (Get-QuantityBullets -Items @($keptStructures))
+    }
+    else {
+        Set-OptionalProperty -Value $details -Name "bullets" -PropertyValue $keptBullets
+    }
+
+    $headline = ([string](Get-OptionalProperty $details "headline")).Trim()
+    if (-not $headline) {
+        $headline = ([string](Get-OptionalProperty $Event "message")).Split(".")[0].Trim()
+    }
+    if (-not $headline) { $headline = [string](Get-OptionalProperty $Event "title") }
+    Set-OptionalProperty -Value $details -Name "headline" -PropertyValue $headline
+    Set-OptionalProperty -Value $details -Name "body" -PropertyValue "De nouvelles structures sont confirmées dans la sauvegarde."
+
+    $structureLabel = Get-FrenchPlural -Value $keptTotal -Singular "nouvelle structure confirmée" -Plural "nouvelles structures confirmées"
+    $message = "$headline. $keptTotal $structureLabel."
+    Set-OptionalProperty -Value $Event -Name "message" -PropertyValue $message
+    Set-OptionalProperty -Value $Event -Name "details" -PropertyValue $details
+    Set-OptionalProperty -Value $Event -Name "display" -PropertyValue ([ordered]@{
+        headline = [string](Get-OptionalProperty $Event "title")
+        body = $message
+        bullets = @((Get-OptionalProperty $details "bullets") | Select-Object -First 8)
+    })
+    return $Event
+}
+
+function Remove-WorldDropBuildEvents {
+    param([array]$Events)
+
+    return @(
+        foreach ($event in $Events) {
+            $clean = Repair-WorldDropBuildEvent -Event $event
+            if ($null -ne $clean) { $clean }
+        }
+    )
+}
+
 function Merge-FastRecentEvents {
     param([Parameter(Mandatory)] $IncomingPayload)
 
@@ -721,6 +954,7 @@ function Write-FastEventOutputs {
     param([Parameter(Mandatory)] $RecentPayload)
 
     $events = Merge-FastRecentEvents -IncomingPayload $RecentPayload
+    $events = Remove-WorldDropBuildEvents -Events $events
     $events = Group-ItemizedPublicEvents -Events $events
     $pageEvents = @($events | Select-Object -First $PageSize)
     $existingIndex = Read-JsonFile -Path $IndexOutputPath
@@ -953,6 +1187,7 @@ function Remove-DuplicateSessionFallbacks {
 $events = @($source.events | ForEach-Object {
     Convert-PublicEvent $_
 } | Where-Object { $null -ne $_ })
+$events = Remove-WorldDropBuildEvents -Events $events
 $events = Remove-DuplicateSessionFallbacks -Events $events
 $events = Group-ItemizedPublicEvents -Events $events
 
