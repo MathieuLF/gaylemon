@@ -1,16 +1,53 @@
 {
-  "version": 1,
+  "version": 2,
+  "schemaVersion": 2,
   "ok": true,
   "updatedAt": "2026-01-01T12:00:00Z",
   "updatedAtLocal": "2026-01-01 07:00:00",
+  "provenance": {
+    "observedAt": "2026-01-01T12:00:00Z",
+    "sourceUpdatedAt": "2026-01-01T12:00:00Z",
+    "gameVersion": "v1.0.0",
+    "steamBuildId": "00000000",
+    "parserCommit": null,
+    "catalogCommit": null,
+    "schemaVersion": 2,
+    "freshness": "current",
+    "sourceStatus": "available"
+  },
   "collection": {
     "source": "exemple",
     "firstSampleAt": "2026-01-01T11:00:00Z",
     "lastSampleAt": "2026-01-01T12:00:00Z",
     "sampleCount": 3,
     "gameDataAvailable": false,
-    "gameDataStatus": "disabled",
+    "gameDataStatus": "documented-but-unavailable",
+    "lastGameDataAt": null,
+    "nextGameDataAttemptAt": "2026-01-01T18:00:00Z",
+    "settingsStatus": "available",
+    "lastSettingsAt": "2026-01-01T12:00:00Z",
     "note": null
+  },
+  "settings": {
+    "status": "available",
+    "updatedAt": "2026-01-01T12:00:00Z",
+    "current": {
+      "Difficulty": "Normal",
+      "BaseCampWorkerMaxNum": 50,
+      "bEnableFastTravel": true,
+      "bIsPvP": false
+    }
+  },
+  "sources": {
+    "metrics": {
+      "status": "available",
+      "lastObservedAt": "2026-01-01T12:00:00Z",
+      "lastSuccessAt": "2026-01-01T12:00:00Z",
+      "latencyMs": 12.4,
+      "latencyP95Ms": 18.2,
+      "responseBytes": 320,
+      "consecutiveFailures": 0
+    }
   },
   "server": {
     "totalObservedSeconds": 3600,

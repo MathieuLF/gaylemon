@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 6,
+  "ok": true,
+  "generationId": "example-20260718T120000Z",
+  "generatedAt": "2026-07-18T12:00:00-04:00",
+  "observedAt": "2026-07-18T11:59:58-04:00",
+  "sourceUpdatedAt": "2026-07-18T11:59:55-04:00",
+  "sourceRevision": "example:2",
+  "gameVersion": "v0.6.8.81234",
+  "steamBuildId": "24181105",
+  "parserCommit": "example-parser",
+  "catalogCommit": "example-catalog",
+  "freshness": "current",
+  "sourceStatus": "available",
+  "cursor": { "minId": 41, "maxId": 42 },
+  "counts": {
+    "rawEvents": 3,
+    "publicEvents": 2,
+    "echoes": 2,
+    "representedEvents": 3,
+    "days": 1
+  },
+  "facets": {
+    "types": [
+      { "value": "capture", "count": 1 },
+      { "value": "level", "count": 1 }
+    ],
+    "players": [
+      { "value": "Mathieu", "count": 2 }
+    ]
+  },
+  "head": {
+    "path": "data/public-events-v6/example-20260718T120000Z/head.json",
+    "sha256": "sha256:06f3a7431e78fcb8b45d4d05c2f50524e785c5531d6844ba40b49ff48ec94242",
+    "revision": "example-head-42"
+  },
+  "days": [
+    {
+      "date": "2026-07-18",
+      "fragmentGenerationId": "example-20260718T120000Z",
+      "dailyGenerationId": "example-20260718T120000Z",
+      "path": "data/public-events-v6/example-20260718T120000Z/2026-07-18.json",
+      "sha256": "69544065ec35fb59aa990a3353a60fa85411d1934c3f2afd01456c279abd7cfb",
+      "dailyPath": "data/public-daily/example-20260718T120000Z/2026-07-18.json",
+      "dailySha256": "bc9b226b46d85831832278ffb159b8b027a6be6ecc4274423104279139db6a72",
+      "events": 2,
+      "representedEvents": 3,
+      "firstAt": "2026-07-18T10:42:00-04:00",
+      "lastAt": "2026-07-18T11:55:00-04:00"
+    }
+  ]
+}

@@ -104,13 +104,14 @@ Les exports publics réels restent non versionnés. Le site lit notamment:
 
 - `public-metrics.json` pour l'état live, les joueurs connectés et `onlineSinceAt`;
 - `public-stats.json` pour les sessions et agrégats joueurs;
-- `public-save-index.json`, `public-save-snapshot.json`, `public-save-bases.json` et `players/{slug}.json` pour les fiches, Pals, bases et exports JSON d'analyse;
-- `public-events.json`, `public-events-recent.json`, `public-events-index.json` et `public-events-page-*.json` pour `/terminal` et `/resume`;
+- `public-save-index.json`, `public-save-snapshot.json`, `public-save-bases.json`, `public-save-diagnostics.json` et `players/{slug}.json` pour les fiches, Pals, bases et exports JSON d'analyse; ces fichiers partagent une génération et l'index devient actif en dernier;
+- `public-events-channel.json` pour l'observation et la promotion, `public-events-head-v6.json` comme pointeur actif, le manifeste de compatibilité, les générations immuables `public-events-v6/` et les résumés `public-daily/` pour `/terminal`, `/resume` et les derniers échos de l'accueil;
+- les contrats `public-events*.json` v5 pendant la période de compatibilité;
 - `public-uptime.json`, `public-uptime-history.json` et `public-availability.json` pour l'état Kuma filtré.
 
-Nginx sert les pages et les JSON dynamiques en `no-store`; les assets versionnés restent en cache long.
+Nginx sert les pages et les JSON v5 dynamiques en `no-store`. Le pointeur actif et le manifeste de compatibilité v6 sont revalidés avec ETag; les manifestes et têtes de génération, fragments, résumés et assets versionnés restent en cache immuable.
 
-Le flux des échos est traité comme une donnée chaude: collecteur Ubuntu aux 20 secondes, fenêtre récente de 2 000 échos, sync Windows rapide aux 20 secondes sur ce flux, et relecture navigateur aux 20 secondes. La reconstruction complète de l'historique paginé reste disponible séparément.
+Le flux des échos est traité comme une donnée chaude: projection canonique près de SQLite, pointeur actif léger, tête de génération, fragments journaliers immuables et réconciliation complète espacée. L'export v5 complet reste disponible temporairement sans être chargé par les routes v6 normales.
 
 ## Documentation
 
@@ -118,6 +119,7 @@ Le flux des échos est traité comme une donnée chaude: collecteur Ubuntu aux 2
 - [Sécurité](SECURITY.md)
 - [Support](SUPPORT.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Échos publics v6](docs/EVENEMENTS-PUBLICS-V6.md)
 - [Sécurité d'exploitation](docs/SECURITE-EXPLOITATION.md)
 - [Configuration locale](docs/CONFIGURATION-LOCALE.md)
 - [Développement](docs/DEVELOPPEMENT.md)

@@ -16,17 +16,33 @@ Sur le microsite:
 ```text
 portal/data/public-save-index.json
 portal/data/public-save-snapshot.json
+portal/data/public-save-bases.json
 portal/data/public-save-diagnostics.json
 portal/data/players/{slug}.json
+portal/joueur/{slug}.html
 ```
 
-Le diagnostic peut être mis à jour même si le dernier snapshot valide est conservé.
+Tous ces artefacts portent le même `generationId`. Le diagnostic peut conserver
+une observation technique antérieure, mais sa publication reste rattachée au
+même snapshot public que l'index, les bases et les fiches joueurs.
 
 ## Exécution
 
 `palworld-save-snapshot.timer` vérifie les sauvegardes toutes les 30 secondes, avec `OnUnitInactiveSec` pour éviter les chevauchements si une génération prend plus longtemps.
 
-La synchronisation Windows publie les données joueurs, profils, Pals, bases et index publics toutes les 15 minutes. Le diagnostic technique visible dans le bloc `Données du monde` du microsite, lui, est conservé entre deux passages et rafraîchi aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
+La synchronisation Windows vérifie les données joueurs, profils, Pals, bases et
+index publics toutes les 60 secondes. Le diagnostic technique visible dans le
+bloc `Données du monde` du microsite, lui, est conservé entre deux analyses
+lourdes et rafraîchi aux deux heures, sur les créneaux impairs `01:00`, `03:00`,
+..., `21:00`, `23:00`.
+
+La publication prépare et valide la génération entière dans un répertoire
+temporaire. Les artefacts sont remplacés avec reprise temporisée, les fiches et
+pages joueurs sont publiées comme un lot, puis `public-save-index.json` devient
+actif en dernier. Un verrou empêche deux synchronisations de se chevaucher. En
+cas d'échec, la génération précédente est restaurée intégralement. Le portail
+refuse un snapshot, des bases, un diagnostic ou une fiche dont le
+`generationId` diffère de celui de l'index actif.
 
 Le service utilise:
 
@@ -92,6 +108,8 @@ Les marqueurs de carte utilisent seulement une position publique arrondie ou tra
 python -m py_compile .\server\bin\palworld-save-snapshot.py
 python -m unittest discover -s .\server\tests -v
 node --check .\portal\assets\app.js
+node --test .\portal\tests\portal-v6-static.test.mjs
+pwsh -NoProfile -File .\scripts\test-public-save-snapshot-sync.ps1
 ```
 
 Syntaxe PowerShell:

@@ -79,16 +79,17 @@ Contrats servis en production:
 - `public-save-snapshot.json`: projection publique complète v3;
 - `public-save-bases.json`: bases, constructions, travailleurs, productions et stocks agrégés;
 - `public-save-diagnostics.json`: fraîcheur et poids des exports;
-- `public-events.json`: historique complet des échos;
-- `public-events-recent.json`: fenêtre récente de 2 000 échos pour le tableau de bord;
-- `public-events-index.json` et `public-events-page-*.json`: pagination de `/terminal`;
+- `public-events-head-v6.json`: pointeur actif léger; `public-events-manifest-v6.json`: copie de compatibilité du manifeste courant;
+- `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables;
+- `public-daily/{génération}/{jour}.json`: résumés précalculés;
+- les contrats `public-events*.json` v5 durant la période de compatibilité;
 - `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: état Kuma filtré.
 
-`public-events-sync-state.json` est un état local de synchronisation, ignoré comme les autres données réelles. Il ne fait pas partie des contrats publics versionnés.
+`public-events-sync-state.json` est un état local de synchronisation, ignoré comme les autres données réelles et refusé explicitement par le serveur web. Il ne fait pas partie des contrats publics versionnés.
 
 Les pages générées sous `portal/joueur/` et les données réelles sous `portal/data/players/` restent ignorées. La route publique des fiches s'appuie sur le JavaScript et les JSON synchronisés, pas sur une donnée joueur versionnée.
 
-Nginx sert les JSON dynamiques et les pages principales avec `no-store`. Les assets versionnés peuvent être en cache long, mais un changement de contenu doit garder une version d'URL cohérente.
+Nginx sert les pages principales et les JSON v5 dynamiques avec `no-store`. Le pointeur actif et le manifeste de compatibilité v6 utilisent `no-cache` avec ETag. Les manifestes et têtes de génération, fragments et résumés v6, comme les assets versionnés, peuvent rester en cache long parce que leur chemin change avec leur contenu.
 
 Pour créer les fichiers canoniques à partir des exemples:
 

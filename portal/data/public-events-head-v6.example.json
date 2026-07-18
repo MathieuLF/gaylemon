@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 6,
+  "ok": true,
+  "baseGenerationId": "example-20260718T120000Z",
+  "revision": "example-head-42",
+  "generatedAt": "2026-07-18T12:00:00-04:00",
+  "cursor": { "minId": 41, "maxId": 42 },
+  "counts": { "totalEchoes": 2 },
+  "manifest": {
+    "path": "data/public-events-v6/example-20260718T120000Z/manifest.json",
+    "sha256": "sha256:8c282b55077cbda1b6217d787ed71295e5ee2283b9444bd19dafe40f26f46246"
+  },
+  "head": {
+    "path": "data/public-events-v6/example-20260718T120000Z/head.json",
+    "sha256": "sha256:06f3a7431e78fcb8b45d4d05c2f50524e785c5531d6844ba40b49ff48ec94242",
+    "revision": "example-head-42"
+  }
+}
