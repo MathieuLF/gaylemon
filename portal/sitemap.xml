@@ -11,6 +11,21 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://gaylemon.mathieu.pro/resume</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://gaylemon.mathieu.pro/classements</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://gaylemon.mathieu.pro/carte</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://gaylemon.mathieu.pro/github</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>

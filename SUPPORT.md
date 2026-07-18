@@ -9,7 +9,7 @@ Utiliser les modèles d'issues GitHub pour:
 - un bogue reproductible avec données fictives;
 - une amélioration du microsite, de la console, des collecteurs ou de la documentation.
 
-Ne pas joindre de sauvegarde réelle, `.env`, clé SSH, jeton, adresse privée ou identifiant joueur.
+Ne pas joindre de sauvegarde réelle, `.env`, clé SSH, jeton, adresse privée, identifiant joueur ou export public réel non anonymisé.
 
 ## Sécurité
 

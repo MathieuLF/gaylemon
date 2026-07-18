@@ -10,9 +10,9 @@ Le parse des sauvegardes publie maintenant un contrat public v3:
 - Pals détaillés, inventaires personnels et progression fiable;
 - bases, travailleurs, structures, stockages et productions;
 - diagnostics publics légers;
-- journal d'événements enrichi.
+- journal d'événements enrichi, paginé pour `/terminal`.
 
-Le microsite charge un index léger au départ, puis les fichiers plus lourds seulement quand un joueur ouvre une fiche, une base ou le terminal.
+Le microsite charge un index léger au départ, puis les fichiers plus lourds seulement quand un joueur ouvre une fiche, une base ou le terminal. Les fiches joueurs peuvent exporter un JSON d'analyse à partir des données publiques déjà chargées.
 
 ## Événements publiés
 
@@ -27,8 +27,9 @@ Types utiles:
 - `base`
 - `repair`
 - types historiques conservés quand ils restent fiables
+- `join`, `leave` et `reconnect` pour les mouvements de joueurs
 
-Les événements v3 gardent une clé publique stable, un titre narratif, une icône, un corps court, des puces et des détails publics filtrés.
+Les événements publiés gardent une clé publique stable, un titre narratif, une icône, un corps court, des puces et des détails publics filtrés.
 
 Exemples de rendu visé:
 
@@ -64,6 +65,8 @@ Exclu:
 - destructions;
 - transferts;
 - récoltes;
+- coffres ouverts;
+- butins aléatoires non attribuables;
 - propriétaires supposés;
 - détails de coffre ou d'objet dynamique;
 - identifiants techniques publics.
@@ -97,9 +100,11 @@ Exports attendus:
 ```text
 public-events.json
 public-events-recent.json
+public-events-index.json
+public-events-page-0001.json
 ```
 
-Le navigateur charge l'historique complet une seule fois, puis interroge le fichier récent toutes les 75 secondes et fusionne par `key`.
+Le navigateur charge l'historique complet pour les recherches globales et utilise l'index paginé pour `/terminal`. Il interroge le fichier récent toutes les 20 secondes et fusionne par `key`.
 
 La page ne doit pas perdre:
 
@@ -108,6 +113,10 @@ La page ne doit pas perdre:
 - pagination;
 - position de défilement;
 - consultation d'une page historique.
+
+Sur `/terminal`, les filtres restent masqués par défaut et la taille de page s'adapte à la hauteur disponible pour éviter un scroll de terminal en plus du scroll de page.
+
+Les événements de bases doivent utiliser un libellé relatif au joueur quand possible. Exemple: si le joueur concerné possède trois bases, l'écho doit dire `Base 1`, `Base 2` ou `Base 3` selon ses bases à lui, même si la sauvegarde globale les nomme `Base 6` ou `Base 11`. Le backfill `baseLabelBackfill` est responsable de normaliser l'historique quand la correspondance est retrouvable.
 
 ## Validation
 

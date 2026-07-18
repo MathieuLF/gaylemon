@@ -10,6 +10,7 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 . (Join-Path $PSScriptRoot "lib\Gaylemon.Config.ps1")
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 $LocalEventsPath = Join-Path $ProjectRoot "portal\data\public-events.json"
+$LocalEventsIndexPath = Join-Path $ProjectRoot "portal\data\public-events-index.json"
 $LocalSnapshotPath = Join-Path $ProjectRoot "portal\data\public-save-snapshot.json"
 $LocalAvailabilityPath = Join-Path $ProjectRoot "portal\data\public-availability.json"
 $RemoteEventsPath = "$($config.RemoteProjectRoot)/runtime/public-events.json"
@@ -26,10 +27,24 @@ function Read-JsonFile {
     return (Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json)
 }
 
+function Read-JsonFileIfPresent {
+    param([Parameter(Mandatory)] [string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+    try {
+        return (Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json)
+    }
+    catch {
+        return $null
+    }
+}
+
 function Read-RemoteJson {
     param([Parameter(Mandatory)] [string]$Path)
 
-    $raw = & ssh.exe $config.SshAlias "test -s '$Path' && gzip -c '$Path' | base64 -w0" 2>$null
+    $raw = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$Path' && gzip -c '$Path' | base64 -w0" 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "Fichier distant indisponible: $Path"
     }
@@ -88,8 +103,49 @@ function Get-EventRevisionLastId {
     $parts = ([string]$Revision).Split(":")
     if ($parts.Count -lt 3) { return $null }
     $parsed = 0L
-    if ([long]::TryParse($parts[$parts.Count - 1], [ref]$parsed)) { return $parsed }
+    if ([long]::TryParse($parts[2], [ref]$parsed)) { return $parsed }
+    for ($index = $parts.Count - 1; $index -ge 1; $index--) {
+        if ([long]::TryParse($parts[$index], [ref]$parsed)) { return $parsed }
+    }
     return $null
+}
+
+function Get-EventSummaryCount {
+    param($Payload)
+
+    if (-not $Payload -or -not $Payload.summary) { return 0L }
+    if ($Payload.summary.PSObject.Properties.Name -contains "totalEvents" -and $null -ne $Payload.summary.totalEvents) {
+        return [long]$Payload.summary.totalEvents
+    }
+    if ($Payload.summary.PSObject.Properties.Name -contains "events" -and $null -ne $Payload.summary.events) {
+        return [long]$Payload.summary.events
+    }
+    return 0L
+}
+
+function Select-FreshestLocalEvents {
+    param(
+        [Parameter(Mandatory)] $FullEvents,
+        $IndexEvents
+    )
+
+    if (-not $IndexEvents -or -not $IndexEvents.summary) {
+        return $FullEvents
+    }
+
+    $fullLastAt = Convert-ToDate $FullEvents.summary.lastAt
+    $indexLastAt = Convert-ToDate $IndexEvents.summary.lastAt
+    if ($indexLastAt -and (-not $fullLastAt -or $indexLastAt -gt $fullLastAt)) {
+        return $IndexEvents
+    }
+
+    $fullCount = Get-EventSummaryCount -Payload $FullEvents
+    $indexCount = Get-EventSummaryCount -Payload $IndexEvents
+    if ($indexCount -gt $fullCount) {
+        return $IndexEvents
+    }
+
+    return $FullEvents
 }
 
 function Get-DateLagSeconds {
@@ -107,12 +163,15 @@ function Get-DateLagSeconds {
 function Get-RecoveryState {
     $remoteEvents = Read-RemoteJson -Path $RemoteEventsPath
     $remoteRecovery = Read-RemoteJson -Path $RemoteRecoveryPath
-    $localEvents = Read-JsonFile -Path $LocalEventsPath
+    $localFullEvents = Read-JsonFile -Path $LocalEventsPath
+    $localIndexEvents = Read-JsonFileIfPresent -Path $LocalEventsIndexPath
+    $localEvents = Select-FreshestLocalEvents -FullEvents $localFullEvents -IndexEvents $localIndexEvents
+    $localEventsSource = if ($localEvents -eq $localIndexEvents) { "index" } else { "full" }
     $localSnapshot = Read-JsonFile -Path $LocalSnapshotPath
     $catchUpToleranceSeconds = [Math]::Max($config.RecoveryStaleSeconds, $config.MetricIntervalSeconds * 6)
 
-    $remoteEventCount = [long]$remoteEvents.summary.events
-    $localEventCount = [long]$localEvents.summary.events
+    $remoteEventCount = Get-EventSummaryCount -Payload $remoteEvents
+    $localEventCount = Get-EventSummaryCount -Payload $localEvents
     $remoteLastEventAt = Convert-ToDate $remoteEvents.summary.lastAt
     $localLastEventAt = Convert-ToDate $localEvents.summary.lastAt
     $remoteSnapshotAt = Convert-ToDate $remoteRecovery.currentSnapshotAt
@@ -143,6 +202,9 @@ function Get-RecoveryState {
         RemoteEvents = $remoteEvents
         RemoteRecovery = $remoteRecovery
         LocalEvents = $localEvents
+        LocalFullEvents = $localFullEvents
+        LocalIndexEvents = $localIndexEvents
+        LocalEventsSource = $localEventsSource
         LocalSnapshot = $localSnapshot
         RemoteEventCount = $remoteEventCount
         LocalEventCount = $localEventCount
@@ -294,6 +356,7 @@ $report = [ordered]@{
         snapshotCaughtUp = if ($state) { $state.SnapshotCaughtUp } else { $false }
         remoteEventRevision = if ($state) { [string]$state.RemoteEvents.revision } else { $null }
         localEventRevision = if ($state) { [string]$state.LocalEvents.revision } else { $null }
+        localEventsSource = if ($state) { [string]$state.LocalEventsSource } else { $null }
         remoteEventCount = if ($state) { $state.RemoteEventCount } else { $null }
         localEventCount = if ($state) { $state.LocalEventCount } else { $null }
         remoteRevisionLastId = if ($state) { $state.RemoteRevisionLastId } else { $null }

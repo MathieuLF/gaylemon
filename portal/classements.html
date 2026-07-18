@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="fr-CA">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Classements Gaylémon Palworld</title>
+    <meta name="description" content="Classements des joueurs Gaylémon Palworld: progression, collections, combat, exploration et activité.">
+    <link rel="canonical" href="https://gaylemon.mathieu.pro/classements">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="site.webmanifest">
+    <meta name="theme-color" content="#40c875">
+    <meta property="og:title" content="Classements Gaylémon Palworld">
+    <meta property="og:description" content="Compare les progressions, collections, combats et activités des joueurs sur Palpagos.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://gaylemon.mathieu.pro/classements">
+    <meta property="og:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png">
+    <meta property="og:image:alt" content="Classements des joueurs Gaylémon Palworld">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Classements Gaylémon Palworld">
+    <meta name="twitter:description" content="Palmarès des joueurs, progression et activité sur Palpagos.">
+    <meta name="twitter:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png">
+    <link rel="stylesheet" href="/assets/styles.css?v=20260718.2">
+    <script src="/assets/app.js?v=20260718.4" defer></script>
+  </head>
+  <body class="rankings-view">
+    <div class="world-glow" aria-hidden="true"></div>
+    <header class="site-header" aria-label="Navigation principale">
+      <div class="site-header__inner">
+        <a class="site-brand" href="/" aria-label="Retour à l'accueil Gaylémon Palworld">
+          <span class="site-brand__emblem" aria-hidden="true">G</span>
+          <span><strong>Gaylémon</strong><small>Palworld</small></span>
+        </a>
+
+        <nav class="site-nav" aria-label="Sections du microsite">
+          <a href="/" data-section-link="accueil">Accueil</a>
+          <a href="/resume" data-section-link="resume">Résumé</a>
+          <a href="/classements" data-section-link="classements" class="is-active" aria-current="page">Classements</a>
+          <a href="/carte" data-section-link="carte">Carte</a>
+          <a href="/terminal" data-section-link="terminal">Terminal</a>
+          <a class="site-nav__discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="header">Discord <span aria-hidden="true">↗</span></a>
+        </nav>
+
+        <div class="site-header__telemetry">
+          <div class="site-header__players" id="header-players" aria-label="Joueurs actuellement en ligne" tabindex="0" aria-describedby="players-tooltip">
+            <i aria-hidden="true"></i>
+            <strong data-metric="players-current">--</strong>
+            <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
+            <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
+            <span class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
+              <span class="site-header__players-tooltip-kicker">Présences en direct</span>
+              <strong>Aucun joueur connecté</strong>
+              <p>Le serveur ne détecte personne en ligne pour le moment.</p>
+            </span>
+          </div>
+          <div class="site-header__updated">
+            <small>Dernières données</small>
+            <time id="site-last-updated"><span class="site-last-updated__full">En attente</span><span class="site-last-updated__short" aria-hidden="true">--:--</span></time>
+          </div>
+          <div class="site-header__refresh" aria-label="Actualisation automatique" data-state="countdown">
+            <span id="next-update" role="status" aria-live="polite" aria-atomic="true">Dans 01:15</span>
+            <span class="refresh-track" aria-hidden="true"><span id="refresh-progress"></span></span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="dedicated-main">
+      <section class="page-hero page-hero--rankings" aria-labelledby="leaderboard-title">
+        <div>
+          <p class="eyebrow">Palmarès de Palpagos</p>
+          <h1 id="leaderboard-title">Classements</h1>
+          <p class="lede">Une page dédiée pour comparer les joueurs sans enfouir le tableau de bord: progression, collections, combat, exploration et activité.</p>
+        </div>
+        <a class="dashboard-return-link" href="/" aria-label="Retour au tableau de bord">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 7.4 5.8 12l4.6 4.6 1.4-1.4L9.6 13H18v-2H9.6l2.2-2.2-1.4-1.4Z"/></svg>
+          <span>Tableau de bord</span>
+        </a>
+      </section>
+
+      <section class="panel leaderboard-panel leaderboard-panel--page" id="classements" aria-labelledby="leaderboard-content-title">
+        <div class="panel__header leaderboard-panel__heading">
+          <div>
+            <p class="eyebrow">Comparaison active</p>
+            <h2 id="leaderboard-content-title">Palmarès des joueurs</h2>
+          </div>
+          <span class="leaderboard-result-count" id="leaderboard-result-count" aria-live="polite">Préparation du classement...</span>
+        </div>
+
+        <div class="leaderboard-content">
+          <div class="leaderboard-toolbar">
+            <label class="leaderboard-search">
+              <span>Rechercher un aventurier</span>
+              <span class="leaderboard-search__field">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
+                <input id="leaderboard-search" type="search" placeholder="Nom ou guilde..." autocomplete="off">
+              </span>
+            </label>
+            <label>
+              <span>Catégorie</span>
+              <select id="leaderboard-category">
+                <option value="progression">Progression</option>
+                <option value="collection">Collections</option>
+                <option value="combat">Combat</option>
+                <option value="exploration">Exploration</option>
+                <option value="activity">Activité</option>
+              </select>
+            </label>
+            <label>
+              <span>Présence</span>
+              <select id="leaderboard-presence">
+                <option value="all">Tous les joueurs</option>
+                <option value="online">En ligne maintenant</option>
+                <option value="offline">Hors ligne</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="leaderboard-podium" id="leaderboard-podium" aria-label="Podium du classement"></div>
+
+          <div class="leaderboard-table-wrap">
+            <table class="leaderboard-table">
+              <caption class="visually-hidden">Classement comparatif des aventuriers</caption>
+              <thead id="leaderboard-head"></thead>
+              <tbody id="leaderboard-body">
+                <tr><td colspan="7">Les résultats apparaîtront avec les prochaines données.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <button class="back-to-top" id="back-to-top" type="button" tabindex="-1" aria-label="Retourner en haut de la page" data-tooltip="Retour en haut" data-tooltip-placement="left">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+    </button>
+    <div class="context-tooltip" id="context-tooltip" role="tooltip" hidden></div>
+
+    <footer class="site-footer">
+      <div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>L'aventure continue!</span></div>
+      <nav class="site-footer__links" aria-label="Liens communautaires">
+        <a class="social-link social-link--github" href="/github" data-analytics-link="github" data-analytics-location="footer" aria-label="Lire la page technique Gaylémon Ops et GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a9.7 9.7 0 0 0-3.1 18.9v-2.2c-2.4.5-2.9-1-2.9-1-.4-1-.9-1.3-.9-1.3-.8-.5 0-.5 0-.5.8.1 1.3.9 1.3.9.7 1.3 1.8.9 2.3.7.1-.5.3-.9.5-1.1-1.9-.2-3.9-1-3.9-4.3 0-1 .4-1.8 1-2.4-.1-.2-.4-1.1.1-2.3 0 0 .8-.3 2.7.9a9.3 9.3 0 0 1 4.9 0c1.9-1.2 2.7-.9 2.7-.9.5 1.2.2 2.1.1 2.3.6.7 1 1.5 1 2.4 0 3.4-2 4.1-3.9 4.3.3.3.6.8.6 1.5v3.2A9.7 9.7 0 0 0 12 2.5Z"/></svg>
+          <span><strong>GitHub</strong><small>Dépôt et Gaylemon Ops</small></span><b aria-hidden="true">→</b>
+        </a>
+        <a class="social-link social-link--discord" href="https://discord.gg/buyGMtjkTz" target="_blank" rel="noopener noreferrer" data-analytics-link="discord" data-analytics-location="footer" aria-label="Rejoindre le serveur Discord Gaylémon dans un nouvel onglet">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.1a13 13 0 0 1 9.6 0c1.5 2.2 2.4 4.7 2.6 7.3a12.6 12.6 0 0 1-3.7 1.9l-.9-1.2c.7-.3 1.3-.6 1.9-1.1a9.6 9.6 0 0 1-9.4 0c.6.5 1.2.8 1.9 1.1l-.9 1.2a12.6 12.6 0 0 1-3.7-1.9c.2-2.6 1.1-5.1 2.6-7.3ZM9.4 13c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6S8 10.5 8 11.4 8.6 13 9.4 13Zm5.2 0c.8 0 1.4-.7 1.4-1.6s-.6-1.6-1.4-1.6-1.4.7-1.4 1.6.6 1.6 1.4 1.6Z"/></svg>
+          <span><strong>Discord</strong><small>Rejoindre la communauté</small></span><b aria-hidden="true">↗</b>
+        </a>
+        <button class="social-link social-link--top" id="footer-back-to-top" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.7 14.3 5.3-5.2 5.3 5.2-1.4 1.4-3.9-3.8-3.9 3.8-1.4-1.4Z"/></svg>
+          <span><strong>Retour en haut</strong><small>Revenir au début de la page</small></span>
+        </button>
+      </nav>
+    </footer>
+  </body>
+</html>

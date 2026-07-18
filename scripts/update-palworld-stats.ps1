@@ -5,6 +5,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+$MaxSessionHistory = 200
 
 try {
     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -194,6 +195,7 @@ function Ensure-PlayerRecord {
             sessionCount = 0
             currentSessionStartedAt = $null
             lastSessionEndedAt = $null
+            sessionHistory = @()
             totalOnlineSeconds = 0
             totalOnline = "0m"
             level = $null
@@ -210,7 +212,61 @@ function Ensure-PlayerRecord {
         }
     }
 
-    return $Stats.players[$Key]
+    $record = $Stats.players[$Key]
+    if (-not $record.Contains("sessionHistory") -or $null -eq $record.sessionHistory) {
+        $record.sessionHistory = @()
+    }
+
+    if ($record.currentSessionStartedAt) {
+        $history = @($record.sessionHistory)
+        $knownOpenSession = @($history | Where-Object { $_.startedAt -eq $record.currentSessionStartedAt }).Count -gt 0
+        if (-not $knownOpenSession) {
+            $history += [ordered]@{
+                startedAt = $record.currentSessionStartedAt
+                endedAt = $null
+            }
+            $record.sessionHistory = @($history | Select-Object -Last $MaxSessionHistory)
+        }
+    }
+
+    return $record
+}
+
+function Start-PlayerSession {
+    param(
+        [hashtable]$Record,
+        [Parameter(Mandatory)] [string]$StartedAt
+    )
+
+    $history = @($Record.sessionHistory)
+    if ($history.Count -eq 0 -or $history[-1].endedAt) {
+        $history += [ordered]@{
+            startedAt = $StartedAt
+            endedAt = $null
+        }
+    }
+    elseif (-not $history[-1].startedAt) {
+        $history[-1].startedAt = $StartedAt
+    }
+
+    $Record.sessionHistory = @($history | Select-Object -Last $MaxSessionHistory)
+}
+
+function Stop-PlayerSession {
+    param(
+        [hashtable]$Record,
+        [Parameter(Mandatory)] [string]$EndedAt
+    )
+
+    $history = @($Record.sessionHistory)
+    for ($index = $history.Count - 1; $index -ge 0; $index--) {
+        if ($history[$index].startedAt -and -not $history[$index].endedAt) {
+            $history[$index].endedAt = $EndedAt
+            break
+        }
+    }
+
+    $Record.sessionHistory = @($history | Select-Object -Last $MaxSessionHistory)
 }
 
 function Update-PlayerFromOnlineList {
@@ -231,6 +287,7 @@ function Update-PlayerFromOnlineList {
     if (-not $record.isOnline) {
         $record.sessionCount = [int]$record.sessionCount + 1
         $record.currentSessionStartedAt = $Now.ToString("o")
+        Start-PlayerSession -Record $record -StartedAt $record.currentSessionStartedAt
     }
 
     if ($IntervalSeconds -gt 0) {
@@ -419,6 +476,7 @@ try {
         if (-not $onlineKeys.Contains($key) -and $record.isOnline) {
             $record.isOnline = $false
             $record.lastSessionEndedAt = $now.ToString("o")
+            Stop-PlayerSession -Record $record -EndedAt $record.lastSessionEndedAt
             $record.currentSessionStartedAt = $null
             $record.totalOnline = Convert-Uptime -Seconds ([int]$record.totalOnlineSeconds)
         }

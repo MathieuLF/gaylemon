@@ -45,13 +45,48 @@ Valeurs attendues:
 BOT_PALWORLD_REST_API_URL=http://127.0.0.1:8212/v1/api
 BOT_PALWORLD_REST_API_USERNAME=admin
 BOT_PALWORLD_REST_API_PASSWORD=REMPLACER_PAR_LE_MOT_DE_PASSE_ADMIN
+GAYLEMON_PUBLIC_BASE_URL=https://gaylemon.mathieu.pro
+GAYLEMON_DAILY_SUMMARY_TIME_ZONE=America/Toronto
+GAYLEMON_DAILY_SUMMARY_HOUR=1
+GAYLEMON_DAILY_SUMMARY_MINUTE=0
+GAYLEMON_DAILY_SUMMARY_CHANNEL_NAMES=arrivees-et-departs,palworld
+GAYLEMON_DAILY_SUMMARY_COMMAND_CHANNEL_NAMES=arrivees-et-departs,palworld
 ```
 
 Le mot de passe correspond au mot de passe admin Palworld. Il doit rester dans la configuration privée du bot ou sur Ubuntu, pas dans Git.
 
+## Résumé quotidien
+
+Le bot doit publier chaque jour, à `01:00` dans le fuseau `America/Toronto`, le lien direct vers le résumé de la veille:
+
+```text
+https://gaylemon.mathieu.pro/resume?jour=YYYY-MM-DD
+```
+
+Comportement attendu:
+
+- publier dans les salons configurés, par défaut `arrivees-et-departs` et `palworld`;
+- garder un état par journée et par salon pour éviter les doublons après un redémarrage;
+- sonder `/resume?jour=...` et `data/public-events-index.json` avant l'envoi;
+- envoyer quand même le lien si la vérification échoue, avec une note claire indiquant de réessayer le même lien après quelques minutes;
+- exposer une commande publique `/resume-hier`, utilisable par toute personne ayant accès aux salons configurés;
+- refuser `/resume-hier` hors des salons prévus avec une réponse éphémère.
+
+Variables optionnelles:
+
+```text
+GAYLEMON_DAILY_SUMMARY_POST_WINDOW_MINUTES=120
+GAYLEMON_DAILY_SUMMARY_FETCH_TIMEOUT_MS=5000
+GAYLEMON_DAILY_SUMMARY_CHANNEL_IDS=123456789012345678,234567890123456789
+GAYLEMON_DAILY_SUMMARY_COMMAND_CHANNEL_IDS=123456789012345678,234567890123456789
+```
+
+Utiliser les IDs Discord dès que possible si les noms de salons peuvent changer.
+
 ## Comportement attendu du bot
 
-- Appeler uniquement l'URL locale `127.0.0.1`.
+- Appeler l'API REST Palworld uniquement via l'URL locale `127.0.0.1`.
+- Utiliser l'URL publique seulement pour les liens du microsite, comme `/resume?jour=YYYY-MM-DD`.
 - Utiliser un timeout court, autour de 5 secondes.
 - Mettre en cache les commandes de statut quelques secondes pour éviter de spammer l'API.
 - Limiter les commandes Discord par rôle et par fréquence.

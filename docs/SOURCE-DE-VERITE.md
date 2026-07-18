@@ -11,6 +11,7 @@ Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute de
 - collecteurs, analyseurs, tests et fixtures fictives;
 - scripts Windows;
 - exemples de configuration;
+- exemples JSON fictifs sous `portal/data/*.example.json`;
 - verrous de dépendances externes.
 
 ## À garder hors Git
@@ -20,6 +21,9 @@ Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute de
 - fichiers `.bak`, `.new`, `.previous`;
 - binaires Palworld et SteamCMD;
 - ressources du jeu générées;
+- exports publics réels sous `portal/data/public-*.json`;
+- profils publics réels sous `portal/data/players/`;
+- pages joueurs générées sous `portal/joueur/`;
 - volumes Uptime Kuma et configuration cloudflared;
 - clones complets de dépendances tierces.
 
@@ -37,6 +41,27 @@ Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute de
 Les vrais fichiers secrets sous `/etc/palworld` ne sont jamais copiés dans le dépôt.
 
 La table complète vit dans `server/deployment-manifest.json`. Un nouveau fichier actif doit y être ajouté avec sa destination, ses permissions et sa politique de redémarrage.
+
+## Fichiers publics générés
+
+Les exports publics réels ne sont pas la source Git, même s'ils sont servis aux visiteurs. Ils sont produits depuis Ubuntu et synchronisés vers `portal/data/`.
+
+Principaux contrats:
+
+- métriques live et présences: `public-metrics.json`;
+- sessions et statistiques: `public-stats.json`;
+- snapshots joueurs: `public-save-index.json`, `public-save-snapshot.json`, `players/{slug}.json`;
+- bases et constructions: `public-save-bases.json`;
+- échos: `public-events.json`, `public-events-recent.json`, `public-events-index.json`, `public-events-page-*.json`;
+- disponibilité: `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`.
+
+Git versionne seulement les exemples `*.example.json`. Quand un contrat change, mettre à jour le producteur, la synchronisation Windows, le microsite, les tests et l'exemple correspondant.
+
+## Routes du microsite
+
+Les routes canoniques publiques sont `/`, `/terminal`, `/resume`, `/classements`, `/carte` et `/github`.
+
+`docker/microsite/default.conf` garde les pages et les JSON dynamiques en `no-store`, et les assets versionnés en cache long `immutable`. Toute modification à cette règle doit conserver le blocage de `/data/` hors fichiers publics explicitement autorisés.
 
 ## Audit
 

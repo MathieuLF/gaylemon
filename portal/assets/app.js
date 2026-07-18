@@ -2,6 +2,7 @@ const uptimeSummary = document.querySelector("#uptime-summary");
 const uptimeBars = document.querySelector("#uptime-bars");
 const playersList = document.querySelector("#players-list");
 const headerPlayers = document.querySelector("#header-players");
+const playersTooltip = document.querySelector("#players-tooltip");
 const siteHeader = document.querySelector(".site-header");
 const siteLastUpdated = document.querySelector("#site-last-updated");
 const siteLastUpdatedFull = document.querySelector(".site-last-updated__full");
@@ -42,16 +43,33 @@ const eventPlayerFilter = document.querySelector("#event-player-filter");
 const eventResultCount = document.querySelector("#event-result-count");
 const eventStream = document.querySelector("#event-stream");
 const eventPagination = document.querySelector("#event-pagination");
+const eventControls = document.querySelector("#event-controls");
 const eventSyncStatus = document.querySelector("#event-sync-status");
+const dailyDateInput = document.querySelector("#daily-date");
+const dailyPrevious = document.querySelector("#daily-previous");
+const dailyNext = document.querySelector("#daily-next");
+const dailyStatus = document.querySelector("#daily-status");
+const dailyUpdatedAt = document.querySelector("#daily-updated-at");
+const dailyMetrics = document.querySelector("#daily-metrics");
+const dailyBrief = document.querySelector("#daily-brief");
+const dailyHourly = document.querySelector("#daily-hourly");
+const dailyTypes = document.querySelector("#daily-types");
+const dailyPlayers = document.querySelector("#daily-players");
+const dailyHighlights = document.querySelector("#daily-highlights");
 const globalPlayerMarkers = document.querySelector("#global-player-markers");
 const globalPlayerLegend = document.querySelector("#global-player-legend");
 const globalMapCaption = document.querySelector("#global-map-caption");
+const globalMapLayout = document.querySelector(".archipelago-map-layout");
+const globalMapFigure = document.querySelector(".archipelago-map");
 const globalMapViewport = document.querySelector("#global-map-viewport");
 const globalMapScene = document.querySelector("#global-map-scene");
 const globalMapImage = globalMapScene?.querySelector("img[data-src]");
 const globalMapZoom = document.querySelector("#global-map-zoom");
+const mapPlayerToggle = document.querySelector("#map-player-toggle");
 const mapBaseToggle = document.querySelector("#map-base-toggle");
 const mapBaseCount = document.querySelector("#map-base-count");
+const mapLegendToggle = document.querySelector("#map-legend-toggle");
+const mapFullscreenToggle = document.querySelector("#map-fullscreen-toggle");
 const mapDisclosure = document.querySelector("#carte");
 const expeditionDialog = document.querySelector("#expedition-dialog");
 const expeditionShell = document.querySelector(".expedition-dialog__shell");
@@ -89,7 +107,7 @@ const footerBackToTop = document.querySelector("#footer-back-to-top");
 const contextTooltip = document.querySelector("#context-tooltip");
 const siteFooter = document.querySelector(".site-footer");
 
-const refreshEveryMs = 75000;
+const refreshEveryMs = 20000;
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let nextRefreshAt = Date.now() + refreshEveryMs;
 let refreshPending = false;
@@ -100,6 +118,10 @@ let clockTimer;
 let saveSnapshot = null;
 let saveDiagnosticsSnapshot = null;
 let statsSnapshot = null;
+let headerPresencePlayers = [];
+let headerPresenceMaxPlayers = null;
+let headerPresenceUpdatedAt = "";
+let nextPresenceTooltipRefreshAt = 0;
 let fullSaveSnapshot = null;
 let fullSaveSnapshotPromise = null;
 const playerSnapshotCache = new Map();
@@ -111,7 +133,10 @@ let selectedPlayerStock = [];
 let stockSource = "all";
 let stockCurrentPage = 1;
 const stockPageSize = 24;
+let showMapPlayers = true;
 let showMapBases = false;
+let showMapLegend = true;
+let mapExpandedFallback = false;
 let selectedPlayer = null;
 let palVisibleLimit = 24;
 let paldexCurrentPage = 1;
@@ -121,11 +146,19 @@ const paldexPageSize = 30;
 let playerActivityByName = new Map();
 let eventsSnapshot = null;
 let eventsIndexSnapshot = null;
+let eventsRecentSnapshot = null;
 let eventCurrentPage = 1;
 let eventsFullLoaded = false;
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
 let terminalEventPageSize = 8;
+let dailySelectedDateKey = "";
+let dailyAvailableDateKeys = [];
+let dailyRosterPlayers = [];
+let dailyStatsPlayers = [];
+let dailyStatsUpdatedAt = "";
+let dailyLastSignature = "";
+const siteTimeZone = "America/Toronto";
 const eventExportPageSizeFallback = 250;
 const eventPageCache = new Map();
 const eventPagePromises = new Map();
@@ -169,12 +202,29 @@ const worldDiagnosticRefreshWindowMinutes = 15;
 const worldDiagnosticWarningMs = 3 * 60 * 60 * 1000;
 const worldDiagnosticStaleMs = 6 * 60 * 60 * 1000;
 
+function routeMatches(slug) {
+  const path = location.pathname.replace(/\/+$/, "") || "/";
+  return path === `/${slug}` || path === `/${slug}.html`;
+}
+
 function isTerminalRoute() {
-  return location.pathname.replace(/\/+$/, "") === "/terminal";
+  return routeMatches("terminal");
+}
+
+function isDailyDigestRoute() {
+  return routeMatches("resume");
+}
+
+function isMapRoute() {
+  return routeMatches("carte");
+}
+
+function isLeaderboardRoute() {
+  return routeMatches("classements");
 }
 
 function isGitHubRoute() {
-  return location.pathname.replace(/\/+$/, "") === "/github";
+  return routeMatches("github");
 }
 
 function isDashboardRoute() {
@@ -182,15 +232,20 @@ function isDashboardRoute() {
 }
 
 function isHeaderOnlyRoute() {
-  return !isDashboardRoute() && !isTerminalRoute();
+  return !isDashboardRoute() && !isTerminalRoute() && !isDailyDigestRoute() && !isMapRoute() && !isLeaderboardRoute();
 }
 
-function isLegacyTerminalHash() {
-  return location.pathname === "/" && location.hash === "#terminal";
+function legacyHashRoute() {
+  if (location.pathname !== "/") return "";
+  if (["#terminal", "#evenements"].includes(location.hash)) return "/terminal";
+  if (location.hash === "#classements") return "/classements";
+  if (location.hash === "#carte") return "/carte";
+  return "";
 }
 
-if (isLegacyTerminalHash()) {
-  location.replace("/terminal");
+const legacyRoute = legacyHashRoute();
+if (legacyRoute) {
+  location.replace(legacyRoute);
 }
 
 function versionedGameAsset(path) {
@@ -335,6 +390,7 @@ function setupGlobalMapInteractions() {
       if (button.dataset.mapAction === "zoom-in") setGlobalMapZoom(globalMapView.scale + .5);
       if (button.dataset.mapAction === "zoom-out") setGlobalMapZoom(globalMapView.scale - .5);
       if (button.dataset.mapAction === "reset") resetGlobalMapView();
+      if (button.dataset.mapAction === "fullscreen") void toggleGlobalMapFullscreen();
     });
   });
 
@@ -429,9 +485,38 @@ function setupGlobalMapInteractions() {
 
 setupGlobalMapInteractions();
 
+async function toggleGlobalMapFullscreen() {
+  if (!globalMapFigure) return;
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      mapExpandedFallback = false;
+    } else if (globalMapFigure.requestFullscreen) {
+      await globalMapFigure.requestFullscreen();
+      mapExpandedFallback = false;
+    } else {
+      mapExpandedFallback = !mapExpandedFallback;
+    }
+  } catch {
+    mapExpandedFallback = !mapExpandedFallback;
+  }
+  window.requestAnimationFrame(() => {
+    applyGlobalMapView();
+    syncGlobalMapControls();
+  });
+}
+
+document.addEventListener("fullscreenchange", () => {
+  syncGlobalMapControls();
+  window.requestAnimationFrame(applyGlobalMapView);
+});
+
 function currentDocumentTitle() {
   if (isTerminalRoute()) {
     return "Terminal des échos | Gaylémon Palworld";
+  }
+  if (isDailyDigestRoute()) {
+    return "Résumé quotidien | Gaylémon Palworld";
   }
   if (isGitHubRoute()) {
     return "Dépôt, Ops et pipeline | Gaylémon Palworld";
@@ -461,6 +546,9 @@ function currentDocumentTitle() {
 function currentDocumentDescription() {
   if (isTerminalRoute()) {
     return "Le terminal complet des échos, productions, constructions, captures, recherches et aventures du serveur Gaylémon Palworld.";
+  }
+  if (isDailyDigestRoute()) {
+    return "Résumé quotidien des grandes lignes du serveur Gaylémon: captures, productions, fabrications, niveaux, découvertes et faits marquants par joueur.";
   }
   if (isGitHubRoute()) {
     return "Structure technique de Gaylémon: Gaylemon Ops, scripts Windows, services Ubuntu, projections JSON publiques, validation et limites de publication.";
@@ -586,7 +674,8 @@ function playerSlug(name) {
 }
 
 function playerRoute(player, tab = "profile") {
-  return `#joueur/${playerSlug(player?.name)}/${tab}`;
+  const route = `#joueur/${playerSlug(player?.name)}/${tab}`;
+  return isDashboardRoute() ? route : `/${route}`;
 }
 
 function playerShareRoute(player, tab = "profile") {
@@ -634,6 +723,7 @@ function formatDateTime(value) {
   return date.toLocaleString("fr-CA", {
     dateStyle: "short",
     timeStyle: "medium",
+    timeZone: siteTimeZone,
   });
 }
 
@@ -643,6 +733,7 @@ function formatTime(value) {
   return date.toLocaleTimeString("fr-CA", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: siteTimeZone,
   });
 }
 
@@ -700,7 +791,7 @@ function registerDataUpdate(source, value) {
     hour: "2-digit",
     minute: "2-digit",
   }).replace(",", " ·");
-  siteLastUpdated.title = `Dernières données reçues le ${formatDateTime(latest)}`;
+  siteLastUpdated.dataset.tooltip = `Dernières données reçues le ${formatDateTime(latest)}`;
 }
 
 function latestDateValue(...values) {
@@ -712,9 +803,16 @@ function latestDateValue(...values) {
 
 function updateActiveNavigation() {
   navUpdatePending = false;
-  if (isTerminalRoute()) {
+  if (isTerminalRoute() || isDailyDigestRoute() || isMapRoute() || isLeaderboardRoute()) {
+    const activeLink = isTerminalRoute()
+      ? "terminal"
+      : isDailyDigestRoute()
+        ? "resume"
+        : isMapRoute()
+          ? "carte"
+          : "classements";
     siteNavLinks.forEach((link) => {
-      const isActive = link.dataset.sectionLink === "evenements";
+      const isActive = link.dataset.sectionLink === activeLink;
       link.classList.toggle("is-active", isActive);
       if (isActive) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
@@ -801,6 +899,110 @@ function formatCompactDuration(seconds) {
   }
 
   return `${minutes}m`;
+}
+
+function formatPresenceDurationSince(value, referenceDate = new Date()) {
+  const date = parseDate(value);
+  if (!date) return "depuis une durée inconnue";
+  const total = Math.max(0, Math.floor((referenceDate.getTime() - date.getTime()) / 1000));
+  if (total < 60) return "depuis moins d'une minute";
+
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return `depuis ${days}j ${hours}h`;
+  if (hours > 0) return `depuis ${hours}h ${minutes}m`;
+  return `depuis ${minutes}m`;
+}
+
+function presenceStartedAt(player) {
+  if (!player) return null;
+  if (player.onlineSinceAt) return player.onlineSinceAt;
+  if (player.currentSessionStartedAt) return player.currentSessionStartedAt;
+  if (player.sessionStartedAt) return player.sessionStartedAt;
+  const sessions = Array.isArray(player.sessionHistory) ? player.sessionHistory : [];
+  const openSession = [...sessions].reverse().find((session) => session?.startedAt && !session?.endedAt);
+  return openSession?.startedAt || null;
+}
+
+function normalizePlayerNameKey(value) {
+  return String(value || "").trim().toLocaleLowerCase("fr-CA");
+}
+
+function mergeHeaderPresencePlayers() {
+  const playersByName = new Map();
+  const mergePlayer = (player) => {
+    const name = String(player?.name || "").trim();
+    const key = normalizePlayerNameKey(name);
+    if (!key) return;
+    const previous = playersByName.get(key) || {};
+    playersByName.set(key, {
+      ...previous,
+      ...player,
+      name: name || previous.name || "Joueur",
+    });
+  };
+
+  headerPresencePlayers.forEach(mergePlayer);
+  getPlayersCollection(statsSnapshot)
+    .filter((player) => player?.isOnline)
+    .forEach(mergePlayer);
+
+  return [...playersByName.values()]
+    .sort((first, second) => String(first.name || "").localeCompare(String(second.name || ""), "fr-CA"));
+}
+
+function renderHeaderPlayersTooltip() {
+  if (!headerPlayers) return;
+
+  const players = mergeHeaderPresencePlayers();
+  const now = new Date();
+  const count = players.length;
+  const maxPlayers = headerPresenceMaxPlayers ?? "--";
+  const accessibleLabel = count
+    ? players.map((player) => {
+      const startedAt = presenceStartedAt(player);
+      const arrival = startedAt ? formatTime(startedAt) : "heure d'arrivée inconnue";
+      return `${player.name || "Joueur"}, arrivée ${arrival}, ${formatPresenceDurationSince(startedAt, now)}`;
+    }).join("; ")
+    : "Aucun joueur connecté.";
+
+  if (playersList) playersList.textContent = accessibleLabel;
+  headerPlayers.dataset.state = count ? "online" : "empty";
+  headerPlayers.setAttribute("aria-label", count
+    ? `${count} joueur${count > 1 ? "s" : ""} actuellement en ligne`
+    : "Aucun joueur actuellement en ligne");
+  headerPlayers.removeAttribute("title");
+
+  if (!playersTooltip) return;
+  const updatedText = headerPresenceUpdatedAt ? `Données ${formatRelativeAge(headerPresenceUpdatedAt)}` : "Données en attente";
+  if (!count) {
+    playersTooltip.innerHTML = `
+      <span class="site-header__players-tooltip-kicker">Présences en direct</span>
+      <strong>Aucun joueur connecté</strong>
+      <p>Le serveur ne détecte personne en ligne pour le moment.</p>
+      <small>${escapeHtml(updatedText)}</small>
+    `;
+    return;
+  }
+
+  playersTooltip.innerHTML = `
+    <span class="site-header__players-tooltip-kicker">Présences en direct</span>
+    <strong>${count}/${escapeHtml(maxPlayers)} en ligne</strong>
+    <ul>
+      ${players.map((player) => {
+    const startedAt = presenceStartedAt(player);
+    const arrival = startedAt ? formatTime(startedAt) : "heure inconnue";
+    const durationText = formatPresenceDurationSince(startedAt, now);
+    return `
+        <li style="--player-color:${escapeHtml(playerColor(player))}">
+          <span class="site-header__players-tooltip-avatar">${escapeHtml(playerInitials(player.name))}</span>
+          <span><b>${escapeHtml(player.name || "Joueur")}</b><small>Arrivée ${escapeHtml(arrival)} · ${escapeHtml(durationText)}</small></span>
+        </li>`;
+  }).join("")}
+    </ul>
+    <small>${escapeHtml(updatedText)}</small>
+  `;
 }
 
 function formatPercent(value) {
@@ -900,6 +1102,7 @@ function renderSaveDiagnostics(payload) {
   const output = payload.output || {};
   const publicOutput = payload.publicOutput || {};
   const assets = payload.assets || {};
+  const footprint = payload.footprint || {};
   setWorldData("level", formatBytes(save.levelBytes));
   setWorldData("players", formatBytes(save.playersBytes));
   setWorldDataNote("players", `${Number(save.playerFiles || 0)} profils analysés`);
@@ -927,6 +1130,19 @@ function renderSaveDiagnostics(payload) {
   const age = Number(save.backupAgeSeconds || 0);
   setWorldDataNote("freshness", age < 60 ? `Sauvegarde âgée de ${age} s lors de l'analyse` : `Sauvegarde âgée de ${Math.round(age / 60)} min lors de l'analyse`);
   setWorldData("map", `${Number(assets.worldMapWidth || 8192).toLocaleString("fr-CA")} × ${Number(assets.worldMapHeight || 8192).toLocaleString("fr-CA")}`);
+  const fallbackFootprintBytes = [
+    publicOutput.indexBytes,
+    publicOutput.snapshotBytes || output.snapshotBytes,
+    publicOutput.basesBytes || output.basesBytes,
+    assets.worldMapBytes,
+    assets.treeMapBytes,
+  ].reduce((total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0), 0);
+  const footprintTotal = Number(footprint.totalBytes || fallbackFootprintBytes || 0);
+  setWorldData("footprint", footprintTotal ? formatBytes(footprintTotal) : "--");
+  setWorldDataNote("footprint", footprint.totalBytes
+    ? `Données ${formatBytes(footprint.publicDataBytes)} · microsite ${formatBytes(footprint.micrositeBytes)} · assets ${formatBytes(footprint.assetsBytes)} · scripts ${formatBytes(footprint.scriptsBytes)} · serveur ${formatBytes(footprint.serverBytes)} · config ${formatBytes(footprint.dockerBytes)}`
+    : `Données publiques et assets connus: ${formatBytes(fallbackFootprintBytes)}`);
+  setWorldDataQuality("footprint", footprintTotal ? "up" : "warning");
   setWorldData("parser", String(payload.parser?.commit || "--").slice(0, 12));
   setWorldDataNote("parser", "PalworldSaveTools · catalogue synchronisé");
   const diagnosticEvents = payload.events || {};
@@ -1139,7 +1355,7 @@ function renderLeaderboards() {
             <span class="leaderboard-player">
               <span class="leaderboard-player__avatar">${escapeHtml(playerInitials(player.name))}</span>
               <span><strong>${escapeHtml(player.name)}</strong><small>${escapeHtml(player.guild || "Aventurier indépendant")}</small></span>
-              <i class="${activity?.isOnline ? "is-online" : ""}" title="${activity?.isOnline ? "En ligne" : "Hors ligne"}"></i>
+              <i class="${activity?.isOnline ? "is-online" : ""}" data-tooltip="${activity?.isOnline ? "En ligne" : "Hors ligne"}"></i>
             </span>
           </th>
           ${definition.columns.map((column) => `<td${column.key === sortColumn.key ? ' class="is-sorted"' : ""}>${escapeHtml(formatRankingValue(column, player))}</td>`).join("")}
@@ -1194,6 +1410,11 @@ function renderNextUpdate() {
     refreshProgress.style.transform = `scaleX(${ratio})`;
   }
 
+  if (Date.now() >= nextPresenceTooltipRefreshAt) {
+    nextPresenceTooltipRefreshAt = Date.now() + 30000;
+    renderHeaderPlayersTooltip();
+  }
+
   if (remainingMs === 0) void refreshDataInBackground();
 }
 
@@ -1204,8 +1425,21 @@ function startRefreshClock() {
 
 function renderMetrics(payload) {
   if (!payload?.ok) {
-    if (playersList) playersList.textContent = payload?.error || "Les données du serveur ne sont pas encore disponibles.";
-    if (headerPlayers) headerPlayers.title = playersList?.textContent || "";
+    const message = payload?.error || "Les données du serveur ne sont pas encore disponibles.";
+    headerPresencePlayers = [];
+    headerPresenceUpdatedAt = payload?.updatedAt || "";
+    if (playersList) playersList.textContent = message;
+    if (headerPlayers) {
+      headerPlayers.dataset.state = "empty";
+      headerPlayers.removeAttribute("title");
+    }
+    if (playersTooltip) {
+      playersTooltip.innerHTML = `
+        <span class="site-header__players-tooltip-kicker">Présences en direct</span>
+        <strong>Données indisponibles</strong>
+        <p>${escapeHtml(message)}</p>
+      `;
+    }
     registerDataUpdate("metrics", payload?.updatedAt);
     return;
   }
@@ -1221,14 +1455,10 @@ function renderMetrics(payload) {
 
   registerDataUpdate("metrics", payload.updatedAt);
   const players = Array.isArray(payload.players) ? payload.players : [];
-  const playerLabel = players.length
-    ? players.map((player) => player.name || "Joueur").join(", ")
-    : "Aucun joueur connecté.";
-  if (playersList) playersList.textContent = playerLabel;
-  if (headerPlayers) {
-    headerPlayers.title = playerLabel;
-    headerPlayers.dataset.state = players.length ? "online" : "empty";
-  }
+  headerPresencePlayers = players;
+  headerPresenceMaxPlayers = metrics.maxPlayers ?? null;
+  headerPresenceUpdatedAt = payload.updatedAt || "";
+  renderHeaderPlayersTooltip();
 }
 
 function renderUptime(payload) {
@@ -1298,6 +1528,7 @@ function renderStats(payload) {
 
   updateAdventurerActivity();
   updateGlobalPlayerActivity();
+  renderHeaderPlayersTooltip();
   if (saveSnapshot) renderSaveSnapshot(saveSnapshot, false);
   if (selectedPlayer) {
     updateSelectedPlayerActivity();
@@ -1384,7 +1615,45 @@ function isWorldMapPosition(position) {
   return !(Math.abs(Number(position.mapX)) > 550 && Math.abs(Number(position.mapY)) > 550);
 }
 
+function playerTeamPals(player) {
+  const pals = player?.pals || {};
+  const directTeam = [pals.team, pals.activeTeam, pals.partyPreview]
+    .find((rows) => Array.isArray(rows) && rows.length);
+  if (directTeam) return directTeam;
+  const collection = Array.isArray(pals.collection) ? pals.collection : [];
+  return collection.filter((pal) => pal.container === "party");
+}
+
+function syncGlobalMapControls() {
+  globalMapLayout?.classList.toggle("is-legend-hidden", !showMapLegend);
+  globalMapLayout?.classList.toggle("is-showing-bases", showMapBases);
+  globalMapFigure?.classList.toggle("is-players-hidden", !showMapPlayers);
+  const expanded = mapExpandedFallback || Boolean(document.fullscreenElement && document.fullscreenElement === globalMapFigure);
+  globalMapFigure?.classList.toggle("is-map-expanded", expanded);
+  if (mapPlayerToggle) {
+    mapPlayerToggle.setAttribute("aria-pressed", String(showMapPlayers));
+    mapPlayerToggle.classList.toggle("is-active", showMapPlayers);
+    const label = mapPlayerToggle.querySelector("b");
+    if (label) label.textContent = showMapPlayers ? "Joueurs" : "Joueurs masqués";
+    mapPlayerToggle.dataset.tooltip = showMapPlayers ? "Masquer les joueurs" : "Afficher les joueurs";
+  }
+  if (mapLegendToggle) {
+    mapLegendToggle.setAttribute("aria-pressed", String(showMapLegend));
+    mapLegendToggle.classList.toggle("is-active", showMapLegend);
+    const label = mapLegendToggle.querySelector("b");
+    if (label) label.textContent = showMapLegend ? "Légende" : "Légende masquée";
+    mapLegendToggle.dataset.tooltip = showMapLegend ? "Masquer la légende" : "Afficher la légende";
+  }
+  if (mapFullscreenToggle) {
+    mapFullscreenToggle.setAttribute("aria-pressed", String(expanded));
+    mapFullscreenToggle.classList.toggle("is-active", expanded);
+    mapFullscreenToggle.setAttribute("aria-label", expanded ? "Réduire la carte" : "Agrandir la carte");
+    mapFullscreenToggle.dataset.tooltip = expanded ? "Réduire la carte" : "Agrandir la carte";
+  }
+}
+
 function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
+  if (!globalPlayerMarkers || !globalPlayerLegend || !globalMapCaption) return;
   const positioned = players
     .map((player, index) => ({ player, index }))
     .filter(({ player }) => isWorldMapPosition(player?.position)
@@ -1400,10 +1669,11 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
     globalPlayerMarkers.innerHTML = "";
     globalPlayerLegend.innerHTML = '<p class="save-empty">Aucune position connue pour l\'instant.</p>';
     globalMapCaption.textContent = "Les positions apparaîtront après une sauvegarde du monde.";
+    syncGlobalMapControls();
     return;
   }
 
-  const playerMarkers = positioned.map(({ player, index }, markerIndex) => {
+  const playerMarkers = showMapPlayers ? positioned.map(({ player, index }, markerIndex) => {
     const activity = playerActivityByName.get(String(player.name || "").toLocaleLowerCase("fr-CA"));
     const onlineClass = activity?.isOnline ? " is-online" : "";
     const color = playerColor(player);
@@ -1417,7 +1687,7 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
         <strong>${escapeHtml(player.name)}</strong>
       </span>
     `;
-  }).join("");
+  }).join("") : "";
   const baseMarkers = showMapBases ? positionedBases.map((base, markerIndex) => {
     const playerNames = basePlayerNames(base);
     const ownerLabel = basePlayerLabel(base);
@@ -1436,7 +1706,7 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
   }).join("") : "";
   globalPlayerMarkers.innerHTML = playerMarkers + baseMarkers;
 
-  const playerLegend = positioned.map(({ player, index }) => {
+  const playerLegend = showMapPlayers ? positioned.map(({ player, index }) => {
     const activity = playerActivityByName.get(String(player.name || "").toLocaleLowerCase("fr-CA"));
     const isOnline = Boolean(activity?.isOnline);
     const color = playerColor(player);
@@ -1447,8 +1717,8 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
         <b class="${isOnline ? "is-online" : ""}">${isOnline ? "En ligne" : "Dernière position"}</b>
       </a>
     `;
-  }).join("");
-  const unchartedLegend = uncharted.map(({ player, index }) => {
+  }).join("") : "";
+  const unchartedLegend = showMapPlayers ? uncharted.map(({ player, index }) => {
     const activity = playerActivityByName.get(String(player.name || "").toLocaleLowerCase("fr-CA"));
     const isOnline = Boolean(activity?.isOnline);
     const color = playerColor(player);
@@ -1459,7 +1729,7 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
         <b class="${isOnline ? "is-online" : ""}">${isOnline ? "En ligne" : "Dernière position"}</b>
       </a>
     `;
-  }).join("");
+  }).join("") : "";
   const baseLegend = showMapBases && positionedBases.length ? `
     <div class="global-base-legend">
       <strong>${positionedBases.length} base${positionedBases.length > 1 ? "s" : ""} cartographiée${positionedBases.length > 1 ? "s" : ""}</strong>
@@ -1467,13 +1737,17 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
       <span>Ouvre la fiche d'un aventurier pour explorer ses campements.</span>
     </div>
   ` : "";
-  globalPlayerLegend.innerHTML = playerLegend + unchartedLegend + baseLegend;
+  globalPlayerLegend.innerHTML = showMapLegend ? playerLegend + unchartedLegend + baseLegend : "";
   const unchartedNote = uncharted.length
     ? ` · ${uncharted.length} en zone non cartographiée`
     : "";
-  globalMapCaption.textContent = (showMapBases
-    ? `${positioned.length} aventurier${positioned.length > 1 ? "s" : ""} et ${positionedBases.length} base${positionedBases.length > 1 ? "s" : ""} sur la carte`
-    : `${positioned.length} aventurier${positioned.length > 1 ? "s" : ""} sur la carte · les bases sont masquées`) + unchartedNote;
+  const playerPart = showMapPlayers
+    ? `${positioned.length} aventurier${positioned.length > 1 ? "s" : ""}`
+    : "Joueurs masqués";
+  const basePart = showMapBases
+    ? `${positionedBases.length} base${positionedBases.length > 1 ? "s" : ""}`
+    : "bases masquées";
+  globalMapCaption.textContent = `${playerPart} · ${basePart}` + (showMapPlayers ? unchartedNote : "");
   const visibleBaseCount = basesSnapshot
     ? positionedBases.length
     : Number(saveSnapshot?.summary?.bases || 0);
@@ -1483,12 +1757,13 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
     mapBaseToggle.classList.toggle("is-active", showMapBases);
     const label = mapBaseToggle.querySelector("b");
     if (label) label.textContent = showMapBases ? "Masquer les bases" : "Afficher les bases";
-    mapBaseToggle.title = showMapBases ? "Masquer les bases de la carte" : "Afficher les bases sur la carte";
+    mapBaseToggle.dataset.tooltip = showMapBases ? "Masquer les bases de la carte" : "Afficher les bases sur la carte";
   }
+  syncGlobalMapControls();
 }
 
 function updateGlobalPlayerActivity() {
-  if (!saveSnapshot) return;
+  if (!saveSnapshot || !globalPlayerMarkers || !globalPlayerLegend) return;
 
   (saveSnapshot.players || []).forEach((player) => {
     const slug = playerSlug(player.name);
@@ -1504,7 +1779,7 @@ function updateGlobalPlayerActivity() {
 }
 
 function updateAdventurerActivity() {
-  if (!saveSnapshot) return;
+  if (!saveSnapshot || !savePlayers) return;
 
   (saveSnapshot.players || []).forEach((player) => {
     const card = savePlayers.querySelector(`[data-player-slug="${playerSlug(player.name)}"]`);
@@ -1522,14 +1797,14 @@ function updateAdventurerActivity() {
 
 function renderSaveSnapshot(payload, syncRoute = true) {
   if (!payload?.ok) {
-    saveState.textContent = "En attente";
+    if (saveState) saveState.textContent = "En attente";
     return;
   }
 
   const summary = payload.summary || {};
   const players = getDisplayPlayers(payload);
   saveSnapshot = { ...payload, players };
-  saveState.textContent = "Données synchronisées";
+  if (saveState) saveState.textContent = "Données synchronisées";
   registerDataUpdate("save", payload.updatedAt);
   renderWorldContractStatus();
   const summaryValues = {
@@ -1540,22 +1815,23 @@ function renderSaveSnapshot(payload, syncRoute = true) {
     levels: players.reduce((total, player) => total + Number(player.level || 0), 0),
     technologies: players.reduce((total, player) => total + Number(player.progress?.unlockedTechnologies || 0), 0),
   };
-  Object.entries(summaryValues).forEach(([key, value]) => {
-    const element = saveSummary.querySelector(`[data-save-summary="${key}"]`);
-    if (element) element.textContent = value.toLocaleString("fr-CA");
-  });
+  if (saveSummary) {
+    Object.entries(summaryValues).forEach(([key, value]) => {
+      const element = saveSummary.querySelector(`[data-save-summary="${key}"]`);
+      if (element) element.textContent = value.toLocaleString("fr-CA");
+    });
+  }
   renderGlobalPlayerMap(players);
 
   if (!players.length) {
-    savePlayers.innerHTML = '<p class="save-empty">Aucun aventurier n\'a encore laissé sa marque dans les sauvegardes.</p>';
+    if (savePlayers) savePlayers.innerHTML = '<p class="save-empty">Aucun aventurier n\'a encore laissé sa marque dans les sauvegardes.</p>';
     return;
   }
 
-  savePlayers.innerHTML = players.map((player, index) => {
+  if (savePlayers) savePlayers.innerHTML = players.map((player, index) => {
     const pals = player.pals || {};
-    const progress = player.progress || {};
     const activity = getPlayerActivityValues(player);
-    const favorites = Array.isArray(pals.favorites) ? pals.favorites : [];
+    const teamPals = playerTeamPals(player);
     const cardAccent = playerColor(player);
     if (player.provisional) {
       const level = player.level == null ? "--" : Number(player.level);
@@ -1578,22 +1854,27 @@ function renderSaveSnapshot(payload, syncRoute = true) {
             <strong>Fiche en préparation</strong>
             <span>La connexion est détectée. La progression apparaîtra après la première sauvegarde du personnage.</span>
           </div>
-          <div class="adventurer-card__activity" aria-label="Activité de ${escapeHtml(player.name || "ce joueur")}">
-            <span><small>Connexions</small><strong data-player-activity="sessions">${activity.sessions}</strong></span>
-            <span><small>Temps joué</small><strong data-player-activity="playtime">${activity.playtime}</strong></span>
-            <span><small>Dernière vue</small><strong data-player-activity="lastSeen">${activity.lastSeen}</strong></span>
-            <span><small>Dernier ping</small><strong data-player-activity="ping">${activity.ping}</strong></span>
+          <div class="adventurer-card__quickfacts" aria-label="Résumé de ${escapeHtml(player.name || "ce joueur")}">
+            <span><small>Présence</small><strong data-player-activity="lastSeen">${activity.lastSeen}</strong></span>
+            <span><small>Équipe</small><strong>À venir</strong></span>
           </div>
           <a class="adventurer-card__open" href="${playerRoute(player)}" data-player-index="${index}">Voir la fiche de ${escapeHtml(player.name || "ce joueur")}</a>
         </article>
       `;
     }
-    const favoritePortraits = favorites.length
-      ? favorites.slice(0, 3).map((pal) => gameImage(pal.icon, pal.name, "adventurer-card__pal")).join("")
+    const teamPortraits = teamPals.length
+      ? teamPals.slice(0, 3).map((pal) => gameImage(pal.icon, pal.species || pal.name, "adventurer-card__pal")).join("")
       : `<span class="adventurer-card__pal adventurer-card__pal--empty">${escapeHtml(playerInitials(player.name))}</span>`;
-    const favoriteMarkup = favorites.length
-      ? favorites.map((pal) => `<span>${escapeHtml(pal.name)}${Number(pal.count || 0) > 1 ? ` ×${Number(pal.count)}` : ""}</span>`).join("")
-      : "<span>À découvrir</span>";
+    const teamMarkup = teamPals.length
+      ? teamPals.slice(0, 5).map((pal) => `<span>${escapeHtml(pal.name || pal.species || "Pal")}${pal.level != null ? ` <b>Niv. ${Number(pal.level)}</b>` : ""}</span>`).join("")
+      : "<span>Équipe non détectée dans l'index public</span>";
+    const guildBases = player.guildBases != null ? Number(player.guildBases) : null;
+    const quickFacts = [
+      `<span><small>Pals</small><strong>${Number(pals.total || 0).toLocaleString("fr-CA")}</strong></span>`,
+      `<span><small>Équipe</small><strong>${Number(pals.party || teamPals.length || 0).toLocaleString("fr-CA")}</strong></span>`,
+      guildBases != null ? `<span><small>Bases</small><strong>${guildBases.toLocaleString("fr-CA")}</strong></span>` : "",
+      `<span><small>Dernière vue</small><strong data-player-activity="lastSeen">${activity.lastSeen}</strong></span>`,
+    ].filter(Boolean).slice(0, 3).join("");
 
     return `
       <article class="adventurer-card" data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
@@ -1609,35 +1890,16 @@ function renderSaveSnapshot(payload, syncRoute = true) {
             <span class="level-badge">Niv. ${Number(player.level || 0)}</span>
             <span class="adventurer-card__presence${activity.isOnline ? " is-online" : ""}" data-player-presence>${activity.presence}</span>
           </div>
-          <div class="adventurer-card__portraits" aria-label="Pals favoris de ${escapeHtml(player.name || "ce joueur")}">
-            ${favoritePortraits}
+          <div class="adventurer-card__portraits" aria-label="Pals de l'équipe de ${escapeHtml(player.name || "ce joueur")}">
+            ${teamPortraits}
           </div>
         </div>
-        <div class="adventurer-card__numbers">
-          <span><strong>${Number(pals.total || 0)}</strong>Pals</span>
-          <span><strong>${Number(pals.uniqueSpecies || 0)}</strong>espèces</span>
-          <span><strong>${Number(pals.highestLevel || 0)}</strong>meilleur niveau</span>
+        <div class="adventurer-card__team">
+          <small>Équipe active</small>
+          <div>${teamMarkup}</div>
         </div>
-        <div class="pal-favorites">
-          <small>Compagnons les plus présents</small>
-          <div>${favoriteMarkup}</div>
-        </div>
-        <div class="adventurer-card__progress">
-          ${progress.paldex ? `
-            <span>${Number(progress.paldex.capturedSpecies || 0)} / ${Number(progress.paldex.totalSpecies || 0)} au Paldex</span>
-            <span>${Number(progress.bosses?.defeated || 0)} boss vaincus</span>
-            <span>${formatProgressPercent(progress.exploration?.completionPercent)} exploré</span>
-          ` : `
-            <span>${Number(progress.unlockedTechnologies || 0)} technologies</span>
-            <span>${Number(progress.completedQuests || 0)} quêtes</span>
-            <span>${Number(pals.party || 0)} dans l'équipe</span>
-          `}
-        </div>
-        <div class="adventurer-card__activity" aria-label="Activité de ${escapeHtml(player.name || "ce joueur")}">
-          <span><small>Connexions</small><strong data-player-activity="sessions">${activity.sessions}</strong></span>
-          <span><small>Temps joué</small><strong data-player-activity="playtime">${activity.playtime}</strong></span>
-          <span><small>Dernière vue</small><strong data-player-activity="lastSeen">${activity.lastSeen}</strong></span>
-          <span><small>Dernier ping</small><strong data-player-activity="ping">${activity.ping}</strong></span>
+        <div class="adventurer-card__quickfacts" aria-label="Résumé de ${escapeHtml(player.name || "ce joueur")}">
+          ${quickFacts}
         </div>
         <a class="adventurer-card__open" href="${playerRoute(player)}" data-player-index="${index}">Voir la fiche de ${escapeHtml(player.name || "ce joueur")}</a>
       </article>
@@ -1680,9 +1942,9 @@ function baseWorkerMarkup(worker) {
       <div class="base-worker__task"><small>Tâche observée</small><strong>${escapeHtml(worker.task || "Disponible à la base")}</strong></div>
       <div class="base-worker__aptitudes">${aptitudes}</div>
       <div class="base-worker__vitals">
-        <span title="Satiété"><small>Faim</small><b>${Math.round(Number(worker.hunger || 0))}</b></span>
-        <span title="Santé mentale"><small>SAN</small><b>${worker.sanity == null ? "--" : Math.round(Number(worker.sanity))}</b></span>
-        <span title="Vitesse de travail calculée"><small>Travail</small><b>${worker.computedStats?.workSpeed ?? "--"}</b></span>
+        <span data-tooltip="Satiété"><small>Faim</small><b>${Math.round(Number(worker.hunger || 0))}</b></span>
+        <span data-tooltip="Santé mentale"><small>SAN</small><b>${worker.sanity == null ? "--" : Math.round(Number(worker.sanity))}</b></span>
+        <span data-tooltip="Vitesse de travail calculée"><small>Travail</small><b>${worker.computedStats?.workSpeed ?? "--"}</b></span>
       </div>
     </article>
   `;
@@ -1764,7 +2026,7 @@ function stockItemMarkup(item) {
       ${gameImage(item.icon, item.name, "stock-item__icon")}
       <div class="stock-item__body">
         <span class="stock-item__source">${escapeHtml(stockSourceMeta[item.source].shortLabel)}</span>
-        <strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
+        <strong data-tooltip="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>
         <small>${escapeHtml(item.category)} · ${escapeHtml(locationText)}</small>
       </div>
       <b>${Number(item.count || 0).toLocaleString("fr-CA")}<small> unités</small></b>
@@ -1904,6 +2166,159 @@ function baseBelongsToPlayer(base, player) {
   return base?.guild && base.guild !== "Guilde anonyme" && base.guild === player.guild;
 }
 
+function cloneExportValue(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function exportTimestampSlug(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "-",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("");
+}
+
+function selectedPlayerBaseRows(player = selectedPlayer) {
+  return (Array.isArray(basesSnapshot?.bases) ? basesSnapshot.bases : [])
+    .filter((base) => baseBelongsToPlayer(base, player));
+}
+
+function selectedPlayerGuildStorageRows(player = selectedPlayer) {
+  return (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+    .filter((storage) => stockBelongsToPlayer(storage, player));
+}
+
+async function ensurePlayerExportDataReady() {
+  if (!basesSnapshot) await loadBases(true);
+  if (selectedPlayer) {
+    selectedPlayerBases = selectedPlayerBaseRows(selectedPlayer);
+    selectedPlayerStock = buildSelectedPlayerStock();
+  }
+}
+
+function buildPlayerAnalysisExport(player) {
+  const collection = Array.isArray(player?.pals?.collection) ? player.pals.collection : [];
+  const party = collection.filter((pal) => pal.container === "party");
+  const palbox = collection.filter((pal) => pal.container === "palbox");
+  const otherPals = collection.filter((pal) => !["party", "palbox"].includes(String(pal.container || "")));
+  const bases = selectedPlayerBaseRows(player);
+  const guildStorage = selectedPlayerGuildStorageRows(player);
+
+  return {
+    export: {
+      schema: "gaylemon-player-analysis.v1",
+      generatedAt: new Date().toISOString(),
+      source: "Gaylémon Palworld",
+      note: "Données publiques en vigueur au moment de l'export.",
+    },
+    snapshots: {
+      playerUpdatedAt: saveSnapshot?.updatedAt || null,
+      basesUpdatedAt: basesSnapshot?.updatedAt || null,
+      saveVersion: saveSnapshot?.version ?? null,
+      basesVersion: basesSnapshot?.version ?? null,
+    },
+    player: {
+      name: player?.name || null,
+      slug: playerSlug(player?.name),
+      guild: player?.guild || null,
+      level: player?.level ?? null,
+      guildBases: player?.guildBases ?? null,
+      campLevel: player?.campLevel ?? null,
+      position: cloneExportValue(player?.position || null),
+      character: cloneExportValue(player?.character || {}),
+    },
+    pals: {
+      summary: cloneExportValue({
+        total: player?.pals?.total ?? collection.length,
+        party: party.length,
+        palbox: palbox.length,
+        other: otherPals.length,
+        uniqueSpecies: player?.pals?.uniqueSpecies ?? null,
+        highestLevel: player?.pals?.highestLevel ?? null,
+      }),
+      party: cloneExportValue(party),
+      palbox: cloneExportValue(palbox),
+      other: cloneExportValue(otherPals),
+    },
+    bases: {
+      summary: {
+        total: bases.length,
+        structures: bases.reduce((total, base) => total + Number(base.structures?.total || 0), 0),
+        damagedStructures: bases.reduce((total, base) => total + Number(base.structures?.damaged || 0), 0),
+        unfinishedStructures: bases.reduce((total, base) => total + Number(base.structures?.unfinished || 0), 0),
+        workersAssigned: bases.reduce((total, base) => total + Number(base.workers?.assigned || 0), 0),
+        storageUnits: bases.reduce((total, base) => total + Number(base.storage?.units || 0), 0),
+        guildStorageUnits: guildStorage.reduce((total, storage) => total + Number(storage.units || 1), 0),
+      },
+      items: cloneExportValue(bases),
+      constructions: cloneExportValue(bases.map((base) => ({
+        name: base.name || null,
+        guild: base.guild || null,
+        campLevel: base.campLevel ?? null,
+        position: base.position || null,
+        structures: base.structures || {},
+        workers: base.workers || {},
+        work: base.work || {},
+        research: base.research || {},
+      }))),
+      guildStorage: cloneExportValue(guildStorage),
+      stock: cloneExportValue(selectedPlayerStock),
+    },
+  };
+}
+
+function downloadJsonExport(payload, filename) {
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function playerExportButtons() {
+  return [...document.querySelectorAll("[data-player-export]")];
+}
+
+function setPlayerExportButtonsState({ label = "", state = "", disabled = Boolean(selectedPlayer?.provisional) } = {}) {
+  playerExportButtons().forEach((button) => {
+    const labelTarget = button.querySelector("[data-player-export-label]") || button;
+    labelTarget.textContent = label || button.dataset.exportLabel || "Exporter JSON";
+    button.classList.toggle("is-success", state === "success");
+    button.classList.toggle("is-error", state === "error");
+    button.disabled = disabled;
+  });
+}
+
+function resetPlayerExportButtons() {
+  setPlayerExportButtonsState();
+}
+
+async function exportSelectedPlayerAnalysisJson() {
+  if (!selectedPlayer || selectedPlayer.provisional || !playerExportButtons().length) return;
+  setPlayerExportButtonsState({ label: "Préparation...", disabled: true });
+
+  try {
+    await ensurePlayerExportDataReady();
+    const payload = buildPlayerAnalysisExport(selectedPlayer);
+    const filename = `gaylemon-${playerSlug(selectedPlayer.name)}-analyse-${exportTimestampSlug()}.json`;
+    downloadJsonExport(payload, filename);
+    setPlayerExportButtonsState({ label: "JSON exporté", state: "success", disabled: true });
+    window.setTimeout(resetPlayerExportButtons, 3000);
+  } catch {
+    setPlayerExportButtonsState({ label: "Export impossible", state: "error", disabled: true });
+    window.setTimeout(resetPlayerExportButtons, 3500);
+  }
+}
+
 function filterBases() {
   if (!baseGrid) return;
   const query = String(baseSearch?.value || "").trim().toLocaleLowerCase("fr-CA");
@@ -1950,7 +2365,7 @@ function renderSelectedPlayerBases() {
     const element = document.querySelector(`[data-base-summary="${key}"]`);
     if (element) element.textContent = typeof value === "number" ? value.toLocaleString("fr-CA") : value;
   });
-  basesState.textContent = basesSnapshot ? "Campements synchronisés" : "Chargement...";
+  if (basesState) basesState.textContent = basesSnapshot ? "Campements synchronisés" : "Chargement...";
   baseGrid.innerHTML = selectedPlayerBases.length
     ? selectedPlayerBases.map(baseCardMarkup).join("")
     : '<p class="detail-empty detail-empty--large">Aucun campement n’est associé à cet aventurier.</p>';
@@ -1960,11 +2375,12 @@ function renderSelectedPlayerBases() {
 
 function renderBaseSnapshot(payload) {
   if (!payload?.ok || !Array.isArray(payload.bases)) {
-    basesState.textContent = "En attente";
+    if (basesState) basesState.textContent = "En attente";
     return;
   }
   basesSnapshot = payload;
   registerDataUpdate("bases", payload.updatedAt);
+  if (basesState) basesState.textContent = `${Number(payload.bases.length || 0).toLocaleString("fr-CA")} bases synchronisées`;
   renderWorldContractStatus();
   if (selectedPlayer) renderSelectedPlayerBases();
   renderGlobalPlayerMap(saveSnapshot?.players || [], payload.bases);
@@ -2003,7 +2419,6 @@ const eventTypeMeta = {
   maintenance: { label: "Maintenances", token: "MAJ", color: "#e7a934" },
   server: { label: "Monde", token: "SYS", color: "#77a7be" },
 };
-
 function normalizeEventSearch(value) {
   return String(value || "")
     .normalize("NFD")
@@ -2052,9 +2467,107 @@ function selectedEventPlayerValue() {
   return eventPlayerFilter?.dataset.pendingValue || eventPlayerFilter?.value || "all";
 }
 
+function shortStableHash(value) {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function eventIdentity(event) {
+  if (!event) return "";
+  if (event.key) return `key:${event.key}`;
+  if (event.source || event.id != null) return `${event.source || "event"}:${event.id ?? ""}`;
+  const fallback = [
+    event.occurredAt,
+    event.type,
+    event.player,
+    event.base,
+    event.title,
+    event.message,
+  ].filter(Boolean).join("|");
+  return fallback ? `fallback:${shortStableHash(fallback)}` : "";
+}
+
+function sortEventsNewestFirst(events) {
+  return dedupeSessionFallbackEvents(events).sort((left, right) => {
+    const rightDate = parseDate(right.occurredAt)?.getTime() || 0;
+    const leftDate = parseDate(left.occurredAt)?.getTime() || 0;
+    if (rightDate !== leftDate) return rightDate - leftDate;
+    return Number(right.id || 0) - Number(left.id || 0);
+  });
+}
+
+function primaryEventRevision(payload) {
+  if (!payload || payload.recent) return "";
+  return String(payload.sourceRevision || payload.revision || "").split("+")[0];
+}
+
+function recentEventRevision(payload) {
+  if (!payload) return "";
+  const explicit = String(payload.recentRevision || "");
+  if (explicit) return explicit;
+  if (payload.recent) return String(payload.revision || "");
+  const parts = String(payload.revision || "").split("+").filter(Boolean);
+  return parts.length > 1 ? parts.at(-1) : "";
+}
+
+function mergeEventPayloads(basePayload, overlayPayload) {
+  const baseEvents = dedupeSessionFallbackEvents(basePayload?.events);
+  const overlayEvents = dedupeSessionFallbackEvents(overlayPayload?.events);
+  const baseRevision = primaryEventRevision(basePayload);
+  const overlayRevision = recentEventRevision(overlayPayload) || recentEventRevision(basePayload);
+  if (!overlayEvents.length) {
+    return {
+      ...basePayload,
+      events: baseEvents,
+      sourceRevision: baseRevision,
+      recentRevision: overlayRevision,
+      revision: [baseRevision || basePayload?.revision, overlayRevision].filter(Boolean).join("+"),
+      summary: {
+        ...(basePayload?.summary || {}),
+        events: baseEvents.length,
+        firstAt: baseEvents.at(-1)?.occurredAt || null,
+        lastAt: baseEvents[0]?.occurredAt || null,
+      },
+    };
+  }
+
+  const byKey = new Map();
+  baseEvents.forEach((event, index) => byKey.set(eventIdentity(event) || `base:${index}`, event));
+  overlayEvents.forEach((event, index) => byKey.set(eventIdentity(event) || `recent:${index}`, event));
+  const events = sortEventsNewestFirst([...byKey.values()]);
+  const baseTotal = Number(basePayload?.summary?.totalEvents || basePayload?.summary?.events || baseEvents.length || 0);
+  const overlayTotal = Number(overlayPayload?.summary?.totalEvents || overlayPayload?.summary?.events || overlayEvents.length || 0);
+  const latestUpdatedAt = latestDateValue(basePayload?.updatedAt, overlayPayload?.updatedAt)?.toISOString();
+
+  return {
+    ...basePayload,
+    ok: true,
+    version: Math.max(Number(basePayload?.version || 0), Number(overlayPayload?.version || 0)),
+    sourceRevision: baseRevision,
+    recentRevision: overlayRevision,
+    revision: [baseRevision || basePayload?.revision, overlayRevision].filter(Boolean).join("+"),
+    updatedAt: latestUpdatedAt || basePayload?.updatedAt || overlayPayload?.updatedAt || new Date().toISOString(),
+    summary: {
+      ...(basePayload?.summary || {}),
+      totalEvents: Math.max(baseTotal, overlayTotal, events.length),
+      events: events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+    events,
+  };
+}
+
 function renderEventFilterOptions(types, players) {
   const selectedType = selectedEventTypeValue();
   const selectedPlayer = selectedEventPlayerValue();
+  if (selectedType !== "all" && !types.includes(selectedType)) types = [selectedType, ...types];
+  if (selectedPlayer !== "all" && !players.includes(selectedPlayer)) players = [selectedPlayer, ...players];
 
   if (eventTypeFilter) eventTypeFilter.innerHTML = [
     '<option value="all">Tous les événements</option>',
@@ -2080,12 +2593,19 @@ function renderEventFilters(events) {
 }
 
 function renderEventFiltersFromFacets(payload) {
-  const types = (payload?.facets?.types || [])
+  const recentEvents = dedupeSessionFallbackEvents(eventsRecentSnapshot?.events || (!eventsFullLoaded ? eventsSnapshot?.events : []));
+  const types = [...new Set([
+    ...(payload?.facets?.types || [])
     .map((facet) => typeof facet === "string" ? facet : facet?.value)
-    .filter(Boolean);
-  const players = (payload?.facets?.players || [])
+    .filter(Boolean),
+    ...recentEvents.map((event) => event.type).filter(Boolean),
+  ])];
+  const players = [...new Set([
+    ...(payload?.facets?.players || [])
     .map((facet) => typeof facet === "string" ? facet : facet?.value)
-    .filter(Boolean)
+    .filter(Boolean),
+    ...recentEvents.map((event) => event.player).filter(Boolean),
+  ])]
     .sort((left, right) => left.localeCompare(right, "fr-CA"));
 
   renderEventFilterOptions(types, players);
@@ -2117,11 +2637,7 @@ function estimateTerminalEventRowHeight() {
 
 function calculateTerminalPageSize() {
   if (!isTerminalRoute() || !eventStream) return terminalEventPageSize;
-  const streamHeight = eventStream.getBoundingClientRect().height || 0;
-  const paginationHeight = eventPagination?.getBoundingClientRect().height || 64;
-  const availableFromViewport = Math.max(240, window.innerHeight - eventStream.getBoundingClientRect().top - paginationHeight - 18);
-  const availableHeight = streamHeight || availableFromViewport;
-  return clamp(Math.floor(availableHeight / estimateTerminalEventRowHeight()), 4, 18);
+  return clamp(Math.floor(terminalStreamAvailableHeight() / estimateTerminalEventRowHeight()), 1, 18);
 }
 
 function updateTerminalPageSize(preserveFirstItem = false) {
@@ -2139,12 +2655,19 @@ function refineRenderedTerminalPageSize() {
   if (!isTerminalRoute() || !eventStream) return false;
   const rows = [...eventStream.querySelectorAll(".event-line")];
   if (!rows.length) return false;
-  const streamHeight = eventStream.getBoundingClientRect().height || 0;
   const averageRowHeight = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0) / rows.length;
-  const next = clamp(Math.floor(streamHeight / Math.max(averageRowHeight, 1)), 4, 18);
+  const next = clamp(Math.floor(terminalStreamAvailableHeight() / Math.max(averageRowHeight, 1)), 1, 18);
   if (next === terminalEventPageSize) return false;
   terminalEventPageSize = next;
   return true;
+}
+
+function terminalStreamAvailableHeight() {
+  if (!eventStream) return 0;
+  const streamTop = eventStream.getBoundingClientRect().top;
+  const paginationHeight = eventPagination?.getBoundingClientRect().height || 58;
+  const bottomGap = window.innerWidth <= 720 ? 86 : 18;
+  return Math.max(160, window.innerHeight - streamTop - paginationHeight - bottomGap);
 }
 
 function readTerminalState() {
@@ -2167,7 +2690,22 @@ function readTerminalState() {
     eventPlayerFilter.value = values.player;
   }
   eventCurrentPage = Math.max(1, values.page || 1);
+  syncEventControlsState();
   updateTerminalPageSize();
+}
+
+function terminalFiltersAreActive() {
+  return Boolean(
+    normalizeEventSearch(eventSearch?.value) ||
+    selectedEventTypeValue() !== "all" ||
+    selectedEventPlayerValue() !== "all"
+  );
+}
+
+function syncEventControlsState() {
+  if (!eventControls) return;
+  const active = terminalFiltersAreActive();
+  eventControls.classList.toggle("has-active-filters", active);
 }
 
 function writeTerminalState() {
@@ -2189,17 +2727,74 @@ function writeTerminalState() {
   history.replaceState(null, "", `/terminal${query ? `?${query}` : ""}`);
 }
 
-function renderEventStreamItems(visible, terminal, refinePageSize) {
+function elementFromHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html.trim();
+  return template.content.firstElementChild;
+}
+
+function eventRenderSignature(event) {
+  return shortStableHash(JSON.stringify([
+    event?.occurredAt || "",
+    event?.type || "",
+    event?.player || "",
+    event?.base || "",
+    event?.icon || "",
+    event?.title || "",
+    event?.message || "",
+    event?.display?.headline || "",
+    event?.display?.body || "",
+    ...(event?.display?.bullets || []),
+  ]));
+}
+
+function renderEventStreamItems(visible, terminal, refinePageSize, options = {}) {
   if (!eventStream) return false;
   if (!visible.length) {
     eventStream.innerHTML = '<li class="event-stream__empty">Aucun écho ne correspond à cette recherche.</li>';
     return false;
   }
 
-  eventStream.innerHTML = visible.map((event) => {
+  const rendered = visible.map((event, index) => ({
+    key: eventIdentity(event) || `visible:${index}`,
+    signature: eventRenderSignature(event),
+    html: renderEventLineHtml(event, index),
+  }));
+
+  if (!options.preserveDom) {
+    eventStream.innerHTML = rendered.map((item) => item.html).join("");
+    return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+  }
+
+  const existingLines = new Map(
+    [...eventStream.querySelectorAll(".event-line[data-event-key]")].map((line) => [line.dataset.eventKey, line]),
+  );
+  const nextNodes = rendered.map((item) => {
+    const existing = existingLines.get(item.key);
+    if (existing && existing.dataset.eventRender === item.signature) return existing;
+    const node = elementFromHtml(item.html);
+    if (terminal && !prefersReducedMotion.matches) {
+      node.classList.add("event-line--new");
+    }
+    return node;
+  }).filter(Boolean);
+
+  eventStream.replaceChildren(...nextNodes);
+  if (terminal && !prefersReducedMotion.matches) {
+    window.requestAnimationFrame(() => {
+      eventStream.querySelectorAll(".event-line--new").forEach((line) => {
+        line.classList.remove("event-line--new");
+      });
+    });
+  }
+  return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+}
+
+function renderEventLineHtml(event, index = 0) {
     const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
     const timestamp = formatEventTime(event.occurredAt);
     const accent = event.player ? playerColor(event.player) : meta.color;
+    const playerClass = event.player ? " event-line--player" : "";
     const headline = compactEventHeadline(event, event.display?.headline || event.title);
     const bullets = Array.isArray(event.display?.bullets) ? event.display.bullets : [];
     const body = compactItemizedEventBody(event, event.display?.body || event.message, bullets);
@@ -2207,20 +2802,20 @@ function renderEventStreamItems(visible, terminal, refinePageSize) {
     const visual = event.icon
       ? gameImage(event.icon, "", "event-line__portrait")
       : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
+    const key = eventIdentity(event) || `visible:${index}`;
+    const signature = eventRenderSignature(event);
     return `
-      <li class="event-line event-line--${escapeHtml(event.type)}${detailClass}" style="--event-accent:${accent}">
+      <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
         <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.date)} · ${escapeHtml(timestamp.time)}</strong></time>
         <span class="event-line__rail" aria-hidden="true"><i></i></span>
         <span class="event-line__visual">${visual}</span>
         <span class="event-line__content">
-          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em>${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em>${escapeHtml(event.base)}</em>` : ""}</span>
+          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}</span>
           <strong>${escapeHtml(headline)}</strong>
           <span class="event-line__body">${escapeHtml(body)}</span>
           ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
         </span>
       </li>`;
-  }).join("");
-  return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
 }
 
 function eventBulletQuantityTotal(bullets) {
@@ -2311,6 +2906,66 @@ function eventIndexPagePath(pageNumber) {
   return String(metadata?.path || `data/public-events-page-${String(page).padStart(4, "0")}.json`).replace(/^\/+/, "");
 }
 
+function eventIndexPageSignature(entry) {
+  if (!entry) return "";
+  return [
+    entry.path || "",
+    entry.events || "",
+    entry.firstAt || "",
+    entry.lastAt || "",
+  ].join("|");
+}
+
+function eventIndexEntryForPage(pageNumber) {
+  const page = Number(pageNumber) || 1;
+  return (eventsIndexSnapshot?.pages || []).find((entry) => Number(entry?.page) === page);
+}
+
+function eventPayloadPageSignature(payload) {
+  if (!payload) return "";
+  return [
+    payload.path || "",
+    (payload.events || []).length || payload.summary?.events || "",
+    payload.summary?.firstAt || "",
+    payload.summary?.lastAt || "",
+  ].join("|");
+}
+
+function eventCachedPageMatchesIndex(pageNumber, payload) {
+  const entry = eventIndexEntryForPage(pageNumber);
+  if (!entry || !payload) return false;
+  return eventIndexPageSignature(entry) === eventPayloadPageSignature(payload);
+}
+
+function invalidateChangedEventPages(previousIndex, nextIndex) {
+  if (!previousIndex || !nextIndex) {
+    eventPageCache.clear();
+    eventPagePromises.clear();
+    return;
+  }
+
+  const previousPages = new Map((previousIndex.pages || []).map((entry) => [
+    Number(entry?.page) || 1,
+    eventIndexPageSignature(entry),
+  ]));
+  const nextPages = new Set();
+  for (const entry of nextIndex.pages || []) {
+    const page = Number(entry?.page) || 1;
+    nextPages.add(page);
+    if (previousPages.get(page) !== eventIndexPageSignature(entry)) {
+      eventPageCache.delete(page);
+      eventPagePromises.delete(page);
+    }
+  }
+
+  for (const page of eventPageCache.keys()) {
+    if (!nextPages.has(page)) eventPageCache.delete(page);
+  }
+  for (const page of eventPagePromises.keys()) {
+    if (!nextPages.has(page)) eventPagePromises.delete(page);
+  }
+}
+
 function eventExportPageNumbersForWindow(start, end, pageSize) {
   if (end <= start) return [];
   const firstPage = Math.floor(start / pageSize) + 1;
@@ -2320,13 +2975,18 @@ function eventExportPageNumbersForWindow(start, end, pageSize) {
 
 async function loadEventExportPage(pageNumber) {
   const page = Number(pageNumber) || 1;
-  if (eventPageCache.has(page)) return eventPageCache.get(page);
+  if (eventPageCache.has(page)) {
+    const cached = eventPageCache.get(page);
+    if (eventCachedPageMatchesIndex(page, cached)) return cached;
+    eventPageCache.delete(page);
+  }
   if (eventPagePromises.has(page)) return eventPagePromises.get(page);
 
   const promise = readJson(eventIndexPagePath(page))
     .then((payload) => {
       const pagePayload = {
         ...payload,
+        path: eventIndexPagePath(page),
         events: dedupeSessionFallbackEvents(payload?.events),
       };
       eventPageCache.set(page, pagePayload);
@@ -2353,8 +3013,10 @@ async function collectPagedTerminalEvents() {
     .slice(start - sourceStart, end - sourceStart);
 }
 
-async function renderPagedTerminalEvents(refinePageSize = true) {
+async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
   if (!isTerminalRoute() || !eventsIndexSnapshot || eventFiltersRequireFullHistory()) return false;
+  const preserveViewport = Boolean(options.preserveViewport);
+  const streamTopBefore = preserveViewport ? eventStream?.getBoundingClientRect().top : null;
 
   const totalEvents = eventIndexTotalEvents();
   if (!totalEvents) {
@@ -2372,7 +3034,8 @@ async function renderPagedTerminalEvents(refinePageSize = true) {
     const end = Math.min(start + terminalEventPageSize, totalEvents);
     const missingPages = eventExportPageNumbersForWindow(start, end, eventIndexPageSize())
       .filter((page) => !eventPageCache.has(page));
-    if (missingPages.length && eventStream) {
+    const canKeepCurrentRows = Boolean(options.preserveDom && eventStream?.querySelector(".event-line"));
+    if (missingPages.length && eventStream && !canKeepCurrentRows) {
       eventStream.innerHTML = '<li class="event-stream__empty">Chargement des échos...</li>';
     }
 
@@ -2384,15 +3047,21 @@ async function renderPagedTerminalEvents(refinePageSize = true) {
         ? `${resultLabel} · page ${eventCurrentPage} sur ${updatedPageCount}`
         : resultLabel;
     }
-    if (renderEventStreamItems(visible, true, refinePageSize)) {
-      await renderPagedTerminalEvents(false);
+    if (renderEventStreamItems(visible, true, refinePageSize, { preserveDom: Boolean(options.preserveDom) })) {
+      await renderPagedTerminalEvents(false, options);
       return true;
     }
     renderEventPaginationControls(updatedPageCount);
+    if (preserveViewport && Number.isFinite(streamTopBefore)) {
+      const streamTopAfter = eventStream?.getBoundingClientRect().top;
+      if (Number.isFinite(streamTopAfter)) {
+        window.scrollBy({ top: streamTopAfter - streamTopBefore, behavior: "auto" });
+      }
+    }
     return true;
   } catch {
-    const result = await loadEvents(true);
-    if (result.ok) renderEvents(false);
+    const result = await loadEventsWithRecentOverlay(true);
+    if (result.ok) renderEvents(false, options);
     return result.ok;
   }
 }
@@ -2400,10 +3069,10 @@ async function renderPagedTerminalEvents(refinePageSize = true) {
 async function updateTerminalEvents(refinePageSize = true) {
   if (isTerminalRoute() && !eventsFullLoaded && eventFiltersRequireFullHistory()) {
     if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
-    await loadEvents(true);
+    await loadEventsWithRecentOverlay(true);
   }
-  if (isTerminalRoute() && !eventsFullLoaded && !eventsIndexSnapshot) {
-    await loadEvents(true);
+  if (isTerminalRoute() && !eventsFullLoaded && !eventsIndexSnapshot && !eventsSnapshot) {
+    await loadEventsWithRecentOverlay(true);
   }
   if (isTerminalRoute() && !eventsFullLoaded && eventsIndexSnapshot) {
     await renderPagedTerminalEvents(refinePageSize);
@@ -2413,7 +3082,9 @@ async function updateTerminalEvents(refinePageSize = true) {
   writeTerminalState();
 }
 
-function renderEvents(refinePageSize = true) {
+function renderEvents(refinePageSize = true, options = {}) {
+  const preserveViewport = Boolean(options.preserveViewport);
+  const streamTopBefore = preserveViewport ? eventStream?.getBoundingClientRect().top : null;
   const events = dedupeSessionFallbackEvents(eventsSnapshot?.events);
   const query = normalizeEventSearch(eventSearch?.value);
   const type = selectedEventTypeValue();
@@ -2454,11 +3125,1210 @@ function renderEvents(refinePageSize = true) {
       : resultLabel;
   }
 
-  if (renderEventStreamItems(visible, terminal, refinePageSize)) {
-    renderEvents(false);
+  if (renderEventStreamItems(visible, terminal, refinePageSize, { preserveDom: Boolean(options.preserveDom) })) {
+    renderEvents(false, options);
     return;
   }
   renderEventPaginationControls(pageCount);
+  if (preserveViewport && Number.isFinite(streamTopBefore)) {
+    const streamTopAfter = eventStream?.getBoundingClientRect().top;
+    if (Number.isFinite(streamTopAfter)) {
+      window.scrollBy({ top: streamTopAfter - streamTopBefore, behavior: "auto" });
+    }
+  }
+}
+
+function formatInteger(value) {
+  return Number(value || 0).toLocaleString("fr-CA");
+}
+
+function dailyPlural(value, singular, plural = `${singular}s`) {
+  return `${formatInteger(value)} ${Number(value) === 1 ? singular : plural}`;
+}
+
+function dailyDateKeyParts(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: siteTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date).reduce((values, part) => {
+    if (part.type !== "literal") values[part.type] = part.value;
+    return values;
+  }, {});
+  if (!parts.year || !parts.month || !parts.day) return null;
+  return parts;
+}
+
+function dailyDateKeyFromDate(date) {
+  const parts = dailyDateKeyParts(date);
+  return parts ? `${parts.year}-${parts.month}-${parts.day}` : "";
+}
+
+function dailyDateFromKey(key, endOfDay = false) {
+  const match = String(key || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const time = endOfDay ? "23:59:59.999" : "12:00:00.000";
+  return new Date(`${match[1]}-${match[2]}-${match[3]}T${time}-04:00`);
+}
+
+function dailyDateStartFromKey(key) {
+  const match = String(key || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00.000-04:00`) : null;
+}
+
+function dailyDateEndFromKey(key) {
+  const start = dailyDateStartFromKey(key);
+  if (!start) return null;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return end;
+}
+
+function isDailyDateKey(value) {
+  return Boolean(dailyDateFromKey(value));
+}
+
+function dailyDisplayDate(key, options = {}) {
+  const date = dailyDateFromKey(key);
+  if (!date) return key || "Journée inconnue";
+  return date.toLocaleDateString("fr-CA", {
+    weekday: options.short ? undefined : "long",
+    day: "numeric",
+    month: options.short ? "short" : "long",
+    year: "numeric",
+  });
+}
+
+function dailyEnumerateKeys(firstDate, lastDate) {
+  const firstKey = dailyDateKeyFromDate(firstDate);
+  const lastKey = dailyDateKeyFromDate(lastDate);
+  if (!firstKey || !lastKey) return [];
+  const start = dailyDateFromKey(firstKey);
+  const end = dailyDateFromKey(lastKey);
+  if (!start || !end || start > end) return [];
+  const keys = [];
+  const current = new Date(start);
+  while (current <= end && keys.length < 45) {
+    keys.push(dailyDateKeyFromDate(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return keys;
+}
+
+function dailyAvailableKeysFromIndex() {
+  const keys = new Set();
+  for (const entry of eventsIndexSnapshot?.pages || []) {
+    if (!Number(entry?.events || 0)) continue;
+    const first = parseDate(entry.firstAt);
+    const last = parseDate(entry.lastAt);
+    if (!first || !last) continue;
+    const start = first < last ? first : last;
+    const end = first < last ? last : first;
+    dailyEnumerateKeys(start, end).forEach((key) => keys.add(key));
+  }
+  return [...keys].sort((left, right) => right.localeCompare(left));
+}
+
+function dailyRequestedDateKey() {
+  const key = new URLSearchParams(location.search).get("jour") || "";
+  return isDailyDateKey(key) ? key : "";
+}
+
+function dailyResolveSelectedDate() {
+  const requested = dailySelectedDateKey || dailyRequestedDateKey();
+  if (requested) return requested;
+  return dailyAvailableDateKeys[0] || dailyDateKeyFromDate(new Date());
+}
+
+function dailySetUrlDate(key) {
+  if (!isDailyDigestRoute() || !isDailyDateKey(key)) return;
+  history.replaceState(null, "", `/resume?jour=${encodeURIComponent(key)}`);
+}
+
+function dailyPagesForDate(key) {
+  if (!isDailyDateKey(key)) return [];
+  return (eventsIndexSnapshot?.pages || []).filter((entry) => {
+    if (!Number(entry?.events || 0)) return false;
+    const first = parseDate(entry.firstAt);
+    const last = parseDate(entry.lastAt);
+    if (!first || !last) return false;
+    const firstKey = dailyDateKeyFromDate(first);
+    const lastKey = dailyDateKeyFromDate(last);
+    if (!firstKey || !lastKey) return false;
+    const rangeStart = firstKey < lastKey ? firstKey : lastKey;
+    const rangeEnd = firstKey < lastKey ? lastKey : firstKey;
+    return rangeStart <= key && key <= rangeEnd;
+  });
+}
+
+async function loadDailyRoster() {
+  try {
+    const [savePayload, statsPayload] = await Promise.all([
+      readJson("data/public-save-index.json"),
+      readJson("data/public-stats.json").catch(() => null),
+    ]);
+    const rosterPlayers = Array.isArray(savePayload?.players) ? savePayload.players : [];
+    dailyStatsPlayers = Array.isArray(statsPayload?.players) ? statsPayload.players : [];
+    dailyStatsUpdatedAt = statsPayload?.updatedAt || "";
+    const playersByName = new Map();
+    rosterPlayers.forEach((player) => {
+      const name = String(player?.name || "").trim();
+      const key = normalizePlayerNameKey(name);
+      if (key) playersByName.set(key, { ...player, name });
+    });
+    dailyStatsPlayers.forEach((player) => {
+      const name = String(player?.name || "").trim();
+      const key = normalizePlayerNameKey(name);
+      if (!key) return;
+      const previous = playersByName.get(key) || {};
+      playersByName.set(key, { ...previous, ...player, name: previous.name || name });
+    });
+    dailyRosterPlayers = [...playersByName.values()];
+    registerDataUpdate("save", savePayload?.updatedAt);
+    if (statsPayload?.updatedAt) registerDataUpdate("stats", statsPayload.updatedAt);
+    return { ok: true, changed: false };
+  } catch {
+    dailyRosterPlayers = [];
+    dailyStatsPlayers = [];
+    dailyStatsUpdatedAt = "";
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadDailyEventsForDate(key) {
+  const pages = dailyPagesForDate(key);
+  if (!pages.length) return [];
+  const payloads = await Promise.all(pages.map((entry) => loadEventExportPage(entry.page)));
+  return sortEventsNewestFirst(payloads.flatMap((payload) => payload.events || []))
+    .filter((event) => dailyDateKeyFromDate(parseDate(event.occurredAt)) === key);
+}
+
+function dailyList(value) {
+  if (Array.isArray(value)) return value;
+  if (value == null || value === "") return [];
+  return [value];
+}
+
+function dailyNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dailyFirstNumber(text, pattern) {
+  const match = String(text || "").match(pattern);
+  return match ? dailyNumber(match[1]) : 0;
+}
+
+function dailyAddedTotal(value) {
+  return dailyList(value).reduce((total, item) => {
+    if (item && typeof item === "object") {
+      return total + Math.max(0, dailyNumber(item.added ?? item.count ?? 0));
+    }
+    const match = String(item || "").match(/^\s*\+(\d[\d\s]*)/);
+    return total + (match ? dailyNumber(match[1]) : 0);
+  }, 0);
+}
+
+function dailyRemovedTotal(value) {
+  return dailyList(value).reduce((total, item) => {
+    if (item && typeof item === "object") return total;
+    const match = String(item || "").match(/^\s*-(\d[\d\s]*)/);
+    return total + (match ? dailyNumber(match[1]) : 0);
+  }, 0);
+}
+
+function dailyCountedEntriesFromText(text) {
+  const normalized = String(text || "")
+    .replace(/\s+et\s+/gi, ", ")
+    .split(/\s*,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return normalized.map((part) => {
+    const match = part.match(/^(\d[\d\s]*)\s+(.+)$/);
+    if (!match) return null;
+    return {
+      count: Math.max(0, dailyNumber(match[1])),
+      name: match[2].trim().replace(/[.;:]$/, ""),
+    };
+  }).filter((entry) => entry && entry.count > 0 && entry.name);
+}
+
+function dailyCollectionEntries(event) {
+  const message = `${event?.display?.body || ""} ${event?.message || ""}`;
+  const match = message.match(/accueille\s+(.+?)\s+dans\s+sa\s+collection/i);
+  return match ? dailyCountedEntriesFromText(match[1]) : [];
+}
+
+function dailyCaptureEntries(event) {
+  const message = `${event?.display?.body || ""} ${event?.message || ""}`;
+  if (event?.type === "capture") {
+    const match = message.match(/capture\s+(\d[\d\s]*)\s+(.+?)\.\s+Total/i);
+    if (match) {
+      return [{
+        count: Math.max(0, dailyNumber(match[1])),
+        name: match[2].trim(),
+      }];
+    }
+  }
+  if (event?.type === "collection") return dailyCollectionEntries(event);
+  return [];
+}
+
+function dailyCountedTotal(entries) {
+  return entries.reduce((total, entry) => total + Number(entry.count || 0), 0);
+}
+
+function dailyHourFromDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const hour = new Intl.DateTimeFormat("en-CA", {
+    timeZone: siteTimeZone,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date).find((part) => part.type === "hour")?.value;
+  const parsed = Number(hour);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function dailyEventQuantities(event) {
+  const details = event?.details || {};
+  const message = `${event?.display?.body || ""} ${event?.message || ""}`;
+  const bullets = details.bullets ?? event?.display?.bullets;
+  const items = details.items;
+  const structures = details.structures;
+  const quantities = {
+    craft: 0,
+    production: 0,
+    build: 0,
+    repair: 0,
+    capture: 0,
+    collection: 0,
+    fishing: 0,
+    levelUps: 0,
+    level: 0,
+    boss: event?.type === "boss" ? 1 : 0,
+    discovery: event?.type === "discovery" ? 1 : 0,
+    progress: ["progress", "research", "quest", "challenge", "camp"].includes(event?.type) ? 1 : 0,
+    challenge: event?.type === "challenge" ? 1 : 0,
+    quest: event?.type === "quest" ? 1 : 0,
+    loot: event?.type === "loot" ? 1 : 0,
+    note: event?.type === "note" ? 1 : 0,
+    mutation: event?.type === "mutation" ? 1 : 0,
+    death: event?.type === "death" ? 1 : 0,
+    recovery: event?.type === "recovery" ? 1 : 0,
+    adventure: event?.type === "adventure" ? 1 : 0,
+    rare: 0,
+  };
+
+  if (event?.type === "craft") {
+    quantities.craft = dailyAddedTotal(items) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /termine\s+(\d[\d\s]*)\s+fabrication/i) || 1;
+  }
+  if (event?.type === "production") {
+    quantities.production = dailyAddedTotal(items) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+ressources?\s+produites?/i) || 1;
+  }
+  if (event?.type === "build") {
+    quantities.build = dailyAddedTotal(structures) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+nouvelles?\s+structures?/i) || 1;
+  }
+  if (event?.type === "repair") {
+    quantities.repair = dailyRemovedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+structures?\s+r[ée]par/i) || 1;
+  }
+  if (event?.type === "capture") {
+    quantities.capture = dailyCountedTotal(dailyCaptureEntries(event)) || dailyFirstNumber(message, /capture\s+(\d[\d\s]*)/i) || 1;
+  }
+  if (event?.type === "collection") {
+    quantities.collection = dailyCountedTotal(dailyCollectionEntries(event)) || dailyFirstNumber(message, /compte\s+(\d[\d\s]*)\s+Pals?\s+de\s+plus/i) || 1;
+  }
+  if (event?.type === "fishing") {
+    quantities.fishing = dailyAddedTotal(items) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /ram[èe]ne\s+(\d[\d\s]*)/i) || 1;
+  }
+  if (event?.type === "level") {
+    quantities.levelUps = 1;
+    quantities.level = dailyFirstNumber(message, /niveau\s+(\d[\d\s]*)/i);
+  }
+
+  const rareTypes = new Set(["level", "boss", "mutation", "research", "quest", "challenge", "note", "camp"]);
+  const text = `${event?.title || ""} ${event?.message || ""}`.toLocaleLowerCase("fr-CA");
+  if (rareTypes.has(event?.type) || /premi[eè]re|nouveau|nouvelle|unique|mutation|boss/.test(text)) {
+    quantities.rare = 1;
+  }
+  return quantities;
+}
+
+function dailyItemQuantity(item) {
+  return Math.max(0, dailyNumber(item?.added ?? item?.count ?? 0)) || 1;
+}
+
+function dailyItemKey(item, type) {
+  const asset = String(item?.asset || "").trim();
+  const name = String(item?.name || "Objet").trim();
+  return `${type}|${asset || name}`.toLocaleLowerCase("fr-CA");
+}
+
+function dailyItemsFromEvent(event) {
+  if (!["craft", "production", "fishing"].includes(event?.type)) return [];
+  return dailyList(event?.details?.items).filter((item) => item && typeof item === "object").map((item) => ({
+    key: dailyItemKey(item, event.type),
+    type: event.type,
+    name: String(item.name || "Objet").trim() || "Objet",
+    icon: item.icon || null,
+    quantity: dailyItemQuantity(item),
+    isNew: Boolean(item.isNew),
+    player: String(event.player || "Monde").trim() || "Monde",
+  })).filter((item) => item.quantity > 0);
+}
+
+function dailyAddAggregate(map, entry) {
+  if (!entry?.key) return;
+  const current = map.get(entry.key) || {
+    key: entry.key,
+    type: entry.type || "",
+    name: entry.name || "Objet",
+    icon: entry.icon || null,
+    quantity: 0,
+    newCount: 0,
+    players: new Map(),
+  };
+  current.quantity += Number(entry.quantity || 0);
+  if (entry.isNew) current.newCount += Number(entry.quantity || 0);
+  if (!current.icon && entry.icon) current.icon = entry.icon;
+  const playerName = entry.player || "Monde";
+  current.players.set(playerName, (current.players.get(playerName) || 0) + Number(entry.quantity || 0));
+  map.set(entry.key, current);
+}
+
+function dailyPalKey(name, type) {
+  return `${type}|${String(name || "Pal").trim()}`.toLocaleLowerCase("fr-CA");
+}
+
+function dailyPalEntriesFromEvent(event) {
+  const type = event?.type === "capture" ? "capture" : event?.type === "collection" ? "collection" : "";
+  if (!type) return [];
+  return dailyCaptureEntries(event).map((entry) => ({
+    key: dailyPalKey(entry.name, type),
+    type,
+    name: entry.name,
+    quantity: Number(entry.count || 0),
+    player: String(event.player || "Monde").trim() || "Monde",
+  })).filter((entry) => entry.quantity > 0 && entry.name && entry.name.toLocaleLowerCase("fr-CA") !== "autres");
+}
+
+function dailyTopAggregates(map, limit = 5) {
+  return [...map.values()]
+    .sort((left, right) => Number(right.quantity || 0) - Number(left.quantity || 0)
+      || String(left.name).localeCompare(String(right.name), "fr-CA"))
+    .slice(0, limit);
+}
+
+function dailyAggregatePlayersLabel(entry, limit = 2) {
+  const players = [...(entry?.players || new Map()).entries()]
+    .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0)
+      || String(left[0]).localeCompare(String(right[0]), "fr-CA"));
+  if (!players.length) return "Joueur non identifié";
+  const visible = players.slice(0, limit).map(([name, quantity]) => `${name} ${formatInteger(quantity)}`);
+  const hidden = players.length - visible.length;
+  return `${visible.join(" · ")}${hidden > 0 ? ` · +${hidden}` : ""}`;
+}
+
+function dailyAggregateQuantityLabel(entry) {
+  const quantity = Number(entry?.quantity || 0);
+  if (entry?.type === "craft") return dailyPlural(quantity, "objet fabriqué", "objets fabriqués");
+  if (entry?.type === "production") return dailyPlural(quantity, "ressource produite", "ressources produites");
+  if (entry?.type === "capture") return dailyPlural(quantity, "capture Paldex détectée", "captures Paldex détectées");
+  if (entry?.type === "collection") return dailyPlural(quantity, "Pal ajouté en collection", "Pals ajoutés en collection");
+  return formatInteger(quantity);
+}
+
+function dailyAggregateShortKind(entry) {
+  if (entry?.type === "craft") return "fabrication";
+  if (entry?.type === "production") return "production";
+  if (entry?.type === "capture") return "captures Paldex";
+  if (entry?.type === "collection") return "collection";
+  return "total";
+}
+
+function dailyTopAggregateLabel(entry, fallback = "Aucun élément dominant", options = {}) {
+  if (!entry) return fallback;
+  const prefix = options.withDont ? "dont " : "";
+  return `${prefix}${entry.name} · ${dailyAggregateQuantityLabel(entry)}`;
+}
+
+function dailyFactTotal(metrics) {
+  return Number(metrics.discovery || 0)
+    + Number(metrics.boss || 0)
+    + Number(metrics.progress || 0)
+    + Number(metrics.challenge || 0)
+    + Number(metrics.quest || 0)
+    + Number(metrics.loot || 0)
+    + Number(metrics.note || 0)
+    + Number(metrics.mutation || 0)
+    + Number(metrics.fishing || 0)
+    + Number(metrics.death || 0)
+    + Number(metrics.recovery || 0)
+    + Number(metrics.adventure || 0);
+}
+
+function dailyImpactScore(quantities) {
+  return Number(quantities.levelUps || 0) * 120
+    + Number(quantities.boss || 0) * 80
+    + Number(quantities.death || 0) * 24
+    + Number(quantities.recovery || 0) * 8
+    + Number(quantities.mutation || 0) * 42
+    + Number(quantities.discovery || 0) * 34
+    + Number(quantities.challenge || 0) * 28
+    + Number(quantities.quest || 0) * 28
+    + Number(quantities.progress || 0) * 18
+    + Number(quantities.loot || 0) * 16
+    + Number(quantities.note || 0) * 12
+    + Number(quantities.capture || 0) * 8
+    + Number(quantities.collection || 0) * 7
+    + Number(quantities.fishing || 0) * 6
+    + Number(quantities.build || 0) * 3
+    + Number(quantities.repair || 0) * 2
+    + Math.min(320, Number(quantities.craft || 0)) * .08
+    + Math.min(320, Number(quantities.production || 0)) * .1
+    + Number(quantities.rare || 0) * 18;
+}
+
+function dailyHighlightScore(event, quantities) {
+  const typeScore = {
+    death: 42,
+    recovery: 18,
+    level: 82,
+    boss: 78,
+    mutation: 76,
+    loot: 48,
+    research: 64,
+    quest: 58,
+    challenge: 54,
+    discovery: 44,
+    adventure: 42,
+    collection: 40,
+    capture: 36,
+    fishing: 34,
+    build: 22,
+    production: 14,
+    craft: 12,
+    repair: 20,
+  }[event?.type] || 10;
+  const quantity = quantities.craft + quantities.production + quantities.build + quantities.capture + quantities.collection + quantities.fishing;
+  const quantityScore = quantity >= 1000 ? 42 : quantity >= 250 ? 30 : quantity >= 100 ? 20 : quantity >= 25 ? 12 : quantity >= 8 ? 6 : 0;
+  return typeScore + quantityScore + (quantities.rare ? 18 : 0);
+}
+
+function dailyHighlightBadge(quantities) {
+  if (quantities.level) return `Niveau ${formatInteger(quantities.level)}`;
+  if (quantities.capture) return dailyPlural(quantities.capture, "capture");
+  if (quantities.collection) return dailyPlural(quantities.collection, "Pal accueilli", "Pals accueillis");
+  if (quantities.production) return `${formatInteger(quantities.production)} produit${quantities.production > 1 ? "s" : ""}`;
+  if (quantities.craft) return `${formatInteger(quantities.craft)} fabrication${quantities.craft > 1 ? "s" : ""}`;
+  if (quantities.build) return dailyPlural(quantities.build, "structure");
+  if (quantities.fishing) return dailyPlural(quantities.fishing, "prise");
+  if (quantities.boss) return "Boss";
+  if (quantities.discovery) return "Découverte";
+  if (quantities.challenge) return "Défi";
+  if (quantities.mutation) return "Mutation";
+  return "";
+}
+
+function dailyHighlightFromEvent(event, quantities) {
+  const date = parseDate(event.occurredAt);
+  const headline = event?.display?.headline || event?.title || "Écho";
+  const body = event?.display?.body || event?.message || "";
+  const score = dailyHighlightScore(event, quantities);
+  return {
+    key: eventIdentity(event),
+    type: event.type || "server",
+    player: event.player || "Monde",
+    base: event.base || "",
+    occurredAt: event.occurredAt,
+    timestamp: date ? date.getTime() : 0,
+    time: date ? formatTime(date) : "--",
+    headline,
+    body,
+    badge: dailyHighlightBadge(quantities),
+    score,
+    accent: event.player ? playerColor(event.player) : (eventTypeMeta[event.type]?.color || "#77a7be"),
+  };
+}
+
+function dailyShortDateTime(value) {
+  const date = parseDate(value);
+  if (!date) return value || "--";
+  return date.toLocaleString("fr-CA", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: siteTimeZone,
+  }).replace(",", " ·");
+}
+
+function dailyShortDate(value) {
+  const date = parseDate(value);
+  if (!date) return value || "--";
+  return date.toLocaleDateString("fr-CA", {
+    month: "short",
+    day: "2-digit",
+    timeZone: siteTimeZone,
+  });
+}
+
+function dailySessionOverlap(session, dateKey) {
+  const dayStart = dailyDateStartFromKey(dateKey);
+  const dayEnd = dailyDateEndFromKey(dateKey);
+  const startedAt = parseDate(session?.startedAt || session?.startAt || session?.start);
+  const endedAt = parseDate(session?.endedAt || session?.endAt || session?.end) || parseDate(dailyStatsUpdatedAt) || new Date();
+  if (!dayStart || !dayEnd || !startedAt || !endedAt) return null;
+  const boundedStartMs = Math.max(startedAt.getTime(), dayStart.getTime());
+  const boundedEndMs = Math.min(endedAt.getTime(), dayEnd.getTime());
+  if (boundedEndMs <= boundedStartMs) return null;
+  return {
+    startedAt: session?.startedAt || session?.startAt || session?.start || startedAt.toISOString(),
+    endedAt: session?.endedAt || session?.endAt || session?.end || null,
+    boundedStart: new Date(boundedStartMs),
+    boundedEnd: new Date(boundedEndMs),
+    seconds: Math.floor((boundedEndMs - boundedStartMs) / 1000),
+    inferredOpen: !(session?.endedAt || session?.endAt || session?.end),
+  };
+}
+
+function createDailyPlayerSummary(player) {
+  const name = String(player?.name || player || "Monde").trim() || "Monde";
+  return {
+    name,
+    guild: player?.guild || player?.guildName || null,
+    level: player?.level ?? null,
+    pals: player?.pals?.total ?? null,
+    lastSeenAt: player?.lastSeenAt || null,
+    lastOnlineAt: player?.lastOnlineAt || null,
+    lastSessionEndedAt: player?.lastSessionEndedAt || null,
+    totalOnline: player?.totalOnline || null,
+    totalOnlineSeconds: Number(player?.totalOnlineSeconds || 0),
+    sessionCount: Number(player?.sessionCount || 0),
+    sessionHistory: Array.isArray(player?.sessionHistory) ? player.sessionHistory : [],
+    dailyOnlineSeconds: 0,
+    dailySessionCount: 0,
+    dailyPresenceObserved: false,
+    dailySessions: [],
+    eventCount: 0,
+    firstAt: null,
+    lastAt: null,
+    typeCounts: new Map(),
+    metrics: {
+      craft: 0,
+      production: 0,
+      build: 0,
+      repair: 0,
+      capture: 0,
+      collection: 0,
+      fishing: 0,
+      levelUps: 0,
+      boss: 0,
+      discovery: 0,
+      progress: 0,
+      challenge: 0,
+      quest: 0,
+      loot: 0,
+      note: 0,
+      mutation: 0,
+      death: 0,
+      recovery: 0,
+      adventure: 0,
+      rare: 0,
+    },
+    craftedItems: new Map(),
+    producedItems: new Map(),
+    palFinds: new Map(),
+    highlights: [],
+    score: 0,
+  };
+}
+
+function applyDailyPresence(player, dateKey) {
+  const sessions = (player.sessionHistory || [])
+    .map((session) => dailySessionOverlap(session, dateKey))
+    .filter(Boolean);
+  const lastTraceAt = player.lastSeenAt || player.lastOnlineAt || player.lastSessionEndedAt || null;
+  const lastTraceDate = parseDate(lastTraceAt);
+  if (!sessions.length && lastTraceDate && dailyDateKeyFromDate(lastTraceDate) === dateKey) {
+    sessions.push({
+      startedAt: lastTraceAt,
+      endedAt: lastTraceAt,
+      boundedStart: lastTraceDate,
+      boundedEnd: lastTraceDate,
+      seconds: 0,
+      observedOnly: true,
+    });
+  }
+
+  if (!sessions.length) return;
+
+  player.dailySessions = sessions.sort((left, right) => left.boundedStart - right.boundedStart);
+  player.dailySessionCount = sessions.length;
+  player.dailyPresenceObserved = true;
+  player.dailyOnlineSeconds = sessions.reduce((sum, session) => sum + Number(session.seconds || 0), 0);
+  const firstSession = player.dailySessions[0];
+  const lastSession = player.dailySessions.at(-1);
+  if (firstSession?.boundedStart && (!player.firstAt || firstSession.boundedStart < player.firstAt)) player.firstAt = firstSession.boundedStart;
+  if (lastSession?.boundedEnd && (!player.lastAt || lastSession.boundedEnd > player.lastAt)) player.lastAt = lastSession.boundedEnd;
+  player.score += Math.min(160, (player.dailyOnlineSeconds / 3600) * 10 + player.dailySessionCount * 4);
+}
+
+function dailyPlayerHasActivity(player) {
+  return Boolean(Number(player?.eventCount || 0) > 0 || player?.dailyPresenceObserved);
+}
+
+function addDailyQuantities(target, quantities) {
+  for (const key of Object.keys(target)) {
+    target[key] += Number(quantities[key] || 0);
+  }
+}
+
+function buildDailyDigest(dateKey, events) {
+  const players = new Map();
+  dailyRosterPlayers.forEach((player) => {
+    const name = String(player?.name || "").trim();
+    if (name) players.set(name, createDailyPlayerSummary(player));
+  });
+
+  const totals = {
+    eventCount: events.length,
+    activePlayers: 0,
+    craft: 0,
+    production: 0,
+    build: 0,
+    repair: 0,
+    capture: 0,
+    collection: 0,
+    fishing: 0,
+    levelUps: 0,
+    boss: 0,
+    discovery: 0,
+    progress: 0,
+    challenge: 0,
+    quest: 0,
+    loot: 0,
+    note: 0,
+    mutation: 0,
+    death: 0,
+    recovery: 0,
+    adventure: 0,
+    rare: 0,
+    onlineSeconds: 0,
+    presenceSessions: 0,
+  };
+  const typeCounts = new Map();
+  const craftedItems = new Map();
+  const producedItems = new Map();
+  const palFinds = new Map();
+  const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+  const highlights = [];
+
+  for (const event of events) {
+    const date = parseDate(event.occurredAt);
+    const hour = dailyHourFromDate(date);
+    if (hour != null && hourly[hour]) hourly[hour].count += 1;
+    const type = event.type || "server";
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+
+    const playerName = String(event.player || "Monde").trim() || "Monde";
+    if (!players.has(playerName)) players.set(playerName, createDailyPlayerSummary(playerName));
+    const player = players.get(playerName);
+    const quantities = dailyEventQuantities(event);
+    const highlight = dailyHighlightFromEvent(event, quantities);
+    const itemEntries = dailyItemsFromEvent(event);
+    const palEntries = dailyPalEntriesFromEvent(event);
+
+    player.eventCount += 1;
+    player.typeCounts.set(type, (player.typeCounts.get(type) || 0) + 1);
+    addDailyQuantities(player.metrics, quantities);
+    itemEntries.forEach((entry) => {
+      if (entry.type === "craft") {
+        dailyAddAggregate(craftedItems, entry);
+        dailyAddAggregate(player.craftedItems, entry);
+      } else if (entry.type === "production") {
+        dailyAddAggregate(producedItems, entry);
+        dailyAddAggregate(player.producedItems, entry);
+      }
+    });
+    palEntries.forEach((entry) => {
+      dailyAddAggregate(palFinds, entry);
+      dailyAddAggregate(player.palFinds, entry);
+    });
+    player.score += dailyImpactScore(quantities);
+    if (!player.firstAt || date < player.firstAt) player.firstAt = date;
+    if (!player.lastAt || date > player.lastAt) player.lastAt = date;
+    addDailyQuantities(totals, quantities);
+
+    if (highlight.score >= 54 || highlights.length < 24) {
+      highlights.push(highlight);
+      player.highlights.push(highlight);
+    }
+  }
+
+  players.forEach((player) => {
+    applyDailyPresence(player, dateKey);
+    totals.onlineSeconds += Number(player.dailyOnlineSeconds || 0);
+    totals.presenceSessions += Number(player.dailySessionCount || 0);
+  });
+
+  const playerSummaries = [...players.values()].sort((left, right) => (
+    Number(dailyPlayerHasActivity(right)) - Number(dailyPlayerHasActivity(left)) ||
+    right.score - left.score ||
+    String(left.name).localeCompare(String(right.name), "fr-CA")
+  ));
+  totals.activePlayers = playerSummaries.filter((player) => dailyPlayerHasActivity(player) && player.name !== "Monde").length;
+
+  return {
+    dateKey,
+    events,
+    totals,
+    typeCounts,
+    craftedItems,
+    producedItems,
+    palFinds,
+    hourly,
+    players: playerSummaries,
+    highlights: highlights
+      .sort((left, right) => right.score - left.score || right.timestamp - left.timestamp)
+      .slice(0, 14),
+  };
+}
+
+function renderDailyDateControls(dateKey) {
+  if (!dailyDateInput) return;
+  dailyDateInput.value = dateKey || "";
+  dailyDateInput.min = dailyAvailableDateKeys.at(-1) || "";
+  dailyDateInput.max = dailyAvailableDateKeys[0] || "";
+  const index = dailyAvailableDateKeys.indexOf(dateKey);
+  if (dailyPrevious) dailyPrevious.disabled = index < 0 || index >= dailyAvailableDateKeys.length - 1;
+  if (dailyNext) dailyNext.disabled = index <= 0;
+}
+
+function renderDailyMetric(label, value, detail, tone = "", tooltip = "") {
+  return `
+    <article class="daily-metric ${tone ? `daily-metric--${escapeHtml(tone)}` : ""}"${tooltip ? ` tabindex="0" data-tooltip="${escapeHtml(tooltip)}"` : ""}>
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(detail)}</small>
+    </article>`;
+}
+
+function dailyPlayerReasons(player) {
+  if (!player) return "";
+  if (!Number(player.eventCount || 0)) {
+    if (player.dailyPresenceObserved && Number(player.dailyOnlineSeconds || 0) > 0) {
+      return `${formatCompactDuration(player.dailyOnlineSeconds)} de présence observée`;
+    }
+    if (player.dailyPresenceObserved) return "présence repérée";
+    const lastTrace = player.lastSeenAt || player.lastOnlineAt || player.lastSessionEndedAt;
+    return lastTrace
+      ? `aucune trace ce jour-là; dernière trace ${dailyShortDateTime(lastTrace)}`
+      : "aucune trace ce jour-là";
+  }
+  const metrics = player.metrics || {};
+  const reasons = [
+    { label: "niveaux gagnés", value: Number(metrics.levelUps || 0) },
+    { label: "de présence observée", value: Number(player.dailyOnlineSeconds || 0), format: (value) => formatCompactDuration(value) },
+    { label: "ressources produites", value: Number(metrics.production || 0) },
+    { label: "objets fabriqués", value: Number(metrics.craft || 0) },
+    { label: "captures Paldex", value: Number(metrics.capture || 0) },
+    { label: "ajouts collection", value: Number(metrics.collection || 0) },
+    { label: "structures", value: Number(metrics.build || 0) + Number(metrics.repair || 0) },
+    { label: "faits", value: dailyFactTotal(metrics) },
+  ].filter((reason) => reason.value > 0)
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 3)
+    .map((reason) => `${reason.format ? reason.format(reason.value) : formatInteger(reason.value)} ${reason.label}`);
+  return reasons.length ? reasons.join(" · ") : "activité discrète mais présente";
+}
+
+function renderDailyBrief(summary) {
+  const active = summary.players.filter((player) => dailyPlayerHasActivity(player) && player.name !== "Monde");
+  const leader = [...active].sort((left, right) => Number(right.score || 0) - Number(left.score || 0)
+    || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
+  const busiestHour = [...summary.hourly].sort((left, right) => right.count - left.count)[0];
+  const topHighlight = summary.highlights[0];
+  const topCraft = dailyTopAggregates(summary.craftedItems, 1)[0];
+  const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
+  const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
+  const levelAgreement = summary.totals.levelUps === 1 ? "" : "s";
+  return `
+    <div class="daily-brief__lead">
+      <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
+      <span>${summary.totals.eventCount || summary.totals.presenceSessions ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · faits et présences de la journée` : "Aucun fait ni présence pour cette journée."}</span>
+    </div>
+    <ul class="daily-brief__list">
+      <li><b>Joueur qui se démarque</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Aucune activité joueur détectée"}</span></li>
+      <li><b>Fabrications</b><span>${summary.totals.craft ? `${dailyPlural(summary.totals.craft, "objet fabriqué", "objets fabriqués")} · ${dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true })}` : "Aucune fabrication détectée"}</span></li>
+      <li><b>Production</b><span>${summary.totals.production ? `${dailyPlural(summary.totals.production, "ressource produite", "ressources produites")} · ${dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true })}` : "Aucune production détectée"}</span></li>
+      <li><b>Pals</b><span>${summary.totals.capture + summary.totals.collection ? `${dailyPlural(summary.totals.capture + summary.totals.collection, "signal Pal", "signaux Pals")} · ${dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true })}` : "Aucune capture Paldex ou entrée de collection détectée"}</span></li>
+      <li><b>Fait dominant</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler"}</span></li>
+      <li><b>Niveaux gagnés</b><span>${dailyPlural(summary.totals.levelUps, "montée de niveau", "montées de niveau")} détectée${levelAgreement} pendant la journée.</span></li>
+      <li><b>Rythme</b><span>${busiestHour?.count ? `${String(busiestHour.hour).padStart(2, "0")} h ressort comme période la plus dense` : "Pas assez de données pour dégager un pic"}</span></li>
+    </ul>
+    <div class="daily-type-strip">
+      ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : entry.type === "capture" || entry.type === "collection" ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b>${escapeHtml(dailyAggregateQuantityLabel(entry))}</span>`).join("")}
+    </div>`;
+}
+
+function renderDailyHourly(summary) {
+  const max = Math.max(1, ...summary.hourly.map((entry) => entry.count));
+  return summary.hourly.map((entry) => {
+    const height = Math.max(5, Math.round((entry.count / max) * 100));
+    return `
+      <span class="daily-hour" tabindex="0" data-tooltip="${String(entry.hour).padStart(2, "0")} h · ${dailyPlural(entry.count, "fait de la journée", "faits de la journée")}" style="--hour-height:${height}%">
+        <i></i><b>${entry.hour % 3 === 0 ? `${String(entry.hour).padStart(2, "0")}h` : ""}</b>
+      </span>`;
+  }).join("");
+}
+
+function renderDailyTypes(summary) {
+  const groups = [
+    {
+      title: "Objets fabriqués",
+      empty: "Aucune fabrication détectée.",
+      accent: "#a06ad7",
+      total: summary.totals.craft,
+      rows: dailyTopAggregates(summary.craftedItems, 6),
+      tooltip: "Somme des quantités ajoutées dans les événements de fabrication du jour.",
+    },
+    {
+      title: "Ressources produites",
+      empty: "Aucune production détectée.",
+      accent: "#ef7164",
+      total: summary.totals.production,
+      rows: dailyTopAggregates(summary.producedItems, 6),
+      tooltip: "Somme des ressources prêtes dans les événements de production du jour.",
+    },
+    {
+      title: "Pals détectés",
+      empty: "Aucune capture Paldex ou entrée de collection détectée.",
+      accent: "#40c875",
+      total: summary.totals.capture + summary.totals.collection,
+      rows: dailyTopAggregates(summary.palFinds, 6),
+      tooltip: "Total des captures Paldex détectées et des Pals ajoutés à la collection pendant la journée.",
+    },
+  ];
+  return groups.map((group) => `
+    <article class="daily-tangible-card" style="--tangible-color:${escapeHtml(group.accent)}" tabindex="0" data-tooltip="${escapeHtml(group.tooltip)}">
+      <header>
+        <span>${escapeHtml(group.title)}</span>
+        <strong>${formatInteger(group.total)}</strong>
+      </header>
+      <ol class="daily-item-list">
+        ${group.rows.length ? group.rows.map((row) => `
+          <li data-tooltip="${escapeHtml(`${row.name}: ${dailyAggregateQuantityLabel(row)} · ${dailyAggregatePlayersLabel(row, 3)}`)}">
+            ${row.icon ? gameImage(row.icon, row.name, "daily-item-icon") : `<span class="daily-item-icon daily-item-icon--empty">${escapeHtml(playerInitials(row.name))}</span>`}
+            <span><b>${escapeHtml(row.name)}</b><small>${escapeHtml(`${dailyAggregateShortKind(row)} · ${dailyAggregatePlayersLabel(row, 2)}`)}</small></span>
+            <strong>${formatInteger(row.quantity)}</strong>
+          </li>`).join("") : `<li class="daily-item-list__empty">${escapeHtml(group.empty)}</li>`}
+      </ol>
+    </article>`).join("");
+}
+
+function dailyPlayerFactLabels(player) {
+  const metrics = player.metrics || {};
+  const facts = [
+    { label: "Boss", value: metrics.boss },
+    { label: "Découvertes", value: metrics.discovery },
+    { label: "Défis", value: metrics.challenge },
+    { label: "Progrès", value: metrics.progress },
+    { label: "Mutations", value: metrics.mutation },
+    { label: "Objets uniques", value: metrics.loot },
+    { label: "Notes", value: metrics.note },
+    { label: "Pêche", value: metrics.fishing },
+    { label: "Retours", value: metrics.recovery },
+    { label: "K.O.", value: metrics.death },
+  ].filter((fact) => Number(fact.value || 0) > 0)
+    .sort((left, right) => Number(right.value || 0) - Number(left.value || 0) || left.label.localeCompare(right.label, "fr-CA"));
+  return facts.slice(0, 4);
+}
+
+function dailyPlayerTopLine(player) {
+  const topCraft = dailyTopAggregates(player.craftedItems, 1)[0];
+  const topProduction = dailyTopAggregates(player.producedItems, 1)[0];
+  const topPal = dailyTopAggregates(player.palFinds, 1)[0];
+  const pieces = [
+    topCraft ? `Fabrication: ${topCraft.name} (${formatInteger(topCraft.quantity)})` : "",
+    topProduction ? `Production: ${topProduction.name} (${formatInteger(topProduction.quantity)})` : "",
+    topPal ? `${dailyAggregateShortKind(topPal)}: ${topPal.name} (${formatInteger(topPal.quantity)})` : "",
+  ].filter(Boolean);
+  return pieces.slice(0, 2).join(" · ") || "Aucune fabrication, production ou capture dominante dans les données du jour.";
+}
+
+function dailyPlayerLastTrace(player) {
+  return player?.lastSeenAt || player?.lastOnlineAt || player?.lastSessionEndedAt || null;
+}
+
+function dailyPlayerPresenceFocus(player) {
+  if (Number(player?.eventCount || 0) > 0) return dailyPlayerTopLine(player);
+  if (player?.dailyPresenceObserved && Number(player?.dailyOnlineSeconds || 0) > 0) {
+    return `Présence observée ${formatCompactDuration(player.dailyOnlineSeconds)}; aucun écho de sauvegarde attribué pendant cette journée.`;
+  }
+  if (player?.dailyPresenceObserved) {
+    return "Présence repérée ce jour-là.";
+  }
+  const lastTrace = dailyPlayerLastTrace(player);
+  return lastTrace
+    ? `Aucune présence ni écho le ${dailyDisplayDate(dailySelectedDateKey, { short: true })}; dernière trace ${dailyShortDateTime(lastTrace)}.`
+    : `Aucune présence ni écho pour ${dailyDisplayDate(dailySelectedDateKey, { short: true })}.`;
+}
+
+function renderDailyPresenceHighlights(player) {
+  if (!player?.dailyPresenceObserved || !Array.isArray(player.dailySessions)) return [];
+  return player.dailySessions.slice(0, 2).map((session) => {
+    const start = session.boundedStart || parseDate(session.startedAt);
+    const duration = Number(session.seconds || 0) > 0
+      ? formatCompactDuration(session.seconds)
+      : "durée inconnue";
+    return {
+      occurredAt: session.startedAt,
+      time: start ? formatTime(start) : "--",
+      headline: session.observedOnly ? "Présence détectée" : `Session observée · ${duration}`,
+      score: Number(session.seconds || 0),
+      timestamp: start ? start.getTime() : 0,
+    };
+  });
+}
+
+function renderDailyPlayerCard(player) {
+  const highlights = [
+    ...player.highlights,
+    ...renderDailyPresenceHighlights(player),
+  ]
+    .sort((left, right) => right.score - left.score || right.timestamp - left.timestamp)
+    .slice(0, 2);
+  const facts = dailyPlayerFactLabels(player);
+  const meta = [
+    player.level != null ? `Niveau ${formatInteger(player.level)}` : "",
+    player.guild || "",
+    player.pals != null ? `${formatInteger(player.pals)} Pals` : "",
+  ].filter(Boolean).join(" · ");
+  const playerAccent = playerColor(player.name);
+  const palTotal = Number(player.metrics.capture || 0) + Number(player.metrics.collection || 0);
+  const factTotal = dailyFactTotal(player.metrics);
+  const hasPublishedEchoes = Number(player.eventCount || 0) > 0;
+  const hasDailyActivity = dailyPlayerHasActivity(player);
+  const lastTrace = dailyPlayerLastTrace(player);
+  const statsMarkup = hasPublishedEchoes ? `
+        <span data-tooltip="${escapeHtml("Montées de niveau détectées pendant la journée.")}"><b>${formatInteger(player.metrics.levelUps)}</b><small>Niveaux gagnés</small></span>
+        <span data-tooltip="${escapeHtml(`${dailyPlural(player.metrics.capture, "capture Paldex détectée", "captures Paldex détectées")} + ${dailyPlural(player.metrics.collection, "Pal ajouté en collection", "Pals ajoutés en collection")}.`)}"><b>${formatInteger(palTotal)}</b><small>Pals détectés</small></span>
+        <span data-tooltip="${escapeHtml("Quantités ajoutées par les événements de fabrication.")}"><b>${formatInteger(player.metrics.craft)}</b><small>Objets fabriqués</small></span>
+        <span data-tooltip="${escapeHtml("Ressources prêtes ou sorties de production dans les bases.")}"><b>${formatInteger(player.metrics.production)}</b><small>Ressources produites</small></span>
+        <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
+        <span data-tooltip="${escapeHtml("Découvertes, défis, boss, mutations, notes, pêche et autres faits non routiniers.")}"><b>${formatInteger(factTotal)}</b><small>Faits divers</small></span>` : hasDailyActivity ? `
+        <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
+        <span data-tooltip="${escapeHtml("Sessions observées pendant la journée sélectionnée.")}"><b>${formatInteger(player.dailySessionCount)}</b><small>Sessions du jour</small></span>
+        <span data-tooltip="${escapeHtml("Aucun écho de sauvegarde attribué à ce joueur pour cette journée.")}"><b>0</b><small>Échos</small></span>
+        <span data-tooltip="${escapeHtml("Niveau actuel du joueur.")}"><b>${player.level != null ? formatInteger(player.level) : "--"}</b><small>Niveau actuel</small></span>` : `
+        <span data-tooltip="${escapeHtml("Niveau actuel du joueur.")}"><b>${player.level != null ? formatInteger(player.level) : "--"}</b><small>Niveau actuel</small></span>
+        <span data-tooltip="${escapeHtml("Nombre actuel de Pals du joueur.")}"><b>${player.pals != null ? formatInteger(player.pals) : "--"}</b><small>Pals actuels</small></span>
+        <span data-tooltip="${escapeHtml(lastTrace ? `Dernière trace: ${formatDateTime(lastTrace)}` : "Aucune trace de présence.")}"><b>${lastTrace ? dailyShortDate(lastTrace) : "--"}</b><small>Dernière trace</small></span>`;
+  return `
+    <article class="daily-player-card${hasDailyActivity ? "" : " daily-player-card--quiet"}" style="--player-color:${escapeHtml(playerAccent)};--card-accent:${escapeHtml(playerAccent)}" tabindex="0" data-tooltip="${escapeHtml(`Score de journée: ${Math.round(Number(player.score || 0))} · ${dailyPlayerReasons(player)}`)}">
+      <header>
+        <span class="daily-player-card__avatar">${escapeHtml(playerInitials(player.name))}</span>
+        <span><strong>${escapeHtml(player.name)}</strong><small>${escapeHtml(meta || "Profil")}</small></span>
+      </header>
+      <div class="daily-player-card__stats">
+        ${statsMarkup}
+      </div>
+      <p class="daily-player-card__focus">${escapeHtml(dailyPlayerPresenceFocus(player))}</p>
+      <div class="daily-player-card__types">
+        ${facts.length ? facts.map((fact) => `<span>${escapeHtml(fact.label)} ${formatInteger(fact.value)}</span>`).join("") : player.dailyPresenceObserved ? `<span>Présence ${escapeHtml(formatCompactDuration(player.dailyOnlineSeconds))}</span>` : "<span>Aucun fait divers marquant</span>"}
+      </div>
+      <ul class="daily-player-card__highlights">
+        ${highlights.length ? highlights.map((highlight) => `<li><time${highlight.occurredAt ? ` datetime="${escapeHtml(highlight.occurredAt)}" data-tooltip="${escapeHtml(formatDateTime(highlight.occurredAt))}"` : ""}>${escapeHtml(highlight.time)}</time><span>${escapeHtml(highlight.headline)}</span></li>`).join("") : `<li class="daily-player-card__empty"><span>${escapeHtml(hasDailyActivity ? "Pas de fait marquant détecté ce jour-là." : "Pas de présence détectée ce jour-là.")}</span></li>`}
+      </ul>
+    </article>`;
+}
+
+function dailySyntheticHighlights(summary) {
+  const active = summary.players.filter((player) => dailyPlayerHasActivity(player) && player.name !== "Monde");
+  const leader = [...active].sort((left, right) => Number(right.score || 0) - Number(left.score || 0)
+    || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
+  const topCraft = dailyTopAggregates(summary.craftedItems, 1)[0];
+  const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
+  const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
+  const rows = [];
+  if (leader) {
+    rows.push({
+      type: "daily-leader",
+      player: leader.name,
+      time: "Bilan",
+      headline: "Joueur qui se démarque",
+      body: dailyPlayerReasons(leader),
+      badge: "Cumul",
+      accent: playerColor(leader.name),
+      score: 999,
+    });
+  }
+  if (topCraft) {
+    rows.push({
+      type: "daily-craft",
+      player: dailyAggregatePlayersLabel(topCraft, 1).split(" ")[0] || "Atelier",
+      time: "Bilan",
+      headline: `${topCraft.name} domine les fabrications`,
+      body: `${dailyAggregateQuantityLabel(topCraft)} · ${dailyAggregatePlayersLabel(topCraft, 3)}`,
+      badge: "Objet",
+      accent: "#a06ad7",
+      score: 998,
+    });
+  }
+  if (topProduction) {
+    rows.push({
+      type: "daily-production",
+      player: dailyAggregatePlayersLabel(topProduction, 1).split(" ")[0] || "Base",
+      time: "Bilan",
+      headline: `${topProduction.name} ressort en production`,
+      body: `${dailyAggregateQuantityLabel(topProduction)} · ${dailyAggregatePlayersLabel(topProduction, 3)}`,
+      badge: "Ressource",
+      accent: "#ef7164",
+      score: 997,
+    });
+  }
+  if (topPal) {
+    rows.push({
+      type: "daily-pal",
+      player: dailyAggregatePlayersLabel(topPal, 1).split(" ")[0] || "Pals",
+      time: "Bilan",
+      headline: `${topPal.name} ressort côté Pals`,
+      body: `${dailyAggregateQuantityLabel(topPal)} · ${dailyAggregatePlayersLabel(topPal, 3)}`,
+      badge: "Pal",
+      accent: "#40c875",
+      score: 996,
+    });
+  }
+  return rows;
+}
+
+function dailyCuratedEventHighlights(summary, limit = 10) {
+  const selected = [];
+  const typeCounts = new Map();
+  const playerCounts = new Map();
+  const primary = summary.highlights.filter((highlight) => !["recovery", "death"].includes(highlight.type));
+  const fallback = summary.highlights.filter((highlight) => ["recovery", "death"].includes(highlight.type));
+  for (const highlight of [...primary, ...fallback]) {
+    const typeCount = typeCounts.get(highlight.type) || 0;
+    const playerCount = playerCounts.get(highlight.player) || 0;
+    if (typeCount >= 3 || playerCount >= 4) continue;
+    selected.push(highlight);
+    typeCounts.set(highlight.type, typeCount + 1);
+    playerCounts.set(highlight.player, playerCount + 1);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
+function renderDailyHighlights(summary) {
+  const highlights = [
+    ...dailySyntheticHighlights(summary),
+    ...dailyCuratedEventHighlights(summary, 10),
+  ].slice(0, 14);
+  if (!highlights.length) return '<li class="daily-empty">Aucun moment marquant détecté pour cette journée.</li>';
+  return highlights.map((highlight) => `
+    <li class="daily-highlight" style="--highlight-color:${escapeHtml(highlight.accent)}">
+      <time>${escapeHtml(highlight.time)}</time>
+      <span>
+        <b>${escapeHtml(highlight.player)}</b>
+        <strong>${escapeHtml(highlight.headline)}</strong>
+        <small>${escapeHtml(highlight.body)}</small>
+      </span>
+      ${highlight.badge ? `<em>${escapeHtml(highlight.badge)}</em>` : ""}
+    </li>`).join("");
+}
+
+function renderDailyDigest(summary) {
+  if (!dailyMetrics) return;
+  const totals = summary.totals;
+  if (dailyStatus) {
+    dailyStatus.textContent = totals.eventCount || totals.presenceSessions
+      ? `${dailyPlural(totals.activePlayers, "joueur actif", "joueurs actifs")} · bilan de journée`
+      : "Aucun fait ni présence pour cette journée";
+  }
+  if (dailyUpdatedAt) {
+    dailyUpdatedAt.textContent = eventsIndexSnapshot?.updatedAt
+      ? `Échos actualisés ${formatRelativeAge(eventsIndexSnapshot.updatedAt)}`
+      : "Synchronisation en attente";
+  }
+  const leader = summary.players.filter((player) => dailyPlayerHasActivity(player) && player.name !== "Monde")
+    .sort((left, right) => Number(right.score || 0) - Number(left.score || 0)
+      || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
+  const topCraft = dailyTopAggregates(summary.craftedItems, 1)[0];
+  const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
+  const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
+  const topLevelPlayer = summary.players.filter((player) => Number(player.metrics?.levelUps || 0) > 0)
+    .sort((left, right) => Number(right.metrics?.levelUps || 0) - Number(left.metrics?.levelUps || 0)
+      || Number(right.score || 0) - Number(left.score || 0)
+      || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
+  const factTotal = dailyFactTotal(totals);
+  dailyMetrics.innerHTML = [
+    renderDailyMetric("Joueur du jour", leader?.name || "--", leader ? dailyPlayerReasons(leader) : "Aucune activité joueur", "events", "Score pondéré par niveaux, captures, fabrications, productions, bases et faits non routiniers."),
+    renderDailyMetric("Objets fabriqués", formatInteger(totals.craft), dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true }), "craft", "Somme des quantités ajoutées par les fabrications du jour."),
+    renderDailyMetric("Ressources produites", formatInteger(totals.production), dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true }), "production", "Somme des ressources prêtes dans les productions du jour."),
+    renderDailyMetric("Pals détectés", formatInteger(totals.capture + totals.collection), topPal ? dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true }) : "Aucun Pal dominant", "capture", `${dailyPlural(totals.capture, "capture Paldex détectée", "captures Paldex détectées")} + ${dailyPlural(totals.collection, "Pal ajouté en collection", "Pals ajoutés en collection")}.`),
+    renderDailyMetric("Niveaux gagnés", formatInteger(totals.levelUps), topLevelPlayer ? `dont ${topLevelPlayer.name} · ${dailyPlural(topLevelPlayer.metrics.levelUps, "niveau gagné", "niveaux gagnés")}` : "Aucune montée détectée", "level", "Montées de niveau détectées pendant la journée."),
+    renderDailyMetric("Structures", formatInteger(totals.build), `dont ${dailyPlural(totals.repair, "structure réparée", "structures réparées")}`, "base", "Structures ajoutées et réparations détectées dans les bases."),
+    renderDailyMetric("Faits divers", formatInteger(factTotal), `dont ${dailyPlural(totals.boss, "boss", "boss")} · ${dailyPlural(totals.discovery, "découverte")}`, "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres faits moins routiniers."),
+  ].join("");
+  if (dailyBrief) dailyBrief.innerHTML = renderDailyBrief(summary);
+  if (dailyHourly) dailyHourly.innerHTML = renderDailyHourly(summary);
+  if (dailyTypes) dailyTypes.innerHTML = renderDailyTypes(summary);
+  if (dailyPlayers) {
+    const playerCards = summary.players.filter((player) => player.name !== "Monde");
+    dailyPlayers.innerHTML = playerCards.length
+      ? playerCards.map(renderDailyPlayerCard).join("")
+      : '<p class="daily-empty">Aucun joueur actif repéré pour cette journée.</p>';
+  }
+  if (dailyHighlights) dailyHighlights.innerHTML = renderDailyHighlights(summary);
+}
+
+async function loadDailyDigest(silent = false) {
+  if (!isDailyDigestRoute()) return { ok: true, changed: false };
+  try {
+    if (!silent && dailyStatus) dailyStatus.textContent = "Compilation de la journée...";
+    const [indexResult] = await Promise.all([
+      loadEventsIndex(true),
+      loadDailyRoster(),
+    ]);
+    if (!eventsIndexSnapshot || !indexResult.ok) throw new Error("events-index-unavailable");
+    dailyAvailableDateKeys = dailyAvailableKeysFromIndex();
+    const selectedDate = dailyResolveSelectedDate();
+    dailySelectedDateKey = selectedDate;
+    renderDailyDateControls(selectedDate);
+    const events = await loadDailyEventsForDate(selectedDate);
+    const summary = buildDailyDigest(selectedDate, events);
+    renderDailyDigest(summary);
+    const signature = [
+      eventsIndexSnapshot.revision || "",
+      selectedDate,
+      events.length,
+      events[0]?.key || "",
+      events.at(-1)?.key || "",
+      dailyRosterPlayers.length,
+      dailyStatsUpdatedAt,
+    ].join("|");
+    const changed = signature !== dailyLastSignature;
+    dailyLastSignature = signature;
+    return { ok: true, changed };
+  } catch {
+    if (dailyStatus) dailyStatus.textContent = "Résumé quotidien momentanément indisponible";
+    if (dailyMetrics) dailyMetrics.innerHTML = "";
+    if (dailyBrief) dailyBrief.innerHTML = '<p class="daily-empty">Les données du jour seront réessayées au prochain rafraîchissement.</p>';
+    return { ok: false, changed: false };
+  }
+}
+
+async function selectDailyDate(key, updateUrl = true) {
+  if (!isDailyDateKey(key)) return;
+  dailySelectedDateKey = key;
+  if (updateUrl) dailySetUrlDate(key);
+  renderDailyDateControls(key);
+  await loadDailyDigest(true);
+  trackVirtualPageView();
 }
 
 function renderEventSummaryCards(payload) {
@@ -2479,21 +4349,13 @@ function renderEventSummaryCards(payload) {
 }
 
 function renderEventSnapshot(payload) {
-  const events = dedupeSessionFallbackEvents(payload?.events);
-  eventsSnapshot = {
-    ...payload,
-    events,
-    summary: {
-      ...(payload?.summary || {}),
-      events: events.length,
-      firstAt: events.at(-1)?.occurredAt || null,
-      lastAt: events[0]?.occurredAt || null,
-    },
-  };
+  eventsSnapshot = payload?.recent
+    ? mergeEventPayloads(payload, payload)
+    : mergeEventPayloads(payload, eventsRecentSnapshot);
   renderEventSummaryCards(eventsSnapshot);
-  renderEventSyncStatus(new Date(), payload.updatedAt);
+  renderEventSyncStatus(new Date(), eventsSnapshot.updatedAt);
   if (eventsDisclosure?.open) {
-    renderEventFilters(events);
+    renderEventFilters(eventsSnapshot.events || []);
     renderEvents();
   }
 }
@@ -2511,8 +4373,8 @@ function renderEventSyncStatus(value, dataUpdatedAt = eventsSnapshot?.updatedAt)
   })}`;
   eventSyncStatus.dateTime = date.toISOString();
   const dataDate = parseDate(dataUpdatedAt);
-  eventSyncStatus.title = dataDate
-    ? `Derniers échos publiés le ${formatDateTime(dataDate)}`
+  eventSyncStatus.dataset.tooltip = dataDate
+    ? `Derniers échos le ${formatDateTime(dataDate)}`
     : "Flux des échos synchronisé";
 }
 
@@ -2574,11 +4436,9 @@ function switchDetailTab(name, updateRoute = true) {
 }
 
 function renderPlayerHeader(player) {
-  const pals = Array.isArray(player.pals?.collection) ? player.pals.collection : [];
-  const party = pals.filter((pal) => pal.container === "party");
-  const portraits = [...party, ...pals].slice(0, 3);
+  const portraits = playerTeamPals(player).slice(0, 3);
   expeditionPlayerEmblem.innerHTML = portraits.length
-    ? portraits.map((pal) => gameImage(pal.icon, "", "player-emblem-pal")).join("")
+    ? portraits.map((pal) => gameImage(pal.icon, pal.name || pal.species || "Pal", "player-emblem-pal")).join("")
     : `<span class="player-emblem-fallback">${escapeHtml(playerInitials(player.name))}</span>`;
   expeditionPlayerMeta.textContent = player.provisional
     ? `Niveau ${player.level == null ? "à confirmer" : Number(player.level)} · progression en cours de sauvegarde`
@@ -2998,6 +4858,11 @@ function renderPlayerProfile(player) {
     .map((row) => gameImage(row.icon, row.species || row.name, className))
     .join("");
   expeditionShortcuts.innerHTML = `
+    <button class="profile-export-shortcut" type="button" data-player-export data-export-label="Exporter les données JSON">
+      <span class="shortcut-preview shortcut-preview--json" aria-hidden="true">JSON</span>
+      <span><small>Analyse personnelle</small><strong data-player-export-label>Exporter les données JSON</strong><small class="profile-export-shortcut__detail">Pals en équipe, Palbox, bases et constructions.</small></span>
+      <b>Télécharger →</b>
+    </button>
     <button type="button" data-shortcut-tab="paldex">
       <span class="shortcut-preview shortcut-preview--paldex" aria-hidden="true">PX</span>
       <span><small>Découvertes personnelles</small><strong>Ouvrir le Paldex</strong></span>
@@ -3285,6 +5150,7 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
   renderedPlayerTabs.clear();
   renderedPlayerTabs.add("profile");
   renderPlayerProfile(selectedPlayer);
+  resetPlayerExportButtons();
   expeditionPals.innerHTML = '<p class="detail-empty detail-empty--large">La collection sera préparée à l’ouverture de cet onglet.</p>';
   expeditionInventory.innerHTML = '<p class="detail-empty detail-empty--large">L’inventaire sera préparé à l’ouverture de cet onglet.</p>';
   const activeTab = selectedPlayer.provisional ? "profile" : tab;
@@ -3326,6 +5192,7 @@ function unlockPlayerView() {
 }
 
 function openPlayerFromRoute() {
+  if (!expeditionDialog) return;
   const match = location.hash.match(/^#joueur\/([^/]+)(?:\/(profile|paldex|pals|inventory|bases))?$/);
   if (!match || !saveSnapshot) {
     if (!match && expeditionDialog.open) expeditionDialog.close();
@@ -3339,7 +5206,7 @@ function openPlayerFromRoute() {
 }
 
 function closePlayerDetails() {
-  if (expeditionDialog.open) expeditionDialog.close();
+  if (expeditionDialog?.open) expeditionDialog.close();
   selectedPlayer = null;
   selectedPlayerBases = [];
   history.replaceState(null, "", playerReturnUrl || `${location.pathname}${location.search}`);
@@ -3352,7 +5219,10 @@ let activeTooltipTarget = null;
 function positionContextTooltip(target) {
   const text = target?.dataset.tooltip;
   if (!text) return;
-  contextTooltip.textContent = text;
+  const title = target.dataset.tooltipTitle || "";
+  contextTooltip.innerHTML = title
+    ? `<span class="context-tooltip__title">${escapeHtml(title)}</span><span class="context-tooltip__body">${escapeHtml(text)}</span>`
+    : `<span class="context-tooltip__body">${escapeHtml(text)}</span>`;
   contextTooltip.hidden = false;
   contextTooltip.dataset.placement = target.dataset.tooltipPlacement || "top";
 
@@ -3428,7 +5298,7 @@ async function loadMetrics(silent = false) {
   } catch {
     if (!silent) {
       playersList.textContent = "Les données apparaîtront automatiquement au prochain passage du collecteur.";
-      headerPlayers.title = playersList.textContent;
+      headerPlayers.dataset.tooltip = playersList.textContent;
     }
     return { ok: false, changed: false };
   }
@@ -3473,7 +5343,7 @@ async function loadSaveSnapshot(silent = false, syncRoute = true) {
     return { ok: true, changed };
   } catch {
     if (!silent) {
-      saveState.textContent = "En attente";
+      if (saveState) saveState.textContent = "En attente";
     }
     return { ok: false, changed: false };
   }
@@ -3499,8 +5369,8 @@ async function loadBases(silent = false) {
     return { ok: true, changed };
   } catch {
     if (!silent) {
-      basesState.textContent = "En attente";
-      baseResultCount.textContent = "Les données des bases arriveront au prochain passage du collecteur.";
+      if (basesState) basesState.textContent = "En attente";
+      if (baseResultCount) baseResultCount.textContent = "Les données des bases arriveront au prochain passage du collecteur.";
     }
     return { ok: false, changed: false };
   }
@@ -3525,6 +5395,7 @@ function renderEventIndexSnapshot(payload) {
   eventsIndexSnapshot = payload;
   registerDataUpdate("events", payload?.updatedAt);
   renderEventSyncStatus(new Date(), payload?.updatedAt);
+  if (eventIndexTotalEvents()) void loadEventExportPage(1).catch(() => {});
   if (eventsDisclosure?.open) renderEventFiltersFromFacets(payload);
 }
 
@@ -3556,51 +5427,21 @@ async function loadEvents(silent = false) {
 async function loadEventsIndex(silent = false) {
   try {
     const payload = await readJson("data/public-events-index.json");
+    const previousIndex = eventsIndexSnapshot;
     const previousRevision = eventsIndexSnapshot?.revision || "";
     const changed = isNewDataRevision("eventsIndex", payload);
     if (changed || previousRevision !== payload?.revision) {
-      eventPageCache.clear();
-      eventPagePromises.clear();
+      invalidateChangedEventPages(previousIndex, payload);
     }
     renderEventIndexSnapshot(payload);
     return { ok: true, changed };
   } catch {
-    return loadEvents(silent);
+    return loadEventsWithRecentOverlay(silent);
   }
 }
 
 function mergeEventPayload(payload) {
-  const current = dedupeSessionFallbackEvents(eventsSnapshot?.events);
-  const incoming = dedupeSessionFallbackEvents(payload?.events);
-  const byKey = new Map();
-  for (const event of current) {
-    const key = event.key || `${event.source}:${event.id}`;
-    byKey.set(key, event);
-  }
-  for (const event of incoming) {
-    const key = event.key || `${event.source}:${event.id}`;
-    byKey.set(key, event);
-  }
-  const events = dedupeSessionFallbackEvents([...byKey.values()]).sort((left, right) => {
-    const rightDate = parseDate(right.occurredAt)?.getTime() || 0;
-    const leftDate = parseDate(left.occurredAt)?.getTime() || 0;
-    if (rightDate !== leftDate) return rightDate - leftDate;
-    return Number(right.id || 0) - Number(left.id || 0);
-  });
-  return {
-    ...(eventsSnapshot || {}),
-    version: Math.max(Number(eventsSnapshot?.version || 0), Number(payload?.version || 0)),
-    ok: true,
-    revision: payload?.revision || eventsSnapshot?.revision || "",
-    updatedAt: latestDateValue(eventsSnapshot?.updatedAt, payload?.updatedAt)?.toISOString() || new Date().toISOString(),
-    summary: {
-      ...(eventsSnapshot?.summary || {}),
-      events: events.length,
-      firstAt: events.at(-1)?.occurredAt || null,
-      lastAt: events[0]?.occurredAt || null,
-    },
-    events,
-  };
+  return mergeEventPayloads(eventsSnapshot || {}, payload);
 }
 
 async function loadEventsRecent(silent = true) {
@@ -3609,15 +5450,21 @@ async function loadEventsRecent(silent = true) {
   }
   try {
     const payload = await readJson("data/public-events-recent.json");
+    const recentPayload = {
+      ...payload,
+      recent: true,
+      events: sortEventsNewestFirst(payload?.events || []),
+    };
+    eventsRecentSnapshot = recentPayload;
     lastEventRecentRefreshAt = Date.now();
     if (!eventsFullLoaded) {
-      const changed = isNewDataRevision("events", payload);
-      if (changed) renderEventSnapshot({ ...payload, recent: true });
+      const changed = isNewDataRevision("events", recentPayload);
+      if (changed) renderEventSnapshot(recentPayload);
       return { ok: true, changed };
     }
 
     const previousRevision = eventsSnapshot?.revision || "";
-    const merged = mergeEventPayload(payload);
+    const merged = mergeEventPayload(recentPayload);
     const changed = merged.revision !== previousRevision || merged.events.length !== (eventsSnapshot?.events || []).length;
     const scrollY = window.scrollY;
     eventsSnapshot = merged;
@@ -3626,7 +5473,7 @@ async function loadEventsRecent(silent = true) {
     if (eventsDisclosure?.open) {
       renderEventFilters(merged.events || []);
       if (!isTerminalRoute() || eventCurrentPage === 1) {
-        renderEvents();
+        renderEvents(false, { preserveDom: true, preserveViewport: true });
         window.scrollTo({ top: scrollY, behavior: "auto" });
       }
     }
@@ -3634,6 +5481,17 @@ async function loadEventsRecent(silent = true) {
   } catch {
     return { ok: !silent, changed: false };
   }
+}
+
+async function loadEventsWithRecentOverlay(silent = false) {
+  const results = await Promise.all([
+    loadEventsRecent(true),
+    loadEvents(silent),
+  ]);
+  return {
+    ok: results.some((result) => result.ok),
+    changed: results.some((result) => result.changed),
+  };
 }
 
 async function refreshDataInBackground() {
@@ -3652,11 +5510,33 @@ async function refreshDataInBackground() {
     renderNextUpdate();
     return;
   }
+  if (isDailyDigestRoute()) {
+    const results = await Promise.all([
+      loadMetrics(true),
+      loadDailyDigest(true),
+    ]);
+    const synchronizedSources = results.filter((result) => result.ok).length;
+    const changedSources = results.filter((result) => result.changed).length;
+    nextRefreshAt = Date.now() + refreshEveryMs;
+    refreshPending = false;
+    refreshMessageState = synchronizedSources ? "updated" : "error";
+    const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
+    refreshMessage = synchronizedSources
+      ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
+      : "Nouvel essai bientôt";
+    refreshMessageUntil = Date.now() + 6500;
+    renderNextUpdate();
+    return;
+  }
   if (isTerminalRoute()) {
-    const eventRefresh = eventsFullLoaded
+    const eventRefresh = eventFiltersRequireFullHistory() && !eventsFullLoaded
+      ? loadEventsWithRecentOverlay(true)
+      : eventsFullLoaded
       ? loadEventsRecent(true)
       : loadEventsIndex(true).then(async (result) => {
-        if (result.ok && !eventsFullLoaded) await renderPagedTerminalEvents(false);
+        if (result.ok && !eventsFullLoaded) {
+          await renderPagedTerminalEvents(false, { preserveDom: true, preserveViewport: true });
+        }
         return result;
       });
     const results = await Promise.all([
@@ -3704,7 +5584,7 @@ syncTerminalView();
 if (isTerminalRoute()) {
   if (eventsDisclosure) eventsDisclosure.open = true;
   const terminalEventsLoad = eventFiltersRequireFullHistory()
-    ? loadEvents()
+    ? loadEventsWithRecentOverlay()
     : loadEventsIndex().then(async (result) => {
       if (result.ok && !eventsFullLoaded) await renderPagedTerminalEvents();
       return result;
@@ -3723,6 +5603,32 @@ if (isTerminalRoute()) {
       void renderPagedTerminalEvents(false).then(() => writeTerminalState());
     }
   });
+} else if (isDailyDigestRoute()) {
+  Promise.all([
+    loadMetrics(),
+    loadDailyDigest(),
+  ]).then(() => {
+    document.documentElement.classList.add("data-loaded");
+  });
+} else if (isLeaderboardRoute()) {
+  Promise.all([
+    loadMetrics(),
+    loadStats(),
+    loadSaveSnapshot(false, false),
+  ]).then(() => {
+    document.documentElement.classList.add("data-loaded");
+  });
+} else if (isMapRoute()) {
+  Promise.all([
+    loadMetrics(),
+    loadStats(),
+    loadSaveSnapshot(false, false),
+    loadBases(true),
+  ]).then(() => {
+    loadDeferredImage(globalMapImage);
+    window.requestAnimationFrame(restoreGlobalMapView);
+    document.documentElement.classList.add("data-loaded");
+  });
 } else if (isHeaderOnlyRoute()) {
   loadMetrics().then(() => {
     document.documentElement.classList.add("data-loaded");
@@ -3735,9 +5641,7 @@ if (isTerminalRoute()) {
   const initialBaseLoad = location.hash === "#carte"
     ? loadBases()
     : Promise.resolve({ ok: true, changed: false });
-  const initialEventsLoad = eventsDisclosure?.open
-    ? loadEvents()
-    : loadEventsRecent(true);
+  const initialEventsLoad = eventsDisclosure ? loadEventsRecent(true) : Promise.resolve({ ok: true, changed: false });
 
   Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), initialEventsLoad]).then(() => {
     document.documentElement.classList.add("data-loaded");
@@ -3786,7 +5690,7 @@ savePlayers.addEventListener("click", (event) => {
   }
 });
 
-document.querySelector(".archipelago-overview").addEventListener("click", (event) => {
+document.querySelector(".archipelago-overview")?.addEventListener("click", (event) => {
   const link = event.target.closest("[data-player-index]");
   if (link) {
     event.preventDefault();
@@ -3795,8 +5699,9 @@ document.querySelector(".archipelago-overview").addEventListener("click", (event
   }
 });
 
-document.querySelector('a[href="#chroniques"]').addEventListener("click", () => {
-  document.querySelector('[data-disclosure-key^="chronicles-content"]').open = true;
+document.querySelector('a[href="#chroniques"]')?.addEventListener("click", () => {
+  const chroniclesDisclosure = document.querySelector('[data-disclosure-key^="chronicles-content"]');
+  if (chroniclesDisclosure) chroniclesDisclosure.open = true;
 });
 
 document.querySelectorAll('a[href="#classements"]').forEach((link) => {
@@ -3817,9 +5722,17 @@ eventsDisclosure?.addEventListener("toggle", () => {
     return;
   }
   if (!eventsDisclosure.open) return;
-  if (!eventsFullLoaded) {
+  if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
     if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
-    void loadEvents(true).then(() => {
+    void loadEventsWithRecentOverlay(true).then(() => {
+      if (!eventsDisclosure.open || !eventsSnapshot) return;
+      renderEventFilters(eventsSnapshot.events || []);
+      renderEvents();
+    });
+    return;
+  }
+  if (!eventsSnapshot) {
+    void loadEventsRecent(true).then(() => {
       if (!eventsDisclosure.open || !eventsSnapshot) return;
       renderEventFilters(eventsSnapshot.events || []);
       renderEvents();
@@ -3975,6 +5888,10 @@ expeditionDialog.addEventListener("cancel", (event) => {
 expeditionClose.addEventListener("click", closePlayerDetails);
 expeditionBack.addEventListener("click", closePlayerDetails);
 expeditionShortcuts.addEventListener("click", (event) => {
+  if (event.target.closest("[data-player-export]")) {
+    void exportSelectedPlayerAnalysisJson();
+    return;
+  }
   const shortcut = event.target.closest("[data-shortcut-tab]");
   if (shortcut) switchDetailTab(shortcut.dataset.shortcutTab);
 });
@@ -3999,15 +5916,63 @@ expeditionShare.addEventListener("click", async () => {
     }, 3500);
   }
 });
+document.querySelector("#expedition-export")?.addEventListener("click", () => {
+  void exportSelectedPlayerAnalysisJson();
+});
 palSearch.addEventListener("input", () => { palVisibleLimit = 24; renderPalCollection(); });
 palContainerFilter.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palSort.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palLoadMore.addEventListener("click", () => { palVisibleLimit += 24; renderPalCollection(); });
 inventorySearch.addEventListener("input", () => renderInventory(selectedPlayer));
 }
-eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; void updateTerminalEvents(); });
-eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; void updateTerminalEvents(); });
-eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; void updateTerminalEvents(); });
+
+if (isLeaderboardRoute()) {
+  leaderboardSearch?.addEventListener("input", renderLeaderboards);
+  leaderboardPresence?.addEventListener("change", renderLeaderboards);
+  leaderboardCategory?.addEventListener("change", () => {
+    const definition = leaderboardCategories[leaderboardCategory.value] || leaderboardCategories.progression;
+    leaderboardSortKey = definition.primary;
+    leaderboardSortDirection = "desc";
+    renderLeaderboards();
+  });
+  leaderboardHead?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-leaderboard-sort]");
+    if (!button) return;
+    const key = button.dataset.leaderboardSort;
+    if (leaderboardSortKey === key) leaderboardSortDirection = leaderboardSortDirection === "desc" ? "asc" : "desc";
+    else {
+      leaderboardSortKey = key;
+      leaderboardSortDirection = "desc";
+    }
+    renderLeaderboards();
+  });
+}
+
+if (isMapRoute()) {
+  mapPlayerToggle?.addEventListener("click", () => {
+    showMapPlayers = !showMapPlayers;
+    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+  });
+  mapBaseToggle?.addEventListener("click", async () => {
+    const shouldShow = !showMapBases;
+    if (shouldShow && !basesSnapshot) await loadBases(true);
+    showMapBases = shouldShow;
+    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+  });
+  mapLegendToggle?.addEventListener("click", () => {
+    showMapLegend = !showMapLegend;
+    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+  });
+}
+
+eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
+eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
+eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
+eventControls?.addEventListener("toggle", () => {
+  if (isTerminalRoute() && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
+    void updateTerminalEvents(false);
+  }
+});
 eventPagination?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-event-page]");
   if (!button || button.disabled) return;
@@ -4015,6 +5980,19 @@ eventPagination?.addEventListener("click", (event) => {
   void updateTerminalEvents().then(() => {
     document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
   });
+});
+dailyDateInput?.addEventListener("change", () => {
+  void selectDailyDate(dailyDateInput.value);
+});
+dailyPrevious?.addEventListener("click", () => {
+  const index = dailyAvailableDateKeys.indexOf(dailySelectedDateKey);
+  const nextKey = index >= 0 ? dailyAvailableDateKeys[index + 1] : "";
+  if (nextKey) void selectDailyDate(nextKey);
+});
+dailyNext?.addEventListener("click", () => {
+  const index = dailyAvailableDateKeys.indexOf(dailySelectedDateKey);
+  const nextKey = index > 0 ? dailyAvailableDateKeys[index - 1] : "";
+  if (nextKey) void selectDailyDate(nextKey);
 });
 palSearch?.addEventListener("keydown", clearSearchOnEscape);
 inventorySearch?.addEventListener("keydown", clearSearchOnEscape);
@@ -4073,8 +6051,9 @@ document.addEventListener("click", (event) => {
   if (communityLink) trackCommunityLink(communityLink);
 });
 window.addEventListener("hashchange", () => {
-  if (isLegacyTerminalHash()) {
-    location.replace("/terminal");
+  const nextLegacyRoute = legacyHashRoute();
+  if (nextLegacyRoute) {
+    location.replace(nextLegacyRoute);
     return;
   }
   syncTerminalView(true);
@@ -4089,6 +6068,10 @@ window.addEventListener("hashchange", () => {
   scheduleActiveNavigationUpdate();
 });
 window.addEventListener("popstate", () => {
+  if (isDailyDigestRoute()) {
+    dailySelectedDateKey = dailyRequestedDateKey();
+    void loadDailyDigest(true);
+  }
   openPlayerFromRoute();
   trackVirtualPageView();
 });

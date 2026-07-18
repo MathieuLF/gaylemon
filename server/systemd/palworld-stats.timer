@@ -1,9 +1,9 @@
 [Unit]
-Description=Collect Palworld local statistics every minute
+Description=Collect Palworld local statistics every 20 seconds
 
 [Timer]
-OnBootSec=60s
-OnUnitActiveSec=60s
+OnBootSec=30s
+OnUnitActiveSec=20s
 AccuracySec=1s
 Unit=palworld-stats.service
 

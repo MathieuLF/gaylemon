@@ -1571,7 +1571,11 @@ def player_bosses(sections, catalogs, counters):
         if name.casefold() in seen:
             continue
         seen.add(name.casefold())
-        defeated.append({"name": name, "icon": web_icon(canonical.get("icon"))})
+        defeated.append({
+            "name": name,
+            "asset": str(canonical.get("asset") or asset),
+            "icon": web_icon(canonical.get("icon")),
+        })
     defeated.sort(key=lambda row: row["name"].casefold())
     return {
         "defeated": len(normal_flags) + len(tower_flags),

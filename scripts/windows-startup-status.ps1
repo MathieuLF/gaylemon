@@ -118,7 +118,7 @@ $publicMetricsPath = Join-Path $PSScriptRoot "..\portal\data\public-metrics.json
 if (Test-Path -LiteralPath $publicMetricsPath) {
     $metricsItem = Get-Item -LiteralPath $publicMetricsPath
     $ageSeconds = [int][Math]::Max(0, ((Get-Date).ToUniversalTime() - $metricsItem.LastWriteTimeUtc).TotalSeconds)
-    $freshLimitSeconds = [Math]::Max(180, $config.MetricUpdateTimeoutSeconds + ($config.MetricIntervalSeconds * 3))
+    $freshLimitSeconds = [Math]::Max(90, $config.MetricUpdateTimeoutSeconds + ($config.MetricIntervalSeconds * 2))
     $freshnessColor = if ($ageSeconds -le $freshLimitSeconds) { "Green" } else { "Yellow" }
     Write-Host "Dernier export public-metrics: ${ageSeconds}s" -ForegroundColor $freshnessColor
 }

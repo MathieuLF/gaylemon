@@ -2,6 +2,9 @@
 set -euo pipefail
 
 stage="${1:-}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
 
 if [[ ! "$stage" =~ ^/tmp/gaylemon-staging/[0-9]{8}-[0-9]{6}$ ]]; then
   echo "Stage invalide: $stage" >&2
@@ -20,7 +23,35 @@ if [[ ! -f "$deploy_script" || -L "$deploy_script" ]]; then
 fi
 
 stamp="$(basename "$stage")"
+restart_args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --restart-unit)
+      if [[ $# -lt 2 ]]; then
+        echo "Unite de redemarrage manquante." >&2
+        exit 2
+      fi
+      unit="$2"
+      if [[ ! "$unit" =~ ^(palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(service|timer)$ ]]; then
+        echo "Unite de redemarrage invalide: $unit" >&2
+        exit 2
+      fi
+      if [[ "$unit" == "palworld.service" ]]; then
+        echo "Redemarrage de palworld.service refuse par ce wrapper." >&2
+        exit 2
+      fi
+      restart_args+=(--restart-unit "$unit")
+      shift 2
+      ;;
+    *)
+      echo "Argument invalide: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 exec /usr/bin/python3 "$deploy_script" install \
   --stage "$stage" \
-  --confirm "$stamp"
+  --confirm "$stamp" \
+  "${restart_args[@]}"

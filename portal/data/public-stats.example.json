@@ -45,6 +45,19 @@
       "name": "Aventuriere",
       "isOnline": true,
       "sessionCount": 2,
+      "currentSessionStartedAt": "2026-01-01T11:42:00Z",
+      "onlineSinceAt": "2026-01-01T11:42:00Z",
+      "lastSessionEndedAt": "2026-01-01T11:30:00Z",
+      "sessionHistory": [
+        {
+          "startedAt": "2026-01-01T11:00:00Z",
+          "endedAt": "2026-01-01T11:30:00Z"
+        },
+        {
+          "startedAt": "2026-01-01T11:42:00Z",
+          "endedAt": null
+        }
+      ],
       "totalOnlineSeconds": 1800,
       "totalOnline": "30m",
       "level": 12,

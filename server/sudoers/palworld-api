@@ -1,0 +1,5 @@
+gaylemon ALL=(root) NOPASSWD: /srv/storage/steam/bin/palworld-api.sh GET /info
+gaylemon ALL=(root) NOPASSWD: /srv/storage/steam/bin/palworld-api.sh GET /players
+gaylemon ALL=(root) NOPASSWD: /srv/storage/steam/bin/palworld-api.sh GET /metrics
+gaylemon ALL=(root) NOPASSWD: /srv/storage/steam/bin/palworld-api.sh GET /settings
+gaylemon ALL=(root) NOPASSWD: /srv/storage/steam/bin/palworld-api.sh GET /game-data
