@@ -1057,6 +1057,67 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertIn("+7 Bois", craft["details"]["bullets"])
         self.assertIn("+4 Pierre", craft["details"]["bullets"])
 
+    def test_public_export_groups_fishing_into_five_minute_windows(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:fishing:1",
+            occurred_at="2026-07-13T10:00:10-04:00",
+            event_type="fishing",
+            player="Alyross",
+            title="Pêche fructueuse",
+            message="Alyross ramène 2 prises de pêche. Total cumulé: 7.",
+            icon="fish.webp",
+            source="save",
+            details={
+                "bullets": ["+2 Kelpsea"],
+                "items": [{"name": "Kelpsea", "asset": "kelpsea", "added": 2, "count": 7, "icon": "fish.webp"}],
+                "total": 7,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:fishing:2",
+            occurred_at="2026-07-13T10:04:59-04:00",
+            event_type="fishing",
+            player="Alyross",
+            title="Prise de pêche",
+            message="Alyross ramène 1 prise de pêche. Total cumulé: 8.",
+            icon="fish.webp",
+            source="save",
+            details={
+                "bullets": ["+1 Kelpsea"],
+                "items": [{"name": "Kelpsea", "asset": "kelpsea", "added": 1, "count": 8, "icon": "fish.webp"}],
+                "total": 8,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:fishing:3",
+            occurred_at="2026-07-13T10:06:00-04:00",
+            event_type="fishing",
+            player="Alyross",
+            title="Pêche fructueuse",
+            message="Alyross ramène 3 prises de pêche. Total cumulé: 11.",
+            icon="fish.webp",
+            source="save",
+            details={
+                "bullets": ["+3 Kelpsea"],
+                "items": [{"name": "Kelpsea", "asset": "kelpsea", "added": 3, "count": 11, "icon": "fish.webp"}],
+                "total": 11,
+            },
+        )
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual([event["title"] for event in events], ["Pêche fructueuse", "Prises de pêche compilées"])
+        grouped = events[1]
+        self.assertIn("Alyross ramène 3 prises de pêche en 5 min", grouped["message"])
+        self.assertIn("Total cumulé: 8", grouped["message"])
+        self.assertEqual(grouped["details"]["aggregatedEvents"], 2)
+        self.assertEqual(grouped["details"]["total"], 8)
+        self.assertEqual(grouped["details"]["bullets"], ["+3 Kelpsea"])
+
     def test_public_export_groups_base_activity_into_five_minute_windows(self):
         samples = [
             (

@@ -662,7 +662,7 @@ def public_event(row: sqlite3.Row) -> dict:
     }
 
 
-ITEMIZED_PUBLIC_GROUP_TYPES = {"craft", "production", "build", "repair", "base", "research"}
+ITEMIZED_PUBLIC_GROUP_TYPES = {"craft", "fishing", "production", "build", "repair", "base", "research"}
 WORLD_DROP_STRUCTURE_NAMES = {"commondropitem3d", "commonitemdrop3d"}
 
 
@@ -856,6 +856,20 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
             f"{owner} termine {added_total} {plural(added_total, 'fabrication')} en 5 min. "
             f"Total cumulé: {total}."
         ) if total > 0 else f"{owner} termine {added_total} {plural(added_total, 'fabrication')} en 5 min."
+        body = message
+        if total > 0:
+            details["total"] = total
+    elif event_type == "fishing":
+        title = "Prises de pêche compilées"
+        total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
+        message = (
+            f"{owner} ramène {added_total} "
+            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} en 5 min. "
+            f"Total cumulé: {total}."
+        ) if total > 0 else (
+            f"{owner} ramène {added_total} "
+            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} en 5 min."
+        )
         body = message
         if total > 0:
             details["total"] = total

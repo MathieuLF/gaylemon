@@ -355,7 +355,7 @@ function Convert-ToPositiveInt {
     }
 }
 
-$ItemizedPublicGroupTypes = @("craft", "production", "build", "repair", "base", "research")
+$ItemizedPublicGroupTypes = @("craft", "fishing", "production", "build", "repair", "base", "research")
 $WorldDropStructureNames = @("commondropitem3d", "commonitemdrop3d")
 
 function Test-WorldDropStructureName {
@@ -714,6 +714,18 @@ function New-AggregatedItemizedPublicEvent {
         }
         else {
             $message = "$owner termine $addedTotal $label en 5 min."
+        }
+    }
+    elseif ($eventType -eq "fishing") {
+        $title = "Prises de pêche compilées"
+        $total = Get-EventMaxDetailTotal -Events $Events
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "prise de pêche" -Plural "prises de pêche"
+        if ($total -gt 0) {
+            $message = "$owner ramène $addedTotal $label en 5 min. Total cumulé: $total."
+            $details["total"] = $total
+        }
+        else {
+            $message = "$owner ramène $addedTotal $label en 5 min."
         }
     }
     elseif ($eventType -eq "production") {
