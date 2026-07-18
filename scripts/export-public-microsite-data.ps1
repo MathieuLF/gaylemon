@@ -3,6 +3,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PublicSettingsFields = @(
+    "Difficulty", "DayTimeSpeedRate", "NightTimeSpeedRate", "ExpRate", "PalCaptureRate",
+    "PalSpawnNumRate", "PalDamageRateAttack", "PalDamageRateDefense", "PlayerDamageRateAttack",
+    "PlayerDamageRateDefense", "CollectionDropRate", "CollectionObjectHpRate",
+    "CollectionObjectRespawnSpeedRate", "EnemyDropItemRate", "DeathPenalty", "BaseCampMaxNum",
+    "BaseCampWorkerMaxNum", "GuildPlayerMaxNum", "PalEggDefaultHatchingTime", "WorkSpeedRate",
+    "AutoSaveSpan", "bIsPvP", "bEnablePlayerToPlayerDamage", "bEnableFriendlyFire",
+    "bEnableInvaderEnemy", "bEnableFastTravel", "bUseBackupSaveData", "CrossplayPlatforms"
+)
 
 try {
     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -107,6 +116,17 @@ function Get-ObjectPropertyValue {
     }
 
     return $null
+}
+
+function Convert-PublicSettings {
+    param($Settings)
+
+    $result = [ordered]@{}
+    foreach ($field in $PublicSettingsFields | Sort-Object) {
+        $value = Get-ObjectPropertyValue -InputObject $Settings -Name $field
+        if ($null -ne $value) { $result[$field] = $value }
+    }
+    return $result
 }
 
 function Get-NormalizedLookupKey {
@@ -247,15 +267,28 @@ $publicStatsPath = Join-Path $DataDirectory "public-stats.json"
 $stats = Read-JsonFile -Path $statsPath
 $rawStatsPlayers = if ($stats) { Convert-ToObjectArray -Value (Get-ObjectPropertyValue -InputObject $stats -Name "players") } else { @() }
 $statsPlayerLookup = New-PlayerLookup -Players $rawStatsPlayers
+$statsProvenance = if ($stats) { Get-ObjectPropertyValue -InputObject $stats -Name "provenance" } else { $null }
 $metrics = Read-JsonFile -Path $metricsPath
 if ($metrics) {
     $metricsOk = [bool](Get-ObjectPropertyValue -InputObject $metrics -Name "ok")
     $metricsInfo = Get-ObjectPropertyValue -InputObject $metrics -Name "info"
     $publicMetrics = [ordered]@{
-        version = 1
+        version = 2
+        schemaVersion = 2
         ok = $metricsOk
         updatedAt = Get-ObjectPropertyValue -InputObject $metrics -Name "updatedAt"
         updatedAtLocal = Get-ObjectPropertyValue -InputObject $metrics -Name "updatedAtLocal"
+        provenance = [ordered]@{
+            observedAt = Get-ObjectPropertyValue -InputObject $metrics -Name "updatedAt"
+            sourceUpdatedAt = Get-ObjectPropertyValue -InputObject $metrics -Name "updatedAt"
+            gameVersion = Get-ObjectPropertyValue -InputObject $metricsInfo -Name "version"
+            steamBuildId = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "steamBuildId"
+            parserCommit = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "parserCommit"
+            catalogCommit = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "catalogCommit"
+            schemaVersion = 2
+            freshness = "current"
+            sourceStatus = if ($metricsOk) { "available" } else { "transient-error" }
+        }
         server = [ordered]@{
             name = Get-ObjectPropertyValue -InputObject $metricsInfo -Name "serverName"
             description = Get-ObjectPropertyValue -InputObject $metricsInfo -Name "description"
@@ -276,7 +309,7 @@ if ($metrics) {
     }
 
     if (-not $metricsOk) {
-        $publicMetrics["error"] = Get-ObjectPropertyValue -InputObject $metrics -Name "error"
+        $publicMetrics["error"] = "Les métriques du serveur sont temporairement indisponibles."
     }
 
     Write-JsonFile -Path $publicMetricsPath -Payload $publicMetrics
@@ -287,12 +320,40 @@ if ($stats) {
     $rawGuilds = Convert-ToObjectArray -Value (Get-ObjectPropertyValue -InputObject $stats -Name "guilds")
     $statsOk = [bool](Get-ObjectPropertyValue -InputObject $stats -Name "ok")
     $statsCollection = Get-ObjectPropertyValue -InputObject $stats -Name "collection"
+    $statsSettings = Get-ObjectPropertyValue -InputObject $stats -Name "settings"
+    $statsSources = Get-ObjectPropertyValue -InputObject $stats -Name "sources"
+    $publicSources = [ordered]@{}
+    foreach ($sourceName in @("info", "metrics", "players", "settings", "game-data")) {
+        $source = Get-ObjectPropertyValue -InputObject $statsSources -Name $sourceName
+        if (-not $source) { continue }
+        $publicSources[$sourceName] = [ordered]@{
+            status = Get-ObjectPropertyValue -InputObject $source -Name "status"
+            lastObservedAt = Get-ObjectPropertyValue -InputObject $source -Name "lastObservedAt"
+            lastSuccessAt = Get-ObjectPropertyValue -InputObject $source -Name "lastSuccessAt"
+            latencyMs = Get-ObjectPropertyValue -InputObject $source -Name "latencyMs"
+            latencyP95Ms = Get-ObjectPropertyValue -InputObject $source -Name "latencyP95Ms"
+            responseBytes = Get-ObjectPropertyValue -InputObject $source -Name "responseBytes"
+            consecutiveFailures = Get-ObjectPropertyValue -InputObject $source -Name "consecutiveFailures"
+        }
+    }
 
     $publicStats = [ordered]@{
-        version = 1
+        version = 2
+        schemaVersion = 2
         ok = $statsOk
         updatedAt = Get-ObjectPropertyValue -InputObject $stats -Name "updatedAt"
         updatedAtLocal = Get-ObjectPropertyValue -InputObject $stats -Name "updatedAtLocal"
+        provenance = [ordered]@{
+            observedAt = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "observedAt"
+            sourceUpdatedAt = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "sourceUpdatedAt"
+            gameVersion = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "gameVersion"
+            steamBuildId = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "steamBuildId"
+            parserCommit = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "parserCommit"
+            catalogCommit = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "catalogCommit"
+            schemaVersion = 2
+            freshness = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "freshness"
+            sourceStatus = Get-ObjectPropertyValue -InputObject $statsProvenance -Name "sourceStatus"
+        }
         collection = [ordered]@{
             source = Get-ObjectPropertyValue -InputObject $statsCollection -Name "source"
             firstSampleAt = Get-ObjectPropertyValue -InputObject $statsCollection -Name "firstSampleAt"
@@ -300,8 +361,18 @@ if ($stats) {
             sampleCount = Get-ObjectPropertyValue -InputObject $statsCollection -Name "sampleCount"
             gameDataAvailable = [bool](Get-ObjectPropertyValue -InputObject $statsCollection -Name "gameDataAvailable")
             gameDataStatus = Get-ObjectPropertyValue -InputObject $statsCollection -Name "gameDataStatus"
+            lastGameDataAt = Get-ObjectPropertyValue -InputObject $statsCollection -Name "lastGameDataAt"
+            nextGameDataAttemptAt = Get-ObjectPropertyValue -InputObject $statsCollection -Name "nextGameDataAttemptAt"
+            settingsStatus = Get-ObjectPropertyValue -InputObject $statsSettings -Name "status"
+            lastSettingsAt = Get-ObjectPropertyValue -InputObject $statsSettings -Name "updatedAt"
             note = $null
         }
+        settings = [ordered]@{
+            status = Get-ObjectPropertyValue -InputObject $statsSettings -Name "status"
+            updatedAt = Get-ObjectPropertyValue -InputObject $statsSettings -Name "updatedAt"
+            current = Convert-PublicSettings -Settings (Get-ObjectPropertyValue -InputObject $statsSettings -Name "current")
+        }
+        sources = $publicSources
         server = Get-ObjectPropertyValue -InputObject $stats -Name "server"
         actors = Get-ObjectPropertyValue -InputObject $stats -Name "actors"
         guilds = @($rawGuilds | ForEach-Object {
@@ -316,7 +387,7 @@ if ($stats) {
     }
 
     if (-not $statsOk) {
-        $publicStats["error"] = Get-ObjectPropertyValue -InputObject $stats -Name "error"
+        $publicStats["error"] = "Les statistiques du serveur sont temporairement indisponibles."
     }
 
     Write-JsonFile -Path $publicStatsPath -Payload $publicStats

@@ -835,7 +835,10 @@ order by time asc;
     Write-JsonFile -Path $OutputPath -Payload $historyPayload
 
     $publicMetricMaxAgeSeconds = [Math]::Max(90, $config.MetricIntervalSeconds * 4)
-    $publicEventsMaxAgeSeconds = [Math]::Max(60, $config.EventSyncIntervalSeconds * 4)
+    $publicRecentEventsMaxAgeSeconds = [Math]::Max(120, $config.EventSyncIntervalSeconds * 6)
+    # L'export complet est un artefact froid reconstruit toutes les 15 minutes.
+    # La tête récente reste le signal temps réel de la chaîne des échos.
+    $publicFullEventsMaxAgeSeconds = 30 * 60
     $publicDiagnosticsMaxAgeSeconds = 26 * 60 * 60
     $dataChecks = @(
         Get-PublicDataProbe -Name "metrics" -Path (Join-Path $DataDirectory "public-metrics.json") -MaxAgeSeconds $publicMetricMaxAgeSeconds -NowUtc $nowUtc
@@ -846,8 +849,8 @@ order by time asc;
         Get-PublicDataProbe -Name "saveSnapshot" -Path (Join-Path $DataDirectory "public-save-snapshot.json") -MaxAgeSeconds 900 -NowUtc $nowUtc -PreferFileTimestamp
         Get-PublicDataProbe -Name "saveBases" -Path (Join-Path $DataDirectory "public-save-bases.json") -MaxAgeSeconds 900 -NowUtc $nowUtc -PreferFileTimestamp
         Get-PublicDataProbe -Name "saveDiagnostics" -Path (Join-Path $DataDirectory "public-save-diagnostics.json") -MaxAgeSeconds $publicDiagnosticsMaxAgeSeconds -NowUtc $nowUtc -PreferFileTimestamp
-        Get-PublicDataProbe -Name "events" -Path (Join-Path $DataDirectory "public-events.json") -MaxAgeSeconds $publicEventsMaxAgeSeconds -NowUtc $nowUtc
-        Get-PublicDataProbe -Name "recentEvents" -Path (Join-Path $DataDirectory "public-events-recent.json") -MaxAgeSeconds $publicEventsMaxAgeSeconds -NowUtc $nowUtc
+        Get-PublicDataProbe -Name "events" -Path (Join-Path $DataDirectory "public-events.json") -MaxAgeSeconds $publicFullEventsMaxAgeSeconds -NowUtc $nowUtc
+        Get-PublicDataProbe -Name "recentEvents" -Path (Join-Path $DataDirectory "public-events-recent.json") -MaxAgeSeconds $publicRecentEventsMaxAgeSeconds -NowUtc $nowUtc
     )
     $badChecks = @($dataChecks | Where-Object { $_.status -ne "fresh" })
     $currentAvailability = if ($latestHeartbeat -and $latestHeartbeat.statusClass -eq "nominal" -and $fresh -and $badChecks.Count -eq 0) {

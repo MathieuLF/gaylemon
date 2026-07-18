@@ -52,10 +52,12 @@ $requiredFiles = @(
     "THIRD_PARTY_NOTICES.md",
     "compose.yaml",
     "dependencies\palworld-save-tools.lock.json",
+    "portal\public-events-channel.json",
     "server\deployment-manifest.json",
     "server\deploy\gaylemon_deploy.py",
     "scripts\lib\Gaylemon.Deployment.ps1",
     "scripts\lib\Gaylemon.Config.ps1",
+    "scripts\set-public-events-channel.ps1",
     "server\palworld.env.example",
     "server\palworld-kuma.env.example"
 )
@@ -78,10 +80,23 @@ Write-Result (
 $nginxConfig = Get-Content -LiteralPath (Join-Path $ProjectRoot "docker\microsite\default.conf") -Raw -Encoding UTF8
 Write-Result (
     $nginxConfig.Contains('location ~ ^/data/public-[A-Za-z0-9_.-]+\.json$') -and
+    $nginxConfig.Contains('location = /public-events-channel.json') -and
+    $nginxConfig.Contains('location = /data/public-events-sync-state.json') -and
+    $nginxConfig.Contains('location = /data/public-events-manifest-v6.json') -and
+    $nginxConfig.Contains('location = /data/public-events-head-v6.json') -and
+    $nginxConfig.Contains('location = /data/public-catalogs-manifest.json') -and
+    $nginxConfig.Contains('location ~ "^/data/(?:public-events-v6|public-daily)/[A-Za-z0-9._-]+/\d{4}-\d{2}-\d{2}\.json$"') -and
+    $nginxConfig.Contains('location ~ ^/data/public-events-v6/[A-Za-z0-9._-]+/(?:head|manifest)\.json$') -and
+    $nginxConfig.Contains('location ~ ^/data/public-catalogs/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\.json$') -and
     $nginxConfig.Contains('location ~ ^/data/players/[A-Za-z0-9-]+\.json$') -and
     $nginxConfig.Contains('location /data/ {') -and
     $nginxConfig -notmatch 'location\s+~\s+\^/data/\.\*\\\.json\$'
 ) "Allowlist HTTP des donnees publiques"
+Write-Result (
+    $nginxConfig.Contains('add_header Cache-Control "no-cache, must-revalidate" always;') -and
+    $nginxConfig.Contains('add_header Cache-Control "public, max-age=31536000, immutable" always;') -and
+    $nginxConfig.Contains('etag on;')
+) "Cache conditionnel et fragments v6 immuables"
 Write-Result (
     $nginxConfig.Contains('location ^~ /assets/game/') -and
     $nginxConfig.Contains('max-age=31536000, immutable') -and
@@ -148,9 +163,12 @@ try {
     New-Item -ItemType Directory -Force -Path $publicExportTemp | Out-Null
     $sentinelAccountName = "SHOULD_NOT_BE_PUBLIC_ACCOUNT_NAME"
     $sentinelNamedAccountName = "SHOULD_NOT_BE_PUBLIC_NAMED_ACCOUNT"
+    $sentinelPublicIp = "SHOULD_NOT_BE_PUBLIC_IP"
+    $sentinelPrivateError = "SHOULD_NOT_BE_PUBLIC_ERROR ssh host:8212 /srv/private"
     $expectedPublicName = "Nom Public"
     $sampleMetrics = [ordered]@{
-        ok = $true
+        ok = $false
+        error = $sentinelPrivateError
         updatedAt = "2026-01-01T00:00:00Z"
         info = [ordered]@{
             serverName = "Validation"
@@ -172,9 +190,19 @@ try {
         )
     }
     $sampleStats = [ordered]@{
-        ok = $true
+        ok = $false
+        error = $sentinelPrivateError
         updatedAt = "2026-01-01T00:00:00Z"
         collection = [ordered]@{}
+        settings = [ordered]@{
+            status = "available"
+            updatedAt = "2026-01-01T00:00:00Z"
+            current = [ordered]@{
+                Difficulty = "Normal"
+                PublicIP = $sentinelPublicIp
+                BanListURL = "https://example.invalid/private.txt"
+            }
+        }
         server = [ordered]@{}
         actors = [ordered]@{}
         guilds = @()
@@ -205,13 +233,21 @@ try {
     foreach ($publicFileName in @("public-metrics.json", "public-stats.json")) {
         $publicPath = Join-Path $publicExportTemp $publicFileName
         $publicText = Get-Content -LiteralPath $publicPath -Raw -Encoding UTF8
-        if ($publicText.Contains($sentinelAccountName) -or $publicText.Contains($sentinelNamedAccountName)) {
+        if (
+            $publicText.Contains($sentinelAccountName) -or
+            $publicText.Contains($sentinelNamedAccountName) -or
+            $publicText.Contains($sentinelPublicIp) -or
+            $publicText.Contains($sentinelPrivateError)
+        ) {
             $publicIdentityLeakErrors.Add($publicFileName)
         }
         $publicPayload = $publicText | ConvertFrom-Json
         $publicNames = @($publicPayload.players | ForEach-Object { [string]$_.name })
         if ($expectedPublicName -notin $publicNames) {
             $publicIdentityLeakErrors.Add("$publicFileName nom public absent")
+        }
+        if ($publicFileName -eq "public-stats.json" -and $publicText -notmatch '"Difficulty"\s*:\s*"Normal"') {
+            $publicIdentityLeakErrors.Add("$publicFileName reglage public absent")
         }
     }
 }
@@ -221,7 +257,7 @@ catch {
 finally {
     Remove-Item -LiteralPath $publicExportTemp -Recurse -Force -ErrorAction SilentlyContinue
 }
-Write-Result ($publicIdentityLeakErrors.Count -eq 0) "Exports publics sans accountName" ($publicIdentityLeakErrors -join ", ")
+Write-Result ($publicIdentityLeakErrors.Count -eq 0) "Exports publics sans identite ni diagnostic prive" ($publicIdentityLeakErrors -join ", ")
 
 $availabilityExporterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\export-uptime-kuma-history.ps1") -Raw -Encoding UTF8
 $availabilityExample = Get-Content -LiteralPath (Join-Path $ProjectRoot "portal\data\public-availability.example.json") -Raw -Encoding UTF8
@@ -229,6 +265,13 @@ Write-Result (
     $availabilityExporterSource -notmatch '(?m)^\s*path\s*=\s*\$Path\b' -and
     $availabilityExample -notmatch '"path"\s*:'
 ) "Disponibilite publique sans chemins locaux"
+
+$recoveryAuditSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\verify-microsite-recovery.ps1") -Raw -Encoding UTF8
+Write-Result (
+    $recoveryAuditSource.Contains('public-events-recent.json') -and
+    $recoveryAuditSource.Contains('RemoteEventsSource') -and
+    $recoveryAuditSource.Contains('LocalRecentEvents')
+) "Audit de reprise aligne sur la tete chaude des echos"
 
 $configSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\lib\Gaylemon.Config.ps1") -Raw -Encoding UTF8
 $documentedLocalKeys = @(
@@ -332,9 +375,24 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
     & $node.Source --check (Join-Path $ProjectRoot "portal\assets\app.js") 2>&1 | Out-Null
     Write-Result ($LASTEXITCODE -eq 0) "Syntaxe JavaScript"
+
+    & $node.Source --test (Join-Path $ProjectRoot "portal\tests\portal-v6-static.test.mjs") 2>&1 | Out-Host
+    Write-Result ($LASTEXITCODE -eq 0) "Tests du portail v6"
 }
 else {
-    Add-Warning "Node.js absent; la syntaxe JavaScript n'a pas ete verifiee."
+    Add-Warning "Node.js absent; la syntaxe et les tests JavaScript n'ont pas ete verifies."
+}
+
+$pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($pwsh) {
+    & $pwsh.Source -NoProfile -File (Join-Path $ProjectRoot "scripts\test-public-events-v6.ps1") 2>&1 | Out-Host
+    Write-Result ($LASTEXITCODE -eq 0) "Contrat de publication des echos v6"
+
+    & $pwsh.Source -NoProfile -File (Join-Path $ProjectRoot "scripts\test-public-save-snapshot-sync.ps1") 2>&1 | Out-Host
+    Write-Result ($LASTEXITCODE -eq 0) "Publication atomique des snapshots publics"
+}
+else {
+    Add-Warning "PowerShell 7 absent; les contrats de publication n'ont pas ete testes."
 }
 
 if (-not $SansTestsPython) {
@@ -419,6 +477,9 @@ if ($git) {
         ".env",
         "config/local/INSTANCE.md",
         "portal/data/public-metrics.json",
+        "portal/data/public-events-v6/g6-example/2026-01-01.json",
+        "portal/data/public-daily/g6-example/2026-01-01.json",
+        "portal/data/public-catalogs/example.json",
         "portal/data/players/exemple.json",
         "portal/assets/game/exemple.webp",
         "runtime/validation/exemple.json",
@@ -446,7 +507,7 @@ if ($git) {
     $versionedCmdFiles = @($publishable | Where-Object { $_ -like "*.cmd" })
     Write-Result ($versionedCmdFiles.Count -eq 0) "Aucun lanceur CMD versionné" ($versionedCmdFiles -join ", ")
     $forbidden = @($publishable | Where-Object {
-        $_ -match '(^|/)(runtime|config/local|portal/data/players|portal/assets/game|portal/joueur)/' -or
+        $_ -match '(^|/)(runtime|config/local|portal/data/(players|public-events-v6|public-daily|public-catalogs)|portal/assets/game|portal/joueur)/' -or
         $_ -match '(^|/)\.env($|\.)' -and $_ -notmatch '\.example$' -or
         $_ -match '(__pycache__|\.py[co]$)'
     })

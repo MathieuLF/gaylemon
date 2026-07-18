@@ -45,9 +45,20 @@ const eventStream = document.querySelector("#event-stream");
 const eventPagination = document.querySelector("#event-pagination");
 const eventControls = document.querySelector("#event-controls");
 const eventSyncStatus = document.querySelector("#event-sync-status");
+const eventDateNavigation = document.querySelector("#event-date-navigation");
+const eventDateInput = document.querySelector("#event-date");
+const eventDatePrevious = document.querySelector("#event-date-previous");
+const eventDateNext = document.querySelector("#event-date-next");
+const eventDateToday = document.querySelector("#event-date-today");
+const eventUnseen = document.querySelector("#event-unseen");
+const eventUnseenCount = document.querySelector("#event-unseen-count");
+const homeLatestEchoes = document.querySelector("#home-latest-echoes");
+const homeEchoesStatus = document.querySelector("#home-echoes-status");
+const playerVisibilityToggle = document.querySelector("#player-visibility-toggle");
 const dailyDateInput = document.querySelector("#daily-date");
 const dailyPrevious = document.querySelector("#daily-previous");
 const dailyNext = document.querySelector("#daily-next");
+const dailyToday = document.querySelector("#daily-today");
 const dailyStatus = document.querySelector("#daily-status");
 const dailyUpdatedAt = document.querySelector("#daily-updated-at");
 const dailyMetrics = document.querySelector("#daily-metrics");
@@ -116,6 +127,7 @@ let refreshMessageUntil = 0;
 let refreshMessageState = "updated";
 let clockTimer;
 let saveSnapshot = null;
+let saveIndexPromise = null;
 let saveDiagnosticsSnapshot = null;
 let statsSnapshot = null;
 let headerPresencePlayers = [];
@@ -124,10 +136,16 @@ let headerPresenceUpdatedAt = "";
 let nextPresenceTooltipRefreshAt = 0;
 let fullSaveSnapshot = null;
 let fullSaveSnapshotPromise = null;
+let fullSaveSnapshotPromiseGenerationId = "";
+let publicCatalogManifest = null;
+let publicCatalogManifestPromise = null;
+const publicCatalogCache = new Map();
+const catalogHydratedPlayers = new WeakSet();
 const playerSnapshotCache = new Map();
 const playerSnapshotPromises = new Map();
 const renderedPlayerTabs = new Set();
 let basesSnapshot = null;
+let basesGenerationRequested = false;
 let selectedPlayerBases = [];
 let selectedPlayerStock = [];
 let stockSource = "all";
@@ -147,6 +165,21 @@ let playerActivityByName = new Map();
 let eventsSnapshot = null;
 let eventsIndexSnapshot = null;
 let eventsRecentSnapshot = null;
+let eventsManifestV6 = null;
+let eventsHeadV6 = null;
+let eventsActivePointerV6 = null;
+let eventsContractMode = "v5";
+let eventsPreferredContract = "v5";
+let eventsContractChannelCheckedAt = 0;
+let eventsContractChannelPromise = null;
+let eventsV6LoadPromise = null;
+let eventsV6RetryAfter = 0;
+let eventSelectedDateKey = "";
+let eventCursor = "";
+let terminalVisibleEvents = [];
+let terminalEventWindowStart = 0;
+let terminalVisitStartCursor = null;
+let terminalVisitStartTotalEchoes = null;
 let eventCurrentPage = 1;
 let eventsFullLoaded = false;
 let lastEventRecentRefreshAt = 0;
@@ -158,19 +191,25 @@ let dailyRosterPlayers = [];
 let dailyStatsPlayers = [];
 let dailyStatsUpdatedAt = "";
 let dailyLastSignature = "";
+let dailyRenderedGenerationId = "";
 const siteTimeZone = "America/Toronto";
 const eventExportPageSizeFallback = 250;
 const eventPageCache = new Map();
 const eventPagePromises = new Map();
+const eventDayCache = new Map();
+const dailyV6Cache = new Map();
 let eventsFullLoadPromise = null;
 let leaderboardSortKey = "level";
 let leaderboardSortDirection = "desc";
 let backgroundScrollY = 0;
 let playerViewLocked = false;
 let playerReturnUrl = "";
+let playerDialogReturnFocus = null;
+let showInactivePlayers = false;
 let lastTrackedLocation = "";
 let navUpdatePending = false;
 const sourceUpdatedAt = new Map();
+const sourceHealth = new Map();
 const dataRevisions = {
   metrics: "",
   stats: "",
@@ -180,7 +219,14 @@ const dataRevisions = {
   diagnostics: "",
   events: "",
   eventsIndex: "",
+  eventsManifestV6: "",
+  eventsHeadV6: "",
 };
+
+const terminalVisitCursorStorageKey = "gaylemon:terminal:last-cursor";
+const terminalVisitTotalStorageKey = "gaylemon:terminal:last-total-echoes";
+const inactivePlayerBreakpoint = 4;
+const recentPlayerWindowMs = 7 * 24 * 60 * 60 * 1000;
 
 const globalMapView = {
   minScale: 1,
@@ -201,6 +247,98 @@ const worldDiagnosticRefreshAnchorHour = 1;
 const worldDiagnosticRefreshWindowMinutes = 15;
 const worldDiagnosticWarningMs = 3 * 60 * 60 * 1000;
 const worldDiagnosticStaleMs = 6 * 60 * 60 * 1000;
+
+const dataUpdateAnnouncer = document.createElement("p");
+dataUpdateAnnouncer.className = "visually-hidden";
+dataUpdateAnnouncer.id = "data-update-announcer";
+dataUpdateAnnouncer.setAttribute("role", "status");
+dataUpdateAnnouncer.setAttribute("aria-live", "polite");
+dataUpdateAnnouncer.setAttribute("aria-atomic", "true");
+document.body.appendChild(dataUpdateAnnouncer);
+nextUpdate?.setAttribute("aria-live", "off");
+
+const sourceFreshnessLabels = {
+  metrics: "Serveur",
+  uptime: "Disponibilité",
+  stats: "Présences",
+  save: "Sauvegarde",
+  bases: "Bases",
+  diagnostics: "Analyse",
+  events: "Échos",
+  catalog: "Catalogues",
+};
+let sourceFreshnessDetails = null;
+
+function ensureSourceFreshnessDetails() {
+  if (sourceFreshnessDetails || !siteLastUpdated?.parentElement) return sourceFreshnessDetails;
+  sourceFreshnessDetails = document.createElement("details");
+  sourceFreshnessDetails.className = "source-freshness";
+  sourceFreshnessDetails.innerHTML = `
+    <summary aria-label="Afficher la fraîcheur de chaque source">Fraîcheur</summary>
+    <span class="source-freshness__panel">
+      <strong>État des sources</strong>
+      <span data-source-freshness-list><small>Aucune source reçue</small></span>
+    </span>`;
+  siteLastUpdated.parentElement.insertAdjacentElement("afterend", sourceFreshnessDetails);
+  return sourceFreshnessDetails;
+}
+
+function renderSourceFreshness() {
+  const details = ensureSourceFreshnessDetails();
+  const list = details?.querySelector("[data-source-freshness-list]");
+  if (!list) return;
+  const rows = [...new Set([...sourceUpdatedAt.keys(), ...sourceHealth.keys()])]
+    .filter((source) => sourceFreshnessLabels[source])
+    .sort((left, right) => left.localeCompare(right, "fr-CA"));
+  list.innerHTML = rows.length
+    ? rows.map((source) => {
+      const date = sourceUpdatedAt.get(source);
+      const health = sourceHealth.get(source) || { state: "delayed", label: "Retard", details: "" };
+      const time = date
+        ? `<time datetime="${escapeHtml(date.toISOString())}">${escapeHtml(formatRelativeAge(date))}</time>`
+        : "<time>--</time>";
+      const detailsText = health.details ? ` title="${escapeHtml(health.details)}"` : "";
+      return `<span${detailsText}><b>${escapeHtml(sourceFreshnessLabels[source])}</b><span class="source-freshness__value">${time}<em data-state="${escapeHtml(health.state)}">${escapeHtml(health.label)}</em></span></span>`;
+    }).join("")
+    : "<small>Aucune source reçue</small>";
+}
+
+function sourceHealthState(status, freshness = "") {
+  const normalizedStatus = String(status || "").trim().toLocaleLowerCase("fr-CA");
+  const normalizedFreshness = String(freshness || "").trim().toLocaleLowerCase("fr-CA");
+  if (["transient-error", "error", "down", "unavailable"].includes(normalizedStatus)) return "error";
+  if (normalizedFreshness === "stale" || ["stale", "unknown", "documented-but-unavailable", "unsupported"].includes(normalizedStatus)) return "delayed";
+  if (["available", "current", "ok", "up"].includes(normalizedStatus)) return "available";
+  return normalizedStatus ? "delayed" : "available";
+}
+
+function registerSourceHealth(source, status = "available", freshness = "current", details = "") {
+  const state = sourceHealthState(status, freshness);
+  sourceHealth.set(source, {
+    state,
+    label: state === "available" ? "Disponible" : state === "error" ? "Erreur" : "Retard",
+    details: String(details || ""),
+  });
+  renderSourceFreshness();
+}
+
+function registerPayloadDataUpdate(source, payload) {
+  const provenance = payload?.provenance || {};
+  registerDataUpdate(
+    source,
+    provenance.sourceUpdatedAt || payload?.sourceUpdatedAt || payload?.updatedAt,
+    provenance.sourceStatus || payload?.sourceStatus || (payload?.ok === false ? "transient-error" : "available"),
+    provenance.freshness || payload?.freshness || (payload?.ok === false ? "stale" : "current"),
+  );
+}
+
+function announceDataUpdate(message) {
+  if (!message || !dataUpdateAnnouncer) return;
+  dataUpdateAnnouncer.textContent = "";
+  window.requestAnimationFrame(() => {
+    dataUpdateAnnouncer.textContent = message;
+  });
+}
 
 function routeMatches(slug) {
   const path = location.pathname.replace(/\/+$/, "") || "/";
@@ -772,8 +910,9 @@ function formatRelativeAge(value) {
   return `il y a ${days} j`;
 }
 
-function registerDataUpdate(source, value) {
+function registerDataUpdate(source, value, status = "available", freshness = "current", details = "") {
   const date = parseDate(value);
+  registerSourceHealth(source, status, freshness, details);
   if (!date || !siteLastUpdated) return;
   sourceUpdatedAt.set(source, date);
   const latest = [...sourceUpdatedAt.values()].reduce(
@@ -792,6 +931,7 @@ function registerDataUpdate(source, value) {
     minute: "2-digit",
   }).replace(",", " ·");
   siteLastUpdated.dataset.tooltip = `Dernières données reçues le ${formatDateTime(latest)}`;
+  renderSourceFreshness();
 }
 
 function latestDateValue(...values) {
@@ -1053,12 +1193,15 @@ function setWorldDataQuality(name, state) {
 
 function renderWorldContractStatus() {
   if (!worldDataGrid) return;
-  const publicOutput = saveDiagnosticsSnapshot?.publicOutput || {};
+  const diagnostics = currentSaveDiagnosticsSnapshot();
+  const bases = currentBasesSnapshot();
+  const fullSnapshot = currentFullSaveSnapshot();
+  const publicOutput = diagnostics?.publicOutput || {};
   const contracts = [
-    ["diagnostic", saveDiagnosticsSnapshot?.version != null ? `v${saveDiagnosticsSnapshot.version}` : ""],
+    ["diagnostic", diagnostics?.version != null ? `v${diagnostics.version}` : ""],
     ["index", saveSnapshot?.version != null ? `v${saveSnapshot.version}` : ""],
-    ["snapshot", publicOutput.snapshotBytes || fullSaveSnapshot?.version ? "prêt" : ""],
-    ["bases", publicOutput.basesBytes ? "prêt" : basesSnapshot?.version != null ? `v${basesSnapshot.version}` : ""],
+    ["snapshot", publicOutput.snapshotBytes || fullSnapshot?.version ? "prêt" : ""],
+    ["bases", publicOutput.basesBytes ? "prêt" : bases?.version != null ? `v${bases.version}` : ""],
     ["échos", eventsSnapshot?.version != null ? `v${eventsSnapshot.version}` : ""],
   ];
   const loaded = contracts.filter(([, value]) => value);
@@ -1093,10 +1236,57 @@ function formatParsingWarningsNote(parse) {
   return details.length ? `${base}: ${details.join(", ")}` : base;
 }
 
+function publicSaveGenerationId(payload) {
+  const generationId = String(payload?.generationId || "");
+  return /^[A-Za-z0-9._-]+$/.test(generationId) ? generationId : "";
+}
+
+function activeSaveGenerationId() {
+  return publicSaveGenerationId(saveSnapshot);
+}
+
+function saveGenerationIsValid(payload, expectedGenerationId) {
+  const generationId = publicSaveGenerationId(payload);
+  return Boolean(payload?.ok && generationId && expectedGenerationId && generationId === String(expectedGenerationId));
+}
+
+function currentBasesSnapshot() {
+  return saveGenerationIsValid(basesSnapshot, activeSaveGenerationId()) ? basesSnapshot : null;
+}
+
+function currentSaveDiagnosticsSnapshot() {
+  return saveGenerationIsValid(saveDiagnosticsSnapshot, activeSaveGenerationId()) ? saveDiagnosticsSnapshot : null;
+}
+
+function currentFullSaveSnapshot() {
+  return saveGenerationIsValid(fullSaveSnapshot, activeSaveGenerationId()) ? fullSaveSnapshot : null;
+}
+
+function assertActiveSaveGeneration(payload, source, expectedGenerationId = activeSaveGenerationId()) {
+  if (
+    !saveGenerationIsValid(payload, expectedGenerationId)
+    || String(expectedGenerationId) !== activeSaveGenerationId()
+  ) {
+    throw new Error(`mixed-save-generation:${source}`);
+  }
+  return payload;
+}
+
+async function ensureActiveSaveGeneration() {
+  if (saveIndexPromise) await saveIndexPromise;
+  if (!activeSaveGenerationId()) await loadSaveSnapshot(true, false);
+  const generationId = activeSaveGenerationId();
+  if (!generationId) throw new Error("save-generation-unavailable");
+  return generationId;
+}
+
 function renderSaveDiagnostics(payload) {
-  if (!payload?.ok || !worldDataGrid) return;
+  if (!payload?.ok || !worldDataGrid) {
+    registerPayloadDataUpdate("diagnostics", payload);
+    return;
+  }
   saveDiagnosticsSnapshot = payload;
-  registerDataUpdate("diagnostics", payload.updatedAt);
+  registerPayloadDataUpdate("diagnostics", payload);
   const save = payload.save || {};
   const parse = payload.parse || {};
   const output = payload.output || {};
@@ -1202,7 +1392,30 @@ function getDisplayPlayers(payload) {
     playersBySlug.set(slug, createProvisionalPlayer(activity));
   });
 
-  return [...playersBySlug.values()];
+  return [...playersBySlug.values()].sort((left, right) => {
+    const leftActivity = getPlayerActivity(left);
+    const rightActivity = getPlayerActivity(right);
+    const leftDate = parseDate(leftActivity?.lastSeenAt || leftActivity?.lastOnlineAt)?.getTime() || 0;
+    const rightDate = parseDate(rightActivity?.lastSeenAt || rightActivity?.lastOnlineAt)?.getTime() || 0;
+    const leftGroup = leftActivity?.isOnline ? 0 : Date.now() - leftDate <= recentPlayerWindowMs ? 1 : 2;
+    const rightGroup = rightActivity?.isOnline ? 0 : Date.now() - rightDate <= recentPlayerWindowMs ? 1 : 2;
+    return leftGroup - rightGroup || rightDate - leftDate || String(left.name).localeCompare(String(right.name), "fr-CA");
+  });
+}
+
+function playerIsInactiveForMobile(player, index) {
+  const activity = getPlayerActivity(player);
+  return index >= inactivePlayerBreakpoint && !activity?.isOnline;
+}
+
+function syncPlayerVisibilityToggle(hasInactivePlayers) {
+  if (!savePlayers || !playerVisibilityToggle) return;
+  savePlayers.classList.toggle("is-showing-inactive", showInactivePlayers);
+  playerVisibilityToggle.hidden = !hasInactivePlayers;
+  playerVisibilityToggle.setAttribute("aria-expanded", String(showInactivePlayers));
+  playerVisibilityToggle.textContent = showInactivePlayers
+    ? "Replier les aventuriers moins récents"
+    : "Voir les aventuriers moins récents";
 }
 
 function getPlayerActivity(player) {
@@ -1440,7 +1653,7 @@ function renderMetrics(payload) {
         <p>${escapeHtml(message)}</p>
       `;
     }
-    registerDataUpdate("metrics", payload?.updatedAt);
+    registerPayloadDataUpdate("metrics", payload);
     return;
   }
 
@@ -1453,7 +1666,7 @@ function renderMetrics(payload) {
   setMetric("camps", metrics.baseCamps ?? "--");
   setMetric("uptime", metrics.uptime || "--");
 
-  registerDataUpdate("metrics", payload.updatedAt);
+  registerPayloadDataUpdate("metrics", payload);
   const players = Array.isArray(payload.players) ? payload.players : [];
   headerPresencePlayers = players;
   headerPresenceMaxPlayers = metrics.maxPlayers ?? null;
@@ -1465,7 +1678,7 @@ function renderUptime(payload) {
   if (!payload?.ok) {
     uptimeSummary.textContent = payload?.error || "La disponibilité sera affichée au prochain passage du collecteur.";
     uptimeBars.innerHTML = createPlaceholderBars();
-    registerDataUpdate("uptime", payload?.updatedAt);
+    registerPayloadDataUpdate("uptime", payload);
     return;
   }
 
@@ -1475,7 +1688,7 @@ function renderUptime(payload) {
   const uptime = monitor?.uptime24h ?? summary.uptime24hAverage;
   const ping = monitor?.ping;
 
-  registerDataUpdate("uptime", payload.updatedAt);
+  registerPayloadDataUpdate("uptime", payload);
   const pingText = ping != null ? ` · réponse ${ping} ms` : "";
   uptimeSummary.textContent = `${getStatusSentence(status)} · ${formatPercent(uptime)} de disponibilité sur 24 h${pingText}`;
 
@@ -1505,12 +1718,23 @@ function createPlaceholderBars() {
 }
 
 function renderStats(payload) {
+  const provenance = payload?.provenance || {};
+  const sourceSummary = Object.entries(payload?.sources || {})
+    .map(([source, value]) => {
+      const state = sourceHealthState(value?.status);
+      return `${source}: ${state === "available" ? "disponible" : state === "error" ? "erreur" : "retard"}`;
+    })
+    .join(" · ");
+  registerDataUpdate(
+    "stats",
+    provenance.sourceUpdatedAt || payload?.updatedAt,
+    provenance.sourceStatus || (payload?.ok ? "available" : "transient-error"),
+    provenance.freshness || (payload?.ok ? "current" : "stale"),
+    sourceSummary,
+  );
   if (!payload?.ok) {
-    statsSnapshot = null;
     return;
   }
-
-  registerDataUpdate("stats", payload.updatedAt);
 
   const players = getPlayersCollection(payload);
   const server = payload.server || {};
@@ -1652,7 +1876,7 @@ function syncGlobalMapControls() {
   }
 }
 
-function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
+function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases || []) {
   if (!globalPlayerMarkers || !globalPlayerLegend || !globalMapCaption) return;
   const positioned = players
     .map((player, index) => ({ player, index }))
@@ -1748,7 +1972,7 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
     ? `${positionedBases.length} base${positionedBases.length > 1 ? "s" : ""}`
     : "bases masquées";
   globalMapCaption.textContent = `${playerPart} · ${basePart}` + (showMapPlayers ? unchartedNote : "");
-  const visibleBaseCount = basesSnapshot
+  const visibleBaseCount = currentBasesSnapshot()
     ? positionedBases.length
     : Number(saveSnapshot?.summary?.bases || 0);
   if (mapBaseCount) mapBaseCount.textContent = visibleBaseCount;
@@ -1798,6 +2022,7 @@ function updateAdventurerActivity() {
 function renderSaveSnapshot(payload, syncRoute = true) {
   if (!payload?.ok) {
     if (saveState) saveState.textContent = "En attente";
+    registerPayloadDataUpdate("save", payload);
     return;
   }
 
@@ -1805,7 +2030,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
   const players = getDisplayPlayers(payload);
   saveSnapshot = { ...payload, players };
   if (saveState) saveState.textContent = "Données synchronisées";
-  registerDataUpdate("save", payload.updatedAt);
+  registerPayloadDataUpdate("save", payload);
   renderWorldContractStatus();
   const summaryValues = {
     players: players.length,
@@ -1825,6 +2050,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
 
   if (!players.length) {
     if (savePlayers) savePlayers.innerHTML = '<p class="save-empty">Aucun aventurier n\'a encore laissé sa marque dans les sauvegardes.</p>';
+    syncPlayerVisibilityToggle(false);
     return;
   }
 
@@ -1833,10 +2059,13 @@ function renderSaveSnapshot(payload, syncRoute = true) {
     const activity = getPlayerActivityValues(player);
     const teamPals = playerTeamPals(player);
     const cardAccent = playerColor(player);
+    const inactiveForMobile = playerIsInactiveForMobile(player, index);
+    const visibilityClass = inactiveForMobile ? " adventurer-card--less-recent" : "";
+    const visibilityAttribute = inactiveForMobile ? ' data-player-visibility="inactive"' : ' data-player-visibility="recent"';
     if (player.provisional) {
       const level = player.level == null ? "--" : Number(player.level);
       return `
-        <article class="adventurer-card adventurer-card--provisional" data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
+        <article class="adventurer-card adventurer-card--provisional${visibilityClass}"${visibilityAttribute} data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
           <div class="adventurer-card__cover">
             <div class="adventurer-card__identity">
               <span class="adventurer-card__monogram" aria-hidden="true">${escapeHtml(playerInitials(player.name))}</span>
@@ -1877,7 +2106,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
     ].filter(Boolean).slice(0, 3).join("");
 
     return `
-      <article class="adventurer-card" data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
+      <article class="adventurer-card${visibilityClass}"${visibilityAttribute} data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
         <div class="adventurer-card__cover">
           <div class="adventurer-card__identity">
             <span class="adventurer-card__monogram" aria-hidden="true">${escapeHtml(playerInitials(player.name))}</span>
@@ -1905,6 +2134,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
       </article>
     `;
   }).join("");
+  syncPlayerVisibilityToggle(players.some((player, index) => playerIsInactiveForMobile(player, index)));
   renderLeaderboards();
   if (selectedPlayer?.provisional) {
     const selectedIndex = players.findIndex((player) => playerSlug(player.name) === playerSlug(selectedPlayer.name));
@@ -2008,7 +2238,7 @@ function buildSelectedPlayerStock() {
     addItems("chests", base.name, base.storage?.topItems);
     addItems("production", base.name, base.production?.topItems);
   });
-  (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+  (Array.isArray(currentBasesSnapshot()?.guildStorage) ? currentBasesSnapshot().guildStorage : [])
     .filter((storage) => stockBelongsToPlayer(storage, selectedPlayer))
     .forEach((storage) => addItems("guild", storage.guild || "Guilde", storage.topItems));
 
@@ -2184,17 +2414,19 @@ function exportTimestampSlug(date = new Date()) {
 }
 
 function selectedPlayerBaseRows(player = selectedPlayer) {
-  return (Array.isArray(basesSnapshot?.bases) ? basesSnapshot.bases : [])
+  const bases = currentBasesSnapshot();
+  return (Array.isArray(bases?.bases) ? bases.bases : [])
     .filter((base) => baseBelongsToPlayer(base, player));
 }
 
 function selectedPlayerGuildStorageRows(player = selectedPlayer) {
-  return (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+  const bases = currentBasesSnapshot();
+  return (Array.isArray(bases?.guildStorage) ? bases.guildStorage : [])
     .filter((storage) => stockBelongsToPlayer(storage, player));
 }
 
 async function ensurePlayerExportDataReady() {
-  if (!basesSnapshot) await loadBases(true);
+  if (!currentBasesSnapshot()) await loadBases(true);
   if (selectedPlayer) {
     selectedPlayerBases = selectedPlayerBaseRows(selectedPlayer);
     selectedPlayerStock = buildSelectedPlayerStock();
@@ -2208,6 +2440,7 @@ function buildPlayerAnalysisExport(player) {
   const otherPals = collection.filter((pal) => !["party", "palbox"].includes(String(pal.container || "")));
   const bases = selectedPlayerBaseRows(player);
   const guildStorage = selectedPlayerGuildStorageRows(player);
+  const baseSnapshot = currentBasesSnapshot();
 
   return {
     export: {
@@ -2218,9 +2451,9 @@ function buildPlayerAnalysisExport(player) {
     },
     snapshots: {
       playerUpdatedAt: saveSnapshot?.updatedAt || null,
-      basesUpdatedAt: basesSnapshot?.updatedAt || null,
+      basesUpdatedAt: baseSnapshot?.updatedAt || null,
       saveVersion: saveSnapshot?.version ?? null,
-      basesVersion: basesSnapshot?.version ?? null,
+      basesVersion: baseSnapshot?.version ?? null,
     },
     player: {
       name: player?.name || null,
@@ -2343,12 +2576,13 @@ function filterBases() {
 
 function renderSelectedPlayerBases() {
   if (!baseGrid || !selectedPlayer) return;
-  selectedPlayerBases = (Array.isArray(basesSnapshot?.bases) ? basesSnapshot.bases : [])
+  const bases = currentBasesSnapshot();
+  selectedPlayerBases = (Array.isArray(bases?.bases) ? bases.bases : [])
     .filter((base) => baseBelongsToPlayer(base, selectedPlayer));
   selectedPlayerStock = buildSelectedPlayerStock();
   const workers = selectedPlayerBases.reduce((total, base) => total + Number(base.workers?.assigned || 0), 0);
   const busyWorkers = selectedPlayerBases.reduce((total, base) => total + Number(base.workers?.busy || 0), 0);
-  const guildStorageUnits = (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+  const guildStorageUnits = (Array.isArray(bases?.guildStorage) ? bases.guildStorage : [])
     .filter((storage) => stockBelongsToPlayer(storage, selectedPlayer))
     .reduce((total, storage) => total + Number(storage.units || 1), 0);
   const summary = {
@@ -2365,7 +2599,7 @@ function renderSelectedPlayerBases() {
     const element = document.querySelector(`[data-base-summary="${key}"]`);
     if (element) element.textContent = typeof value === "number" ? value.toLocaleString("fr-CA") : value;
   });
-  if (basesState) basesState.textContent = basesSnapshot ? "Campements synchronisés" : "Chargement...";
+  if (basesState) basesState.textContent = bases ? "Campements synchronisés" : "Chargement...";
   baseGrid.innerHTML = selectedPlayerBases.length
     ? selectedPlayerBases.map(baseCardMarkup).join("")
     : '<p class="detail-empty detail-empty--large">Aucun campement n’est associé à cet aventurier.</p>';
@@ -2376,10 +2610,11 @@ function renderSelectedPlayerBases() {
 function renderBaseSnapshot(payload) {
   if (!payload?.ok || !Array.isArray(payload.bases)) {
     if (basesState) basesState.textContent = "En attente";
+    registerPayloadDataUpdate("bases", payload);
     return;
   }
   basesSnapshot = payload;
-  registerDataUpdate("bases", payload.updatedAt);
+  registerPayloadDataUpdate("bases", payload);
   if (basesState) basesState.textContent = `${Number(payload.bases.length || 0).toLocaleString("fr-CA")} bases synchronisées`;
   renderWorldContractStatus();
   if (selectedPlayer) renderSelectedPlayerBases();
@@ -2417,6 +2652,7 @@ const eventTypeMeta = {
   camp: { label: "Camps et bases", token: "BASE", color: "#79b85a" },
   discovery: { label: "Découvertes", token: "NEW", color: "#e96c9b" },
   maintenance: { label: "Maintenances", token: "MAJ", color: "#e7a934" },
+  settings: { label: "Règles du monde", token: "CFG", color: "#cf8b54" },
   server: { label: "Monde", token: "SYS", color: "#77a7be" },
 };
 function normalizeEventSearch(value) {
@@ -2435,8 +2671,29 @@ function formatEventTime(value) {
   };
 }
 
+function eventCanBePublished(event) {
+  let details = "";
+  try {
+    details = JSON.stringify(event?.details || {});
+  } catch {
+    details = "";
+  }
+  const searchable = [
+    event?.title,
+    event?.message,
+    event?.base,
+    event?.headline,
+    event?.body,
+    event?.display?.headline,
+    event?.display?.body,
+    ...(Array.isArray(event?.display?.bullets) ? event.display.bullets : []),
+    details,
+  ].filter(Boolean).join(" ");
+  return !/CommonDropItem3D/i.test(searchable);
+}
+
 function dedupeSessionFallbackEvents(events) {
-  const sourceEvents = Array.isArray(events) ? events : [];
+  const sourceEvents = (Array.isArray(events) ? events : []).filter(eventCanBePublished);
   const journalTransitions = sourceEvents
     .filter((event) => event?.source === "journal" && ["join", "leave"].includes(event.type) && event.player)
     .map((event) => ({
@@ -2492,13 +2749,578 @@ function eventIdentity(event) {
   return fallback ? `fallback:${shortStableHash(fallback)}` : "";
 }
 
-function sortEventsNewestFirst(events) {
-  return dedupeSessionFallbackEvents(events).sort((left, right) => {
+function publicEventOrderRank(event) {
+  const source = String(event?.source || "");
+  const type = String(event?.type || "");
+  if (["journal", "players"].includes(source) && type === "leave") return 0;
+  if (["journal", "players"].includes(source) && ["join", "reconnect"].includes(type)) return 2;
+  return 1;
+}
+
+function sortEventsNewestFirst(events, options = {}) {
+  const candidates = options.canonical
+    ? [...(Array.isArray(events) ? events : [])]
+    : dedupeSessionFallbackEvents(events);
+  return candidates.sort((left, right) => {
     const rightDate = parseDate(right.occurredAt)?.getTime() || 0;
     const leftDate = parseDate(left.occurredAt)?.getTime() || 0;
     if (rightDate !== leftDate) return rightDate - leftDate;
+    const rankDifference = publicEventOrderRank(left) - publicEventOrderRank(right);
+    if (rankDifference !== 0) return rankDifference;
     return Number(right.id || 0) - Number(left.id || 0);
   });
+}
+
+function v6PublicDataPath(value, prefix) {
+  const path = String(value || "").replace(/^\/+/, "");
+  if (!path.startsWith(prefix) || /(?:\.\.|\\|%)/.test(path)) return "";
+  return path;
+}
+
+function v6ManifestDays(manifest = eventsManifestV6) {
+  return (Array.isArray(manifest?.days) ? manifest.days : [])
+    .filter((entry) => isDailyDateKey(entry?.date) && v6PublicDataPath(entry?.path, "data/public-events-v6/"))
+    .sort((left, right) => String(right.date).localeCompare(String(left.date)));
+}
+
+function shiftDailyDateKey(dateKey, days) {
+  if (!isDailyDateKey(dateKey)) return "";
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function v6NavigableDates(manifest = eventsManifestV6) {
+  const published = v6ManifestDays(manifest).map((entry) => entry.date);
+  const today = dailyDateKeyFromDate(new Date());
+  if (!today) return published;
+  const oldest = published.at(-1) || today;
+  const dates = new Set(published);
+  let cursor = today;
+  for (let count = 0; count < 4000 && cursor >= oldest; count += 1) {
+    dates.add(cursor);
+    cursor = shiftDailyDateKey(cursor, -1);
+  }
+  return [...dates].sort((left, right) => right.localeCompare(left));
+}
+
+function v6DateCanBeOpened(dateKey, manifest = eventsManifestV6) {
+  return v6NavigableDates(manifest).includes(dateKey);
+}
+
+function v6DayEntry(dateKey, manifest = eventsManifestV6) {
+  return v6ManifestDays(manifest).find((entry) => entry.date === dateKey) || null;
+}
+
+function v6GenerationIsValid(payload, generationId, head = false) {
+  if (!payload?.ok || Number(payload.schemaVersion) !== 6 || !generationId) return false;
+  return String(head ? payload.baseGenerationId : payload.generationId) === String(generationId);
+}
+
+function v6Sha256IsValid(value) {
+  return /^(?:sha256:)?[a-f0-9]{64}$/i.test(String(value || ""));
+}
+
+function v6ManifestAsIndex(manifest) {
+  const days = v6ManifestDays(manifest);
+  return {
+    version: 6,
+    schemaVersion: 6,
+    ok: true,
+    generationId: manifest.generationId,
+    revision: manifest.generationId,
+    updatedAt: manifest.generatedAt || manifest.sourceUpdatedAt,
+    sourceUpdatedAt: manifest.sourceUpdatedAt,
+    summary: {
+      events: Number(manifest.counts?.echoes || 0),
+      totalEvents: Number(manifest.counts?.echoes || 0),
+      firstAt: days.at(-1)?.firstAt || null,
+      lastAt: days[0]?.lastAt || null,
+    },
+    facets: manifest.facets || { types: [], players: [] },
+    days,
+  };
+}
+
+function clearV6GenerationCaches() {
+  eventDayCache.clear();
+  dailyV6Cache.clear();
+  eventCursor = "";
+  eventCurrentPage = 1;
+}
+
+function captureV6State() {
+  return {
+    manifest: eventsManifestV6,
+    head: eventsHeadV6,
+    mode: eventsContractMode,
+    index: eventsIndexSnapshot,
+    manifestRevision: dataRevisions.eventsManifestV6,
+    headRevision: dataRevisions.eventsHeadV6,
+    sourceUpdatedAt: sourceUpdatedAt.get("events"),
+    selectedDate: eventSelectedDateKey,
+    cursor: eventCursor,
+    page: eventCurrentPage,
+  };
+}
+
+function restoreV6State(state) {
+  if (!state) return false;
+  eventsManifestV6 = state.manifest || null;
+  eventsHeadV6 = state.head || null;
+  const complete = Boolean(eventsManifestV6 && eventsHeadV6);
+  eventsContractMode = complete ? "v6" : state.mode || "v5";
+  eventsIndexSnapshot = state.index || (complete ? v6ManifestAsIndex(eventsManifestV6) : null);
+  dataRevisions.eventsManifestV6 = state.manifestRevision || (complete ? String(eventsManifestV6.generationId || "") : "");
+  dataRevisions.eventsHeadV6 = state.headRevision || (complete ? String(eventsHeadV6.revision || "") : "");
+  eventSelectedDateKey = state.selectedDate || "";
+  eventCursor = state.cursor || "";
+  eventCurrentPage = Math.max(1, Number(state.page || 1));
+  if (state.sourceUpdatedAt) sourceUpdatedAt.set("events", state.sourceUpdatedAt);
+  else sourceUpdatedAt.delete("events");
+  renderSourceFreshness();
+  if (eventsHeadV6) renderHomeLatestEchoes(eventsHeadV6);
+  return complete;
+}
+
+function renderHomeLatestEchoes(payload) {
+  if (!homeLatestEchoes) return;
+  const candidates = Array.isArray(payload?.verifiedEchoes) ? payload.verifiedEchoes : payload?.events || [];
+  const verified = sortEventsNewestFirst(candidates, { canonical: Number(payload?.schemaVersion) === 6 })
+    .filter((event) => !event?.confidence || event.confidence === "confirmed")
+    .slice(0, 5);
+  homeLatestEchoes.innerHTML = verified.length
+    ? verified.map((event, index) => renderEventLineHtml(event, index)).join("")
+    : '<li class="event-stream__empty">Aucun écho vérifié pour le moment.</li>';
+  if (homeEchoesStatus) {
+    homeEchoesStatus.textContent = verified.length
+      ? `${verified.length} écho${verified.length > 1 ? "s" : ""} confirmé${verified.length > 1 ? "s" : ""} · ${formatRelativeAge(payload?.sourceUpdatedAt || payload?.updatedAt || payload?.generatedAt)}`
+      : "Les prochains échos confirmés apparaîtront ici.";
+  }
+}
+
+function currentV6MaxCursor() {
+  return Number(eventsManifestV6?.cursor?.maxId || eventsHeadV6?.cursor?.maxId || 0);
+}
+
+function terminalUnseenSummary(head, visitCursor, visitTotalEchoes) {
+  const events = Array.isArray(head?.events) ? head.events : [];
+  const cursor = Number(visitCursor || 0);
+  const visibleCount = events.filter((event) => Number(event?.id || 0) > cursor).length;
+  const currentTotal = Number(head?.counts?.totalEchoes);
+  const previousTotal = Number(visitTotalEchoes);
+  const hasVisitTotal = visitTotalEchoes !== null && visitTotalEchoes !== undefined && visitTotalEchoes !== "";
+  const hasExactTotal = hasVisitTotal && Number.isFinite(currentTotal) && currentTotal >= 0
+    && Number.isFinite(previousTotal) && previousTotal >= 0
+    && currentTotal >= previousTotal;
+  const exactCount = hasExactTotal ? currentTotal - previousTotal : null;
+  const usableExactCount = exactCount != null && (exactCount > 0 || visibleCount === 0) ? exactCount : null;
+  const count = usableExactCount ?? visibleCount;
+  const minId = Number(head?.windowCursor?.minId || head?.cursor?.minId || 0);
+  const saturated = usableExactCount == null && Boolean(head?.hasMore) && cursor > 0 && minId > 0 && cursor < minId;
+  return {
+    count,
+    displayCount: `${count}${saturated && count > 0 ? "+" : ""}`,
+    saturated,
+  };
+}
+
+function updateTerminalUnseen() {
+  if (!eventUnseen || eventsContractMode !== "v6") return;
+  const maxCursor = currentV6MaxCursor();
+  if (terminalVisitStartCursor == null) {
+    let stored = 0;
+    let storedTotal = NaN;
+    try {
+      stored = Number(localStorage.getItem(terminalVisitCursorStorageKey));
+      const rawTotal = localStorage.getItem(terminalVisitTotalStorageKey);
+      storedTotal = rawTotal == null ? NaN : Number(rawTotal);
+    } catch {
+      // Une visite privée peut refuser l’accès au stockage local.
+    }
+    const hasStoredCursor = Number.isFinite(stored) && stored > 0;
+    terminalVisitStartCursor = hasStoredCursor ? stored : maxCursor;
+    const currentTotal = Number(eventsHeadV6?.counts?.totalEchoes);
+    terminalVisitStartTotalEchoes = Number.isFinite(storedTotal) && storedTotal >= 0
+      ? storedTotal
+      : !hasStoredCursor && Number.isFinite(currentTotal) && currentTotal >= 0 ? currentTotal : null;
+  }
+  const unseen = terminalUnseenSummary(eventsHeadV6, terminalVisitStartCursor, terminalVisitStartTotalEchoes);
+  eventUnseen.hidden = unseen.count === 0;
+  if (eventUnseenCount) eventUnseenCount.textContent = unseen.displayCount;
+  const label = eventUnseen.querySelector("span");
+  if (label) label.textContent = `nouvel${unseen.count > 1 ? "s" : ""} écho${unseen.count > 1 ? "s" : ""} depuis ta dernière visite`;
+}
+
+function markTerminalEchoesSeen() {
+  const cursor = currentV6MaxCursor();
+  if (!cursor) return;
+  terminalVisitStartCursor = cursor;
+  const totalEchoes = Number(eventsHeadV6?.counts?.totalEchoes);
+  terminalVisitStartTotalEchoes = Number.isFinite(totalEchoes) && totalEchoes >= 0 ? totalEchoes : null;
+  try {
+    localStorage.setItem(terminalVisitCursorStorageKey, String(cursor));
+    if (terminalVisitStartTotalEchoes != null) {
+      localStorage.setItem(terminalVisitTotalStorageKey, String(terminalVisitStartTotalEchoes));
+    }
+  } catch {
+    // Le terminal reste fonctionnel lorsque le stockage local est bloqué.
+  }
+  updateTerminalUnseen();
+}
+
+async function fetchEventsV6Candidate(silent = false, force = false) {
+  const preferredContract = await loadEventsContractChannel(force);
+  if (preferredContract !== "v6") {
+    return { ok: false, changed: false, fallback: true, inactive: true };
+  }
+  if (eventsV6LoadPromise) return eventsV6LoadPromise;
+  if (!force && !eventsManifestV6 && Date.now() < eventsV6RetryAfter) {
+    return { ok: false, changed: false, fallback: true };
+  }
+
+  eventsV6LoadPromise = (async () => {
+    try {
+      let pointer = null;
+      try {
+        pointer = await readJson("data/public-events-head-v6.json", { revalidate: true });
+      } catch (error) {
+        if (!String(error?.message || "").includes("HTTP 404")) throw error;
+      }
+      if (pointer) {
+        const pointerGeneration = String(pointer.baseGenerationId || "");
+        const pointerManifestPath = v6PublicDataPath(pointer.manifest?.path, `data/public-events-v6/${pointerGeneration}/`);
+        const expectedManifestPath = `data/public-events-v6/${pointerGeneration}/manifest.json`;
+        if (
+          !pointer.ok
+          || Number(pointer.schemaVersion) !== 6
+          || !/^[A-Za-z0-9._-]+$/.test(pointerGeneration)
+          || pointerManifestPath !== expectedManifestPath
+          || !v6Sha256IsValid(pointer.manifest?.sha256)
+          || !v6Sha256IsValid(pointer.head?.sha256)
+        ) throw new Error("invalid-v6-active-pointer");
+        if (
+          eventsManifestV6
+          && eventsHeadV6
+          && String(eventsManifestV6.generationId || "") === pointerGeneration
+          && String(eventsHeadV6.revision || "") === String(pointer.head?.revision || pointer.revision || "")
+        ) {
+          eventsActivePointerV6 = pointer;
+          return {
+            ok: true,
+            manifest: eventsManifestV6,
+            head: eventsHeadV6,
+            generationId: pointerGeneration,
+            mode: "v6",
+            unchanged: true,
+          };
+        }
+      }
+      const manifest = pointer
+        ? await readJson(pointer.manifest.path, { immutable: true, expectedSha256: pointer.manifest.sha256 })
+        : await readJson("data/public-events-manifest-v6.json", { revalidate: true });
+      const generationId = String(manifest?.generationId || "");
+      const rawDays = Array.isArray(manifest?.days) ? manifest.days : [];
+      const days = v6ManifestDays(manifest);
+      const incompleteDay = days.some((entry) => !v6PublicDataPath(entry.dailyPath, "data/public-daily/") || !v6Sha256IsValid(entry.sha256) || !v6Sha256IsValid(entry.dailySha256));
+      if (!manifest?.ok || Number(manifest.schemaVersion) !== 6 || !/^[A-Za-z0-9._-]+$/.test(generationId) || days.length !== rawDays.length || incompleteDay) {
+        throw new Error("invalid-v6-manifest");
+      }
+      const expectedHeadPath = `data/public-events-v6/${generationId}/head.json`;
+      const headPath = v6PublicDataPath(manifest.head?.path, `data/public-events-v6/${generationId}/`);
+      if (headPath !== expectedHeadPath || !v6Sha256IsValid(manifest.head?.sha256)) throw new Error("invalid-v6-head-path");
+      if (
+        pointer
+        && (
+          String(pointer.baseGenerationId || "") !== generationId
+          || pointer.head?.path !== manifest.head?.path
+          || pointer.head?.sha256 !== manifest.head?.sha256
+          || String(pointer.head?.revision || "") !== String(manifest.head?.revision || "")
+        )
+      ) throw new Error("mixed-v6-active-pointer");
+      const head = await readJson(headPath, { immutable: true, expectedSha256: manifest.head.sha256 });
+      if (!v6GenerationIsValid(head, generationId, true)) throw new Error("mixed-v6-generation");
+      eventsActivePointerV6 = pointer;
+      eventsV6RetryAfter = 0;
+      return { ok: true, manifest, head, generationId, mode: "v6" };
+    } catch (error) {
+      if (eventsManifestV6 && eventsHeadV6) {
+        return {
+          ok: true,
+          manifest: eventsManifestV6,
+          head: eventsHeadV6,
+          generationId: String(eventsManifestV6.generationId || ""),
+          mode: "v6",
+          stale: true,
+          error,
+        };
+      }
+      eventsV6RetryAfter = Date.now() + 5 * 60 * 1000;
+      if (!silent) console.info("Le journal v6 n’est pas encore publié; repli sur le journal actuel.");
+      return { ok: false, changed: false, fallback: true, error };
+    } finally {
+      eventsV6LoadPromise = null;
+    }
+  })();
+  return eventsV6LoadPromise;
+}
+
+async function loadEventsContractChannel(force = false) {
+  if (!force && eventsContractChannelCheckedAt && Date.now() - eventsContractChannelCheckedAt < refreshEveryMs - 500) {
+    return eventsPreferredContract;
+  }
+  if (eventsContractChannelPromise) return eventsContractChannelPromise;
+
+  eventsContractChannelPromise = (async () => {
+    try {
+      const payload = await readJson("public-events-channel.json", { revalidate: true });
+      const activeContract = String(payload?.activeContract || "").toLocaleLowerCase("en-CA");
+      if (Number(payload?.schemaVersion) !== 1 || !["v5", "v6"].includes(activeContract)) {
+        throw new Error("invalid-events-contract-channel");
+      }
+      const changed = activeContract !== eventsPreferredContract;
+      eventsPreferredContract = activeContract;
+      eventsContractChannelCheckedAt = Date.now();
+      if (changed && activeContract === "v5" && eventsContractMode === "v6") {
+        eventsContractMode = "v5";
+        eventsManifestV6 = null;
+        eventsHeadV6 = null;
+        eventsActivePointerV6 = null;
+        eventsSnapshot = null;
+        eventsIndexSnapshot = null;
+        eventsRecentSnapshot = null;
+        eventsFullLoaded = false;
+        eventsFullLoadPromise = null;
+        clearV6GenerationCaches();
+      }
+      return eventsPreferredContract;
+    } catch {
+      eventsContractChannelCheckedAt = Date.now();
+      return eventsPreferredContract;
+    } finally {
+      eventsContractChannelPromise = null;
+    }
+  })();
+
+  return eventsContractChannelPromise;
+}
+
+function commitEventsV6Candidate(candidate) {
+  if (!candidate?.ok || !candidate.manifest || !candidate.head) throw new Error("invalid-v6-candidate");
+  const previousGeneration = String(eventsManifestV6?.generationId || "");
+  const previousHeadRevision = String(eventsHeadV6?.revision || "");
+  const generationId = String(candidate.manifest.generationId || "");
+  const headRevision = String(candidate.head.revision || candidate.head.cursor?.maxId || candidate.head.generatedAt || "");
+  eventsManifestV6 = candidate.manifest;
+  eventsHeadV6 = candidate.head;
+  eventsContractMode = "v6";
+  eventsIndexSnapshot = v6ManifestAsIndex(candidate.manifest);
+  dataRevisions.eventsManifestV6 = generationId;
+  dataRevisions.eventsHeadV6 = headRevision;
+  registerPayloadDataUpdate("events", candidate.head);
+  renderHomeLatestEchoes(candidate.head);
+  updateTerminalUnseen();
+  return {
+    ok: true,
+    changed: previousGeneration !== generationId || previousHeadRevision !== headRevision,
+    generationChanged: Boolean(previousGeneration && previousGeneration !== generationId),
+    stale: Boolean(candidate.stale),
+    mode: "v6",
+  };
+}
+
+async function stageAndCommitV6Candidate(candidate, loadPayload, commitCandidate) {
+  const payload = await loadPayload();
+  const state = commitCandidate(candidate);
+  return { payload, state };
+}
+
+async function loadEventsV6State(silent = false, force = false) {
+  const candidate = await fetchEventsV6Candidate(silent, force);
+  if (!candidate.ok) {
+    if (!eventsManifestV6 || !eventsHeadV6) eventsContractMode = "v5";
+    return candidate;
+  }
+  return commitEventsV6Candidate(candidate);
+}
+
+function mergeV6DayWithHead(dayPayload, dateKey, manifest = eventsManifestV6, head = eventsHeadV6) {
+  const activeGenerationId = String(manifest?.generationId || "");
+  const headEvents = head && String(head.baseGenerationId) === activeGenerationId
+    ? (head.events || []).filter((event) => dailyDateKeyFromDate(parseDate(event?.occurredAt)) === dateKey)
+    : [];
+  const byKey = new Map();
+  [...(dayPayload.events || []), ...headEvents].forEach((event, index) => {
+    byKey.set(eventIdentity(event) || `v6:${index}`, event);
+  });
+  const events = sortEventsNewestFirst([...byKey.values()], { canonical: true });
+  return {
+    ...dayPayload,
+    version: 6,
+    activeGenerationId,
+    revision: `${activeGenerationId}:${dayPayload.generationId}:${dateKey}:${head?.revision || dayPayload.contentHash || ""}`,
+    updatedAt: head?.sourceUpdatedAt || dayPayload.sourceUpdatedAt || dayPayload.generatedAt,
+    summary: {
+      events: events.length,
+      totalEvents: events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+    events,
+  };
+}
+
+async function loadEventDayV6(dateKey, manifest = eventsManifestV6, head = eventsHeadV6) {
+  const entry = v6DayEntry(dateKey, manifest);
+  if (!manifest?.generationId || !v6DateCanBeOpened(dateKey, manifest)) throw new Error("v6-day-unavailable");
+  if (!entry) {
+    return mergeV6DayWithHead({
+      schemaVersion: 6,
+      ok: true,
+      generationId: String(manifest.generationId),
+      date: dateKey,
+      generatedAt: manifest.generatedAt,
+      sourceUpdatedAt: manifest.sourceUpdatedAt,
+      freshness: manifest.freshness,
+      sourceStatus: manifest.sourceStatus,
+      cursor: { minId: 0, maxId: 0 },
+      counts: { echoes: 0, representedEvents: 0, confirmedEchoes: 0, derivedEchoes: 0 },
+      contentHash: `empty:${dateKey}`,
+      events: [],
+    }, dateKey, manifest, head);
+  }
+  const generationId = String(entry.fragmentGenerationId || entry.generationId || manifest.generationId);
+  const cacheKey = `${generationId}:${entry.path}:${dateKey}`;
+  let payload = eventDayCache.get(cacheKey);
+  if (!payload) {
+    payload = await readJson(v6PublicDataPath(entry.path, "data/public-events-v6/"), {
+      immutable: true,
+      expectedSha256: entry.sha256,
+    });
+    if (!v6GenerationIsValid(payload, generationId) || payload.date !== dateKey || !Array.isArray(payload.events)) {
+      throw new Error("mixed-v6-day-generation");
+    }
+    eventDayCache.set(cacheKey, payload);
+  }
+  return mergeV6DayWithHead(payload, dateKey, manifest, head);
+}
+
+function renderEventDateControls() {
+  if (!eventDateNavigation) return;
+  const dates = v6NavigableDates();
+  const index = dates.indexOf(eventSelectedDateKey);
+  eventDateNavigation.hidden = eventsContractMode !== "v6";
+  if (eventDateInput) {
+    eventDateInput.value = eventSelectedDateKey || "";
+    eventDateInput.min = dates.at(-1) || "";
+    eventDateInput.max = dailyDateKeyFromDate(new Date()) || dates[0] || "";
+  }
+  if (eventDatePrevious) eventDatePrevious.disabled = index < 0 || index >= dates.length - 1;
+  if (eventDateNext) eventDateNext.disabled = index <= 0;
+  if (eventDateToday) eventDateToday.disabled = eventSelectedDateKey === dailyDateKeyFromDate(new Date());
+}
+
+async function loadTerminalEventsV6(silent = false) {
+  const rollbackState = captureV6State();
+  const previousRevision = eventsSnapshot?.revision || "";
+  try {
+    const candidate = await fetchEventsV6Candidate(silent, true);
+    if (!candidate.ok) return candidate;
+    const dates = v6NavigableDates(candidate.manifest);
+    const requested = eventSelectedDateKey || new URLSearchParams(location.search).get("jour") || "";
+    const selectedDate = dates.includes(requested) ? requested : dates[0];
+    const { payload, state } = await stageAndCommitV6Candidate(
+      candidate,
+      () => loadEventDayV6(selectedDate, candidate.manifest, candidate.head),
+      commitEventsV6Candidate,
+    );
+    eventSelectedDateKey = selectedDate;
+    if (state.generationChanged) clearV6GenerationCaches();
+    eventsSnapshot = payload;
+    eventsRecentSnapshot = eventsHeadV6;
+    eventsFullLoaded = false;
+    renderEventSummaryCards(payload);
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    renderEventFiltersFromFacets(eventsIndexSnapshot);
+    renderEventDateControls();
+    renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    updateTerminalUnseen();
+    return { ok: true, changed: state.changed || previousRevision !== payload.revision, mode: "v6" };
+  } catch (error) {
+    const restored = restoreV6State(rollbackState);
+    if (restored) {
+      if (eventsSnapshot?.version === 6 && String(eventsSnapshot.activeGenerationId || "") === String(eventsManifestV6?.generationId || "")) {
+        renderEventDateControls();
+        return { ok: true, changed: false, stale: true, error, mode: "v6" };
+      }
+      try {
+        const dates = v6NavigableDates();
+        eventSelectedDateKey = dates.includes(eventSelectedDateKey) ? eventSelectedDateKey : dates[0];
+        const payload = await loadEventDayV6(eventSelectedDateKey);
+        eventsSnapshot = payload;
+        eventsRecentSnapshot = eventsHeadV6;
+        eventsFullLoaded = false;
+        renderEventSummaryCards(payload);
+        renderEventSyncStatus(new Date(), payload.updatedAt);
+        renderEventFiltersFromFacets(eventsIndexSnapshot);
+        renderEventDateControls();
+        renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        updateTerminalUnseen();
+        return { ok: true, changed: false, stale: true, error, mode: "v6" };
+      } catch {
+        // Le repli v5 reste disponible si la dernière génération complète n’est plus lisible.
+      }
+    }
+    return { ok: false, changed: false, fallback: true, error };
+  }
+}
+
+async function selectEventDate(dateKey, updateUrl = true) {
+  if (!v6DateCanBeOpened(dateKey)) return;
+  const previousDate = eventSelectedDateKey;
+  try {
+    const payload = await loadEventDayV6(dateKey);
+    eventSelectedDateKey = dateKey;
+    eventCursor = "";
+    eventCurrentPage = 1;
+    eventsSnapshot = payload;
+    renderEventSummaryCards(payload);
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    renderEventDateControls();
+    renderEvents();
+    if (updateUrl) writeTerminalState();
+  } catch {
+    eventSelectedDateKey = previousDate;
+    renderEventDateControls();
+    announceDataUpdate("Cette journée n’a pas pu être chargée. La journée déjà ouverte reste affichée.");
+  }
+}
+
+async function loadHomeEchoes(silent = false) {
+  const v6 = await loadEventsV6State(true, true);
+  if (v6.ok && eventsHeadV6) return v6;
+  try {
+    const payload = await readJson("data/public-events-recent.json");
+    renderHomeLatestEchoes(payload);
+    registerPayloadDataUpdate("events", payload);
+    return { ok: true, changed: isNewDataRevision("events", payload), mode: "v5" };
+  } catch {
+    if (!silent && homeEchoesStatus) homeEchoesStatus.textContent = "Les échos sont momentanément indisponibles.";
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadTerminalEventsPreferred(silent = false) {
+  const v6 = await loadTerminalEventsV6(true);
+  if (v6.ok && eventsContractMode === "v6") return v6;
+  eventDateNavigation?.setAttribute("hidden", "");
+  const fallback = eventFiltersRequireFullHistory()
+    ? await loadEventsWithRecentOverlay(silent)
+    : await loadEventsIndex(silent);
+  if (fallback.ok && !eventsFullLoaded && eventsIndexSnapshot) {
+    await renderPagedTerminalEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+  }
+  return { ...fallback, mode: "v5" };
 }
 
 function primaryEventRevision(payload) {
@@ -2515,8 +3337,69 @@ function recentEventRevision(payload) {
   return parts.length > 1 ? parts.at(-1) : "";
 }
 
+function v5TailReplacementWindow(basePayload, overlayPayload) {
+  const baseVersion = Number(basePayload?.schemaVersion || basePayload?.version || 0);
+  const overlayVersion = Number(overlayPayload?.schemaVersion || overlayPayload?.version || 0);
+  const window = overlayPayload?.projectionWindow;
+  if (
+    baseVersion !== 5
+    || overlayVersion !== 5
+    || !overlayPayload?.recent
+    || window?.mode !== "replace-tail"
+    || window?.complete !== true
+  ) return null;
+
+  const replaceAt = parseDate(window.replaceFrom);
+  const baseRevision = Number(basePayload?.projectionRevision);
+  const fromRevision = Number(window.fromProjectionRevision);
+  const throughRevision = Number(window.throughProjectionRevision);
+  const overlayRevision = Number(overlayPayload?.projectionRevision);
+  if (
+    !replaceAt
+    || !Number.isInteger(baseRevision)
+    || !Number.isInteger(fromRevision)
+    || !Number.isInteger(throughRevision)
+    || !Number.isInteger(overlayRevision)
+    || baseRevision >= throughRevision
+    || fromRevision >= throughRevision
+    || overlayRevision !== throughRevision
+  ) return null;
+
+  return {
+    replaceAt,
+    replaceFrom: String(window.replaceFrom),
+    fromRevision,
+    throughRevision,
+    fullyCovered: baseRevision >= fromRevision,
+  };
+}
+
+function mergeV5PagedTailEvents(baseEvents, basePayload, overlayPayload) {
+  const replacement = v5TailReplacementWindow(basePayload, overlayPayload);
+  const coldEvents = dedupeSessionFallbackEvents(baseEvents);
+  if (!replacement) return coldEvents;
+
+  const byKey = new Map();
+  coldEvents.forEach((event, index) => {
+    const occurredAt = parseDate(event?.occurredAt);
+    if (occurredAt && occurredAt >= replacement.replaceAt) return;
+    byKey.set(eventIdentity(event) || `cold:${index}`, event);
+  });
+  dedupeSessionFallbackEvents(overlayPayload?.events).forEach((event, index) => {
+    const occurredAt = parseDate(event?.occurredAt);
+    if (!occurredAt || occurredAt < replacement.replaceAt) return;
+    byKey.set(eventIdentity(event) || `recent:${index}`, event);
+  });
+  return sortEventsNewestFirst([...byKey.values()], { canonical: true });
+}
+
 function mergeEventPayloads(basePayload, overlayPayload) {
-  const baseEvents = dedupeSessionFallbackEvents(basePayload?.events);
+  const replacement = v5TailReplacementWindow(basePayload, overlayPayload);
+  const baseEvents = dedupeSessionFallbackEvents(basePayload?.events).filter((event) => {
+    if (!replacement) return true;
+    const occurredAt = parseDate(event?.occurredAt);
+    return !occurredAt || occurredAt < replacement.replaceAt;
+  });
   const overlayEvents = dedupeSessionFallbackEvents(overlayPayload?.events);
   const baseRevision = primaryEventRevision(basePayload);
   const overlayRevision = recentEventRevision(overlayPayload) || recentEventRevision(basePayload);
@@ -2526,6 +3409,8 @@ function mergeEventPayloads(basePayload, overlayPayload) {
       events: baseEvents,
       sourceRevision: baseRevision,
       recentRevision: overlayRevision,
+      projectionRevision: replacement?.throughRevision ?? basePayload?.projectionRevision,
+      projectionWindow: replacement ? overlayPayload.projectionWindow : basePayload?.projectionWindow,
       revision: [baseRevision || basePayload?.revision, overlayRevision].filter(Boolean).join("+"),
       summary: {
         ...(basePayload?.summary || {}),
@@ -2550,6 +3435,8 @@ function mergeEventPayloads(basePayload, overlayPayload) {
     version: Math.max(Number(basePayload?.version || 0), Number(overlayPayload?.version || 0)),
     sourceRevision: baseRevision,
     recentRevision: overlayRevision,
+    projectionRevision: replacement?.throughRevision ?? basePayload?.projectionRevision,
+    projectionWindow: replacement ? overlayPayload.projectionWindow : basePayload?.projectionWindow,
     revision: [baseRevision || basePayload?.revision, overlayRevision].filter(Boolean).join("+"),
     updatedAt: latestUpdatedAt || basePayload?.updatedAt || overlayPayload?.updatedAt || new Date().toISOString(),
     summary: {
@@ -2612,6 +3499,7 @@ function renderEventFiltersFromFacets(payload) {
 }
 
 function eventFiltersRequireFullHistory() {
+  if (eventsContractMode === "v6") return false;
   return Boolean(
     normalizeEventSearch(eventSearch?.value) ||
     selectedEventTypeValue() !== "all" ||
@@ -2679,6 +3567,8 @@ function readTerminalState() {
     type: params.get("type") ?? saved.type ?? "all",
     player: params.get("player") ?? saved.player ?? "all",
     page: Number(params.get("page") || saved.page || 1),
+    day: params.get("jour") ?? saved.day ?? "",
+    cursor: params.get("cursor") ?? saved.cursor ?? "",
   };
   if (eventSearch) eventSearch.value = values.q;
   if (eventTypeFilter) {
@@ -2690,6 +3580,8 @@ function readTerminalState() {
     eventPlayerFilter.value = values.player;
   }
   eventCurrentPage = Math.max(1, values.page || 1);
+  eventSelectedDateKey = isDailyDateKey(values.day) ? values.day : "";
+  eventCursor = values.cursor || "";
   syncEventControlsState();
   updateTerminalPageSize();
 }
@@ -2715,6 +3607,8 @@ function writeTerminalState() {
     type: selectedEventTypeValue(),
     player: selectedEventPlayerValue(),
     page: eventCurrentPage,
+    day: eventSelectedDateKey,
+    cursor: eventCursor,
   };
   localStorage.setItem("gaylemon-terminal-filters", JSON.stringify(state));
   const params = new URLSearchParams();
@@ -2722,7 +3616,12 @@ function writeTerminalState() {
   for (const key of ["type", "player"]) {
     if (state[key] && state[key] !== "all") params.set(key, state[key]);
   }
-  if (state.page > 1) params.set("page", String(state.page));
+  if (eventsContractMode === "v6") {
+    if (state.day) params.set("jour", state.day);
+    if (state.cursor) params.set("cursor", state.cursor);
+  } else if (state.page > 1) {
+    params.set("page", String(state.page));
+  }
   const query = params.toString();
   history.replaceState(null, "", `/terminal${query ? `?${query}` : ""}`);
 }
@@ -2744,6 +3643,7 @@ function eventRenderSignature(event) {
     event?.message || "",
     event?.display?.headline || "",
     event?.display?.body || "",
+    event?.confidence || "confirmed",
     ...(event?.display?.bullets || []),
   ]));
 }
@@ -2804,13 +3704,16 @@ function renderEventLineHtml(event, index = 0) {
       : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
     const key = eventIdentity(event) || `visible:${index}`;
     const signature = eventRenderSignature(event);
+    const confidenceBadge = event.confidence === "derived"
+      ? '<em class="event-line__confidence" aria-label="Attribution déduite : le fait est confirmé pour la guilde, mais son attribution à ce joueur est estimée" title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée.">Attribution déduite</em>'
+      : "";
     return `
       <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
         <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.date)} · ${escapeHtml(timestamp.time)}</strong></time>
         <span class="event-line__rail" aria-hidden="true"><i></i></span>
         <span class="event-line__visual">${visual}</span>
         <span class="event-line__content">
-          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}</span>
+          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}${confidenceBadge}</span>
           <strong>${escapeHtml(headline)}</strong>
           <span class="event-line__body">${escapeHtml(body)}</span>
           ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
@@ -2872,6 +3775,25 @@ function compactItemizedEventBody(event, fallbackBody, bullets) {
 
 function renderEventPaginationControls(pageCount) {
   if (!eventPagination) return;
+  if (isTerminalRoute() && eventsContractMode === "v6") {
+    const total = terminalVisibleEvents.length;
+    const pageSize = terminalEventPageSize;
+    const previousStart = Math.max(0, terminalEventWindowStart - pageSize);
+    const nextStart = terminalEventWindowStart + pageSize;
+    const previousCursor = terminalVisibleEvents[previousStart] ? eventIdentity(terminalVisibleEvents[previousStart]) : "";
+    const nextCursor = terminalVisibleEvents[nextStart] ? eventIdentity(terminalVisibleEvents[nextStart]) : "";
+    if (terminalEventWindowStart === 0 && nextStart >= total) {
+      eventPagination.innerHTML = "";
+      eventPagination.hidden = true;
+      return;
+    }
+    eventPagination.hidden = false;
+    eventPagination.innerHTML = `
+      <button type="button" data-event-cursor="${escapeHtml(previousCursor)}" ${terminalEventWindowStart === 0 ? "disabled" : ""}>Échos plus récents</button>
+      <span class="event-pagination__position">${formatInteger(terminalEventWindowStart + 1)}–${formatInteger(Math.min(terminalEventWindowStart + pageSize, total))} sur ${formatInteger(total)}</span>
+      <button type="button" data-event-cursor="${escapeHtml(nextCursor)}" ${nextStart >= total ? "disabled" : ""}>Échos plus anciens</button>`;
+    return;
+  }
   if (pageCount <= 1) {
     eventPagination.innerHTML = "";
     eventPagination.hidden = true;
@@ -2894,6 +3816,14 @@ function renderEventPaginationControls(pageCount) {
 
 function eventIndexTotalEvents() {
   return Number(eventsIndexSnapshot?.summary?.totalEvents || eventsIndexSnapshot?.summary?.events || 0);
+}
+
+function eventIndexDisplayTotalEvents() {
+  const replacement = v5TailReplacementWindow(eventsIndexSnapshot, eventsRecentSnapshot);
+  const recentTotal = Number(eventsRecentSnapshot?.summary?.totalEvents);
+  return replacement && Number.isInteger(recentTotal) && recentTotal >= 0
+    ? recentTotal
+    : eventIndexTotalEvents();
 }
 
 function eventIndexPageSize() {
@@ -3008,9 +3938,15 @@ async function collectPagedTerminalEvents() {
   const sourcePages = eventExportPageNumbersForWindow(start, end, exportPageSize);
   const payloads = await Promise.all(sourcePages.map((page) => loadEventExportPage(page)));
   const sourceStart = (sourcePages[0] - 1) * exportPageSize;
-  return payloads
-    .flatMap((payload) => payload.events || [])
-    .slice(start - sourceStart, end - sourceStart);
+  const coldEvents = payloads.flatMap((payload) => payload.events || []);
+  // La tête v5 peut avancer entre deux checkpoints froids. Tant que la
+  // fenêtre demandée part de la première page exportée, on reconstruit cette
+  // tête avec la queue canonique. Les pages profondes restent volontairement
+  // celles du dernier checkpoint jusqu'à sa prochaine publication.
+  const events = sourceStart === 0
+    ? mergeV5PagedTailEvents(coldEvents, eventsIndexSnapshot, eventsRecentSnapshot)
+    : coldEvents;
+  return events.slice(start - sourceStart, end - sourceStart);
 }
 
 async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
@@ -3040,7 +3976,8 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
     }
 
     const visible = await collectPagedTerminalEvents();
-    const resultLabel = `${totalEvents.toLocaleString("fr-CA")} écho${totalEvents > 1 ? "s" : ""}`;
+    const displayTotalEvents = eventIndexDisplayTotalEvents();
+    const resultLabel = `${displayTotalEvents.toLocaleString("fr-CA")} écho${displayTotalEvents > 1 ? "s" : ""}`;
     const updatedPageCount = Math.max(1, Math.ceil(totalEvents / terminalEventPageSize));
     if (eventResultCount) {
       eventResultCount.textContent = updatedPageCount > 1
@@ -3067,6 +4004,11 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
 }
 
 async function updateTerminalEvents(refinePageSize = true) {
+  if (isTerminalRoute() && eventsContractMode === "v6") {
+    renderEvents(refinePageSize);
+    writeTerminalState();
+    return;
+  }
   if (isTerminalRoute() && !eventsFullLoaded && eventFiltersRequireFullHistory()) {
     if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
     await loadEventsWithRecentOverlay(true);
@@ -3109,8 +4051,19 @@ function renderEvents(refinePageSize = true, options = {}) {
   if (terminal) updateTerminalPageSize();
   const pageSize = terminal ? terminalEventPageSize : dashboardEventPageSize;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
-  const start = (eventCurrentPage - 1) * pageSize;
+  if (terminal && eventsContractMode === "v6") {
+    const cursorIndex = eventCursor
+      ? filtered.findIndex((event) => eventIdentity(event) === eventCursor)
+      : 0;
+    terminalEventWindowStart = cursorIndex >= 0 ? cursorIndex : 0;
+    eventCurrentPage = Math.floor(terminalEventWindowStart / pageSize) + 1;
+    terminalVisibleEvents = filtered;
+  } else {
+    eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+    terminalEventWindowStart = (eventCurrentPage - 1) * pageSize;
+    terminalVisibleEvents = filtered;
+  }
+  const start = terminalEventWindowStart;
   const visible = filtered.slice(start, start + pageSize);
 
   const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
@@ -3120,7 +4073,9 @@ function renderEvents(refinePageSize = true, options = {}) {
       : `${events.length} écho${events.length > 1 ? "s" : ""}`)
     : `${filtered.length} résultat${filtered.length > 1 ? "s" : ""} sur ${events.length}`;
   if (eventResultCount) {
-    eventResultCount.textContent = pageCount > 1
+    eventResultCount.textContent = terminal && eventsContractMode === "v6"
+      ? `${resultLabel} · ${dailyDisplayDate(eventSelectedDateKey, { short: true })}`
+      : pageCount > 1
       ? `${resultLabel} · page ${eventCurrentPage} sur ${pageCount}`
       : resultLabel;
   }
@@ -3218,6 +4173,9 @@ function dailyEnumerateKeys(firstDate, lastDate) {
 }
 
 function dailyAvailableKeysFromIndex() {
+  if (Number(eventsIndexSnapshot?.schemaVersion) === 6 && Array.isArray(eventsIndexSnapshot?.days)) {
+    return eventsIndexSnapshot.days.map((entry) => entry.date).filter(isDailyDateKey);
+  }
   const keys = new Set();
   for (const entry of eventsIndexSnapshot?.pages || []) {
     if (!Number(entry?.events || 0)) continue;
@@ -3286,8 +4244,8 @@ async function loadDailyRoster() {
       playersByName.set(key, { ...previous, ...player, name: previous.name || name });
     });
     dailyRosterPlayers = [...playersByName.values()];
-    registerDataUpdate("save", savePayload?.updatedAt);
-    if (statsPayload?.updatedAt) registerDataUpdate("stats", statsPayload.updatedAt);
+    registerPayloadDataUpdate("save", savePayload);
+    if (statsPayload) registerPayloadDataUpdate("stats", statsPayload);
     return { ok: true, changed: false };
   } catch {
     dailyRosterPlayers = [];
@@ -3301,7 +4259,12 @@ async function loadDailyEventsForDate(key) {
   const pages = dailyPagesForDate(key);
   if (!pages.length) return [];
   const payloads = await Promise.all(pages.map((entry) => loadEventExportPage(entry.page)));
-  return sortEventsNewestFirst(payloads.flatMap((payload) => payload.events || []))
+  const coldEvents = payloads.flatMap((payload) => payload.events || []);
+  const includesColdHead = pages.some((entry) => Number(entry?.page) === 1);
+  const events = includesColdHead
+    ? mergeV5PagedTailEvents(coldEvents, eventsIndexSnapshot, eventsRecentSnapshot)
+    : coldEvents;
+  return sortEventsNewestFirst(events)
     .filter((event) => dailyDateKeyFromDate(parseDate(event.occurredAt)) === key);
 }
 
@@ -3525,7 +4488,7 @@ function dailyAggregatePlayersLabel(entry, limit = 2) {
   const players = [...(entry?.players || new Map()).entries()]
     .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0)
       || String(left[0]).localeCompare(String(right[0]), "fr-CA"));
-  if (!players.length) return "Joueur non identifié";
+  if (!players.length) return "Bilan consolidé";
   const visible = players.slice(0, limit).map(([name, quantity]) => `${name} ${formatInteger(quantity)}`);
   const hidden = players.length - visible.length;
   return `${visible.join(" · ")}${hidden > 0 ? ` · +${hidden}` : ""}`;
@@ -3647,6 +4610,7 @@ function dailyHighlightFromEvent(event, quantities) {
     time: date ? formatTime(date) : "--",
     headline,
     body,
+    confidence: event.confidence || "confirmed",
     badge: dailyHighlightBadge(quantities),
     score,
     accent: event.player ? playerColor(event.player) : (eventTypeMeta[event.type]?.color || "#77a7be"),
@@ -3905,6 +4869,7 @@ function renderDailyDateControls(dateKey) {
   const index = dailyAvailableDateKeys.indexOf(dateKey);
   if (dailyPrevious) dailyPrevious.disabled = index < 0 || index >= dailyAvailableDateKeys.length - 1;
   if (dailyNext) dailyNext.disabled = index <= 0;
+  if (dailyToday) dailyToday.disabled = dateKey === dailyDateKeyFromDate(new Date());
 }
 
 function renderDailyMetric(label, value, detail, tone = "", tooltip = "") {
@@ -3930,18 +4895,18 @@ function dailyPlayerReasons(player) {
   }
   const metrics = player.metrics || {};
   const reasons = [
-    { label: "niveaux gagnés", value: Number(metrics.levelUps || 0) },
+    { label: "niveaux gagnés", singular: "niveau gagné", value: Number(metrics.levelUps || 0) },
     { label: "de présence observée", value: Number(player.dailyOnlineSeconds || 0), format: (value) => formatCompactDuration(value) },
-    { label: "ressources produites", value: Number(metrics.production || 0) },
-    { label: "objets fabriqués", value: Number(metrics.craft || 0) },
-    { label: "captures Paldex", value: Number(metrics.capture || 0) },
-    { label: "ajouts collection", value: Number(metrics.collection || 0) },
-    { label: "structures", value: Number(metrics.build || 0) + Number(metrics.repair || 0) },
-    { label: "faits", value: dailyFactTotal(metrics) },
+    { label: "ressources produites", singular: "ressource produite", value: Number(metrics.production || 0) },
+    { label: "objets fabriqués", singular: "objet fabriqué", value: Number(metrics.craft || 0) },
+    { label: "captures Paldex", singular: "capture Paldex", value: Number(metrics.capture || 0) },
+    { label: "ajouts collection", singular: "ajout collection", value: Number(metrics.collection || 0) },
+    { label: "structures", singular: "structure", value: Number(metrics.build || 0) + Number(metrics.repair || 0) },
+    { label: "faits", singular: "fait", value: dailyFactTotal(metrics) },
   ].filter((reason) => reason.value > 0)
     .sort((left, right) => right.value - left.value)
     .slice(0, 3)
-    .map((reason) => `${reason.format ? reason.format(reason.value) : formatInteger(reason.value)} ${reason.label}`);
+    .map((reason) => `${reason.format ? reason.format(reason.value) : formatInteger(reason.value)} ${reason.value === 1 && reason.singular ? reason.singular : reason.label}`);
   return reasons.length ? reasons.join(" · ") : "activité discrète mais présente";
 }
 
@@ -3955,10 +4920,17 @@ function renderDailyBrief(summary) {
   const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
   const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
   const levelAgreement = summary.totals.levelUps === 1 ? "" : "s";
+  const lead = summary.presenceAvailable === false
+    ? (summary.totals.eventCount
+      ? `${dailyPlural(summary.totals.activePlayers, "joueur associé", "joueurs associés")} · échos publics de la journée`
+      : "Aucun écho public pour cette journée.")
+    : (summary.totals.eventCount || summary.totals.presenceSessions
+      ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · faits et présences de la journée`
+      : "Aucun fait ni présence pour cette journée.");
   return `
     <div class="daily-brief__lead">
       <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
-      <span>${summary.totals.eventCount || summary.totals.presenceSessions ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · faits et présences de la journée` : "Aucun fait ni présence pour cette journée."}</span>
+      <span>${lead}</span>
     </div>
     <ul class="daily-brief__list">
       <li><b>Joueur qui se démarque</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Aucune activité joueur détectée"}</span></li>
@@ -4113,12 +5085,15 @@ function renderDailyPlayerCard(player) {
   const hasPublishedEchoes = Number(player.eventCount || 0) > 0;
   const hasDailyActivity = dailyPlayerHasActivity(player);
   const lastTrace = dailyPlayerLastTrace(player);
+  const presenceStat = player.presenceAvailable === false
+    ? `<span data-tooltip="Échos publics attribués à ce joueur pendant la journée."><b>${formatInteger(player.eventCount)}</b><small>Échos publics</small></span>`
+    : `<span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>`;
   const statsMarkup = hasPublishedEchoes ? `
         <span data-tooltip="${escapeHtml("Montées de niveau détectées pendant la journée.")}"><b>${formatInteger(player.metrics.levelUps)}</b><small>Niveaux gagnés</small></span>
         <span data-tooltip="${escapeHtml(`${dailyPlural(player.metrics.capture, "capture Paldex détectée", "captures Paldex détectées")} + ${dailyPlural(player.metrics.collection, "Pal ajouté en collection", "Pals ajoutés en collection")}.`)}"><b>${formatInteger(palTotal)}</b><small>Pals détectés</small></span>
         <span data-tooltip="${escapeHtml("Quantités ajoutées par les événements de fabrication.")}"><b>${formatInteger(player.metrics.craft)}</b><small>Objets fabriqués</small></span>
         <span data-tooltip="${escapeHtml("Ressources prêtes ou sorties de production dans les bases.")}"><b>${formatInteger(player.metrics.production)}</b><small>Ressources produites</small></span>
-        <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
+        ${presenceStat}
         <span data-tooltip="${escapeHtml("Découvertes, défis, boss, mutations, notes, pêche et autres faits non routiniers.")}"><b>${formatInteger(factTotal)}</b><small>Faits divers</small></span>` : hasDailyActivity ? `
         <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
         <span data-tooltip="${escapeHtml("Sessions observées pendant la journée sélectionnée.")}"><b>${formatInteger(player.dailySessionCount)}</b><small>Sessions du jour</small></span>
@@ -4229,7 +5204,10 @@ function renderDailyHighlights(summary) {
     ...dailyCuratedEventHighlights(summary, 10),
   ].slice(0, 14);
   if (!highlights.length) return '<li class="daily-empty">Aucun moment marquant détecté pour cette journée.</li>';
-  return highlights.map((highlight) => `
+  return highlights.map((highlight) => {
+    const badge = highlight.confidence === "derived" ? "Attribution déduite" : highlight.badge;
+    const badgeTitle = highlight.confidence === "derived" ? ' title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée."' : "";
+    return `
     <li class="daily-highlight" style="--highlight-color:${escapeHtml(highlight.accent)}">
       <time>${escapeHtml(highlight.time)}</time>
       <span>
@@ -4237,17 +5215,18 @@ function renderDailyHighlights(summary) {
         <strong>${escapeHtml(highlight.headline)}</strong>
         <small>${escapeHtml(highlight.body)}</small>
       </span>
-      ${highlight.badge ? `<em>${escapeHtml(highlight.badge)}</em>` : ""}
-    </li>`).join("");
+      ${badge ? `<em${badgeTitle}>${escapeHtml(badge)}</em>` : ""}
+    </li>`;
+  }).join("");
 }
 
 function renderDailyDigest(summary) {
   if (!dailyMetrics) return;
   const totals = summary.totals;
   if (dailyStatus) {
-    dailyStatus.textContent = totals.eventCount || totals.presenceSessions
-      ? `${dailyPlural(totals.activePlayers, "joueur actif", "joueurs actifs")} · bilan de journée`
-      : "Aucun fait ni présence pour cette journée";
+    dailyStatus.textContent = totals.eventCount || (summary.presenceAvailable !== false && totals.presenceSessions)
+      ? `${dailyPlural(totals.activePlayers, summary.presenceAvailable === false ? "joueur associé" : "joueur actif", summary.presenceAvailable === false ? "joueurs associés" : "joueurs actifs")} · bilan de journée`
+      : summary.presenceAvailable === false ? "Aucun écho public pour cette journée" : "Aucun fait ni présence pour cette journée";
   }
   if (dailyUpdatedAt) {
     dailyUpdatedAt.textContent = eventsIndexSnapshot?.updatedAt
@@ -4286,10 +5265,226 @@ function renderDailyDigest(summary) {
   if (dailyHighlights) dailyHighlights.innerHTML = renderDailyHighlights(summary);
 }
 
+function dailyV6Map(value) {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.entries(value).map(([key, row]) => typeof row === "object" ? { key, ...row } : { key, name: key, quantity: row })
+      : [];
+  return new Map(rows.map((row, index) => {
+    const players = row?.players instanceof Map
+      ? row.players
+      : new Map(Object.entries(row?.players || {}));
+    const normalized = { ...row, players };
+    return [String(row?.key || row?.name || index), normalized];
+  }));
+}
+
+function normalizeDailyV6Digest(payload) {
+  const digest = payload?.digest;
+  if (!digest?.totals || !Array.isArray(digest.hourly) || !Array.isArray(digest.players)) return null;
+  const metricDefaults = {
+    craft: 0, production: 0, build: 0, repair: 0, capture: 0, collection: 0,
+    fishing: 0, levelUps: 0, boss: 0, discovery: 0, progress: 0, challenge: 0,
+    quest: 0, loot: 0, note: 0, mutation: 0, death: 0, recovery: 0, adventure: 0, rare: 0,
+  };
+  const players = digest.players.map((player) => {
+    const eventCount = Number(player.eventCount ?? player.echoes ?? 0);
+    return {
+      ...createDailyPlayerSummary(player),
+      ...player,
+      presenceAvailable: false,
+      eventCount,
+      score: Number(player.score ?? eventCount),
+      metrics: { ...metricDefaults, ...(player.metrics || {}) },
+      typeCounts: dailyV6Map(player.typeCounts || player.types),
+      craftedItems: dailyV6Map(player.craftedItems),
+      producedItems: dailyV6Map(player.producedItems),
+      palFinds: dailyV6Map(player.palFinds),
+      highlights: (Array.isArray(player.highlights) ? player.highlights : []).map((highlight) => ({
+        ...highlight,
+        time: highlight.time || formatTime(highlight.occurredAt),
+        timestamp: Number(highlight.timestamp || parseDate(highlight.occurredAt)?.getTime() || 0),
+      })),
+    };
+  });
+  const latestHighlights = sortEventsNewestFirst(
+    (payload.latest || []).filter(eventCanBePublished),
+    { canonical: true },
+  ).map((event) => {
+    const quantities = dailyEventQuantities(event);
+    return dailyHighlightFromEvent(event, quantities);
+  });
+  const digestHighlights = (digest.highlights || []).filter(eventCanBePublished).map((highlight) => ({
+    ...highlight,
+    time: highlight.time || formatTime(highlight.occurredAt),
+    timestamp: Number(highlight.timestamp || parseDate(highlight.occurredAt)?.getTime() || 0),
+    accent: highlight.accent || (highlight.player ? playerColor(highlight.player) : eventTypeMeta[highlight.type]?.color || "#77a7be"),
+    badge: highlight.badge || eventTypeMeta[highlight.type]?.label || "Écho",
+  }));
+  return {
+    dateKey: payload.date,
+    presenceAvailable: false,
+    events: [],
+    totals: {
+      eventCount: Number(payload.counts?.echoes || digest.totals.eventCount || 0),
+      activePlayers: Number(digest.totals.activePlayers || players.length),
+      onlineSeconds: 0,
+      presenceSessions: 0,
+      ...metricDefaults,
+      ...digest.totals,
+    },
+    typeCounts: dailyV6Map(digest.typeCounts || digest.types || payload.types),
+    craftedItems: dailyV6Map(digest.craftedItems),
+    producedItems: dailyV6Map(digest.producedItems),
+    palFinds: dailyV6Map(digest.palFinds),
+    hourly: digest.hourly.map((entry, hour) => ({ hour: Number(entry?.hour ?? hour), count: Number(entry?.count || 0) })),
+    players,
+    highlights: digestHighlights.length ? digestHighlights : latestHighlights,
+  };
+}
+
+function renderDailyV6Basic(payload) {
+  const types = payload?.types || payload?.digest?.types || {};
+  const players = Array.isArray(payload?.players) ? payload.players : [];
+  const echoes = Number(payload?.counts?.echoes || 0);
+  const represented = Number(payload?.counts?.representedEvents || 0);
+  const derived = Number(payload?.counts?.derivedEchoes || 0);
+  const typeRows = Object.entries(types)
+    .map(([type, count]) => ({ type, count: Number(typeof count === "object" ? count.count : count || 0) }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count);
+  if (dailyStatus) dailyStatus.textContent = derived
+    ? `${dailyPlural(players.length, "joueur actif", "joueurs actifs")} · ${dailyPlural(derived, "attribution déduite", "attributions déduites")}`
+    : `${dailyPlural(players.length, "joueur actif", "joueurs actifs")} · bilan confirmé`;
+  if (dailyUpdatedAt) dailyUpdatedAt.textContent = `Échos actualisés ${formatRelativeAge(payload.sourceUpdatedAt || payload.generatedAt)}`;
+  if (dailyMetrics) dailyMetrics.innerHTML = [
+    renderDailyMetric("Échos publics", formatInteger(echoes), derived ? `${dailyPlural(derived, "attribution déduite", "attributions déduites")} signalée${derived > 1 ? "s" : ""}` : "Regroupements confirmés de la journée", "events"),
+    renderDailyMetric("Faits représentés", formatInteger(represented), "Observations réunies dans les échos", "rare"),
+    renderDailyMetric("Aventuriers", formatInteger(players.length), "Joueurs associés à au moins un écho", "capture"),
+    ...typeRows.slice(0, 4).map((entry) => renderDailyMetric(eventTypeMeta[entry.type]?.label || entry.type, formatInteger(entry.count), "Échos de cette catégorie", entry.type)),
+  ].join("");
+  if (dailyBrief) dailyBrief.innerHTML = `
+    <div class="daily-brief__lead"><strong>${escapeHtml(dailyDisplayDate(payload.date))}</strong><span>${dailyPlural(echoes, "écho public", "échos publics")} · ${dailyPlural(represented, "fait représenté", "faits représentés")}${derived ? ` · ${dailyPlural(derived, "attribution déduite", "attributions déduites")}` : ""}</span></div>
+    <ul class="daily-brief__list">${typeRows.slice(0, 6).map((entry) => `<li><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><span>${dailyPlural(entry.count, "écho", "échos")}</span></li>`).join("") || "<li><span>Aucun fait public pour cette journée.</span></li>"}</ul>`;
+  if (dailyHourly) dailyHourly.innerHTML = '<p class="daily-empty">Le rythme détaillé sera disponible au prochain bilan complet.</p>';
+  if (dailyTypes) dailyTypes.innerHTML = typeRows.length
+    ? `<article class="daily-tangible-card" style="--tangible-color:#176d70"><header><span>Répartition des échos</span><strong>${formatInteger(echoes)}</strong></header><ol class="daily-item-list">${typeRows.slice(0, 10).map((entry) => `<li><span><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><small>Catégorie publique</small></span><strong>${formatInteger(entry.count)}</strong></li>`).join("")}</ol></article>`
+    : '<p class="daily-empty">Aucune catégorie publiée pour cette journée.</p>';
+  if (dailyPlayers) dailyPlayers.innerHTML = players.length
+    ? players.map((player) => `<article class="daily-player-card" style="--player-color:${escapeHtml(playerColor(player.name))};--card-accent:${escapeHtml(playerColor(player.name))}"><header><span class="daily-player-card__avatar">${escapeHtml(playerInitials(player.name))}</span><span><strong>${escapeHtml(player.name)}</strong><small>${dailyPlural(Number(player.echoes || 0), "écho", "échos")}</small></span></header></article>`).join("")
+    : '<p class="daily-empty">Aucun joueur associé aux échos de cette journée.</p>';
+  const latest = Array.isArray(payload.latest)
+    ? sortEventsNewestFirst(payload.latest.filter(eventCanBePublished), { canonical: true })
+    : [];
+  if (dailyHighlights) dailyHighlights.innerHTML = latest.length
+    ? latest.map((event) => {
+      const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
+      const badge = event.confidence === "derived" ? "Attribution déduite" : meta.label;
+      const badgeTitle = event.confidence === "derived" ? ' title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée."' : "";
+      return `<li class="daily-highlight" style="--highlight-color:${escapeHtml(event.player ? playerColor(event.player) : meta.color)}"><time>${escapeHtml(formatTime(event.occurredAt))}</time><span><b>${escapeHtml(event.player || "Palpagos")}</b><strong>${escapeHtml(event.display?.headline || event.title || meta.label)}</strong><small>${escapeHtml(event.display?.body || event.message || "Écho public")}</small></span><em${badgeTitle}>${escapeHtml(badge)}</em></li>`;
+    }).join("")
+    : '<li class="daily-empty">Aucun moment marquant publié pour cette journée.</li>';
+}
+
+async function loadDailyV6Payload(dateKey, manifest = eventsManifestV6) {
+  const entry = v6DayEntry(dateKey, manifest);
+  const generationId = String(entry?.dailyGenerationId || entry?.fragmentGenerationId || entry?.generationId || manifest?.generationId || "");
+  if (!generationId || !v6DateCanBeOpened(dateKey, manifest)) throw new Error("v6-daily-unavailable");
+  if (!entry) {
+    return {
+      schemaVersion: 6,
+      ok: true,
+      generationId,
+      date: dateKey,
+      generatedAt: manifest.generatedAt,
+      sourceUpdatedAt: manifest.sourceUpdatedAt,
+      freshness: manifest.freshness,
+      sourceStatus: manifest.sourceStatus,
+      cursor: { minId: 0, maxId: 0 },
+      counts: { echoes: 0, representedEvents: 0, confirmedEchoes: 0, derivedEchoes: 0 },
+      contentHash: `empty:${dateKey}`,
+      digest: {
+        totals: { eventCount: 0, activePlayers: 0, onlineSeconds: 0, presenceSessions: 0 },
+        hourly: Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 })),
+        types: {}, players: [], highlights: [], craftedItems: [], producedItems: [], palFinds: [],
+      },
+      latest: [],
+    };
+  }
+  const path = v6PublicDataPath(entry.dailyPath || `data/public-daily/${generationId}/${dateKey}.json`, "data/public-daily/");
+  if (!path) throw new Error("invalid-v6-daily-path");
+  const cacheKey = `${generationId}:${path}:${dateKey}`;
+  let payload = dailyV6Cache.get(cacheKey);
+  if (!payload) {
+    payload = await readJson(path, { immutable: true, expectedSha256: entry.dailySha256 });
+    if (!v6GenerationIsValid(payload, generationId) || payload.date !== dateKey || !payload.digest) {
+      throw new Error("mixed-v6-daily-generation");
+    }
+    dailyV6Cache.set(cacheKey, payload);
+  }
+  return payload;
+}
+
+async function renderDailyV6Candidate(candidate) {
+  const availableDateKeys = v6NavigableDates(candidate.manifest);
+  const requestedDate = dailySelectedDateKey || dailyRequestedDateKey();
+  const selectedDate = availableDateKeys.includes(requestedDate) ? requestedDate : availableDateKeys[0];
+  const { payload, state } = await stageAndCommitV6Candidate(
+    candidate,
+    () => loadDailyV6Payload(selectedDate, candidate.manifest),
+    commitEventsV6Candidate,
+  );
+  if (state.generationChanged) clearV6GenerationCaches();
+  dailyAvailableDateKeys = availableDateKeys;
+  dailySelectedDateKey = selectedDate;
+  renderDailyDateControls(selectedDate);
+  registerPayloadDataUpdate("events", payload);
+  const summary = normalizeDailyV6Digest(payload);
+  if (summary) renderDailyDigest(summary);
+  else renderDailyV6Basic(payload);
+  const signature = `${payload.generationId}|${selectedDate}|${payload.contentHash || payload.generatedAt || ""}`;
+  const changed = state.changed || signature !== dailyLastSignature;
+  dailyLastSignature = signature;
+  dailyRenderedGenerationId = String(candidate.manifest.generationId || "");
+  return { ok: true, changed, stale: state.stale, mode: "v6" };
+}
+
 async function loadDailyDigest(silent = false) {
   if (!isDailyDigestRoute()) return { ok: true, changed: false };
   try {
     if (!silent && dailyStatus) dailyStatus.textContent = "Compilation de la journée...";
+    const rollbackState = captureV6State();
+    const candidate = await fetchEventsV6Candidate(true, true);
+    if (candidate.ok) {
+      try {
+        return await renderDailyV6Candidate(candidate);
+      } catch {
+        const restored = restoreV6State(rollbackState);
+        const previousGeneration = String(eventsManifestV6?.generationId || "");
+        if (restored && dailyRenderedGenerationId && dailyRenderedGenerationId === previousGeneration) {
+          return { ok: true, changed: false, stale: true, mode: "v6" };
+        }
+        if (restored && previousGeneration) {
+          try {
+            return {
+              ...(await renderDailyV6Candidate({
+                ok: true,
+                manifest: eventsManifestV6,
+                head: eventsHeadV6,
+                generationId: previousGeneration,
+                stale: true,
+              })),
+              changed: false,
+              stale: true,
+            };
+          } catch {
+            // Le repli v5 reste disponible si l’ancienne génération n’est plus lisible.
+          }
+        }
+      }
+    }
+    eventsContractMode = "v5";
     const [indexResult] = await Promise.all([
       loadEventsIndex(true),
       loadDailyRoster(),
@@ -4313,6 +5508,7 @@ async function loadDailyDigest(silent = false) {
     ].join("|");
     const changed = signature !== dailyLastSignature;
     dailyLastSignature = signature;
+    dailyRenderedGenerationId = "";
     return { ok: true, changed };
   } catch {
     if (dailyStatus) dailyStatus.textContent = "Résumé quotidien momentanément indisponible";
@@ -4344,7 +5540,7 @@ function renderEventSummaryCards(payload) {
     }
     eventsState.dataset.state = "live";
   }
-  registerDataUpdate("events", payload.updatedAt);
+  registerPayloadDataUpdate("events", payload);
   renderWorldContractStatus();
 }
 
@@ -4412,10 +5608,16 @@ function switchDetailTab(name, updateRoute = true) {
   });
   if (!renderedPlayerTabs.has(name)) {
     if (name === "paldex") renderPaldexExplorer();
-    if (name === "pals") renderPalCollection();
+    if (name === "pals") {
+      renderPalCollection();
+      const playerAtRequest = selectedPlayer;
+      hydratePlayerFromPublicCatalogs(playerAtRequest).then((changed) => {
+        if (changed && selectedPlayer === playerAtRequest) renderPalCollection();
+      }).catch(() => {});
+    }
     if (name === "inventory") renderInventory(selectedPlayer);
     if (name === "bases") {
-      if (basesSnapshot) renderSelectedPlayerBases();
+      if (currentBasesSnapshot()) renderSelectedPlayerBases();
       else loadBases(true).then(() => renderSelectedPlayerBases());
     }
     renderedPlayerTabs.add(name);
@@ -4737,6 +5939,7 @@ function renderPlayerPosition(position, pending = false) {
 
 function renderPlayerProfile(player) {
   const character = player.character || {};
+  const experienceProgress = character.experienceProgress || null;
   const progress = player.progress || {};
   const activity = getPlayerActivityValues(player);
   const position = player.position;
@@ -4785,7 +5988,7 @@ function renderPlayerProfile(player) {
       <header><div><span>Progression</span><h4>Parcours du personnage</h4></div><p>Les valeurs permanentes enregistrées dans la sauvegarde.</p></header>
       <div class="profile-stat-grid">
         <article class="profile-stat profile-stat--level"><span>Niveau du personnage</span><strong>${Number(player.level || 0)}</strong><small>Niveau atteint</small></article>
-        <article class="profile-stat profile-stat--xp"><span>Expérience enregistrée</span><strong>${Number(character.experience || 0).toLocaleString("fr-CA")}</strong><small>EXP dans la sauvegarde</small></article>
+        <article class="profile-stat profile-stat--xp"><span>Expérience enregistrée</span><strong>${Number(character.experience || 0).toLocaleString("fr-CA")}</strong><small>${experienceProgress ? `${Number(experienceProgress.remaining || 0).toLocaleString("fr-CA")} EXP avant le niveau ${Number(experienceProgress.nextLevel || player.level + 1)} · ${Number(experienceProgress.percent || 0).toLocaleString("fr-CA")} %` : "EXP dans la sauvegarde"}</small></article>
         <article class="profile-stat profile-stat--points"><span>Points disponibles</span><strong>${Number(character.unusedStatusPoints || 0)}</strong><small>Pas encore attribués</small></article>
       </div>
     </section>
@@ -4891,12 +6094,14 @@ function renderInventory(player) {
   const sections = Array.isArray(player.inventory) ? player.inventory : [];
   const allItems = sections.flatMap((section) => section.items || []);
   const totalQuantity = allItems.reduce((sum, item) => sum + Number(item.count || 0), 0);
+  const totalWeight = allItems.reduce((sum, item) => sum + Number(item.totalWeight || 0), 0);
   const equippedItems = sections
     .filter((section) => ["weapons", "armor", "food"].includes(section.key))
     .flatMap((section) => (section.items || []).map((item) => ({ ...item, sectionLabel: section.label })));
   inventoryOverview.innerHTML = `
     <span><strong>${allItems.length}</strong> types d'objets</span>
     <span><strong>${totalQuantity.toLocaleString("fr-CA")}</strong> unités au total<small>Somme des quantités de toutes les piles</small></span>
+    ${totalWeight > 0 ? `<span><strong>${totalWeight.toLocaleString("fr-CA", { maximumFractionDigits: 1 })}</strong> poids estimé<small>D'après le catalogue du jeu</small></span>` : ""}
     <span><strong>${equippedItems.length}</strong> types équipés</span>
   `;
   inventoryEquipped.innerHTML = `
@@ -4998,6 +6203,9 @@ function renderPalCollection() {
         .join(" · ");
       return `<span><strong>${escapeHtml(skill.name)}</strong>${details ? `<small>${escapeHtml(details)}</small>` : ""}</span>`;
     }).join("");
+    const nextLearnedSkills = (pal.nextLearnedSkills || []).map((skill) => `
+      <span><strong>Niv. ${Number(skill.level || 0)} · ${escapeHtml(skill.name)}</strong><small>${escapeHtml([skill.element, skill.power ? `Puissance ${skill.power}` : ""].filter(Boolean).join(" · ") || "Compétence à venir")}</small></span>
+    `).join("");
     const workSuitabilities = (pal.workSuitabilityBonuses || []).map((work) => `
       <span><strong>${escapeHtml(work.name)}</strong><b>${Number(work.level || 0)}</b>${Number(work.bonus || 0) > 0 ? `<small>+${Number(work.bonus)} bonus</small>` : ""}</span>
     `).join("");
@@ -5013,6 +6221,8 @@ function renderPalCollection() {
     const containerLabel = pal.container === "party" ? "Équipe" : pal.container === "palbox" ? "Palbox" : "Monde";
     const gender = pal.gender === "Male" ? "Mâle" : pal.gender === "Female" ? "Femelle" : pal.gender || "-";
     const talentScore = Math.round(palTalentScore(pal));
+    const palExperience = pal.experienceProgress || null;
+    const friendshipProgress = pal.friendshipProgress || null;
     return `
       <article class="pal-detail-card">
         <div class="pal-detail-card__portrait">
@@ -5021,8 +6231,9 @@ function renderPalCollection() {
         </div>
         <div class="pal-detail-card__body">
           <header><div><small>${escapeHtml(pal.species)}</small><h3>${escapeHtml(pal.name)}</h3></div><b>Niv. ${Number(pal.level || 0)}</b></header>
-          ${badges.length || pal.rank != null ? `<div class="pal-badges">${badges.map((badge) => `<span>${badge}</span>`).join("")}${pal.rank != null ? `<span>Condensation ${Number(pal.rank)}</span>` : ""}</div>` : ""}
-          <div class="pal-vitals"><span>PV ${Number(pal.hp || 0).toLocaleString("fr-CA")}${pal.maxHp ? ` / ${Number(pal.maxHp).toLocaleString("fr-CA")}` : ""}</span><span>Amitié ${Number(pal.friendship || 0)}</span><span>${escapeHtml(gender)}</span>${pal.sanity != null ? `<span>SAN ${Math.round(Number(pal.sanity))}%</span>` : ""}</div>
+          ${badges.length || pal.rank != null || pal.rarity != null ? `<div class="pal-badges">${badges.map((badge) => `<span>${badge}</span>`).join("")}${pal.rank != null ? `<span>Condensation ${Number(pal.rank)}</span>` : ""}${pal.rarity != null ? `<span>Rareté ${Number(pal.rarity)}</span>` : ""}</div>` : ""}
+          <div class="pal-vitals"><span>PV ${Number(pal.hp || 0).toLocaleString("fr-CA")}${pal.maxHp ? ` / ${Number(pal.maxHp).toLocaleString("fr-CA")}` : ""}</span><span>Amitié ${Number(pal.friendship || 0).toLocaleString("fr-CA")}${friendshipProgress ? ` · rang ${Number(friendshipProgress.rank || 0)}` : ""}</span><span>${escapeHtml(gender)}</span>${pal.sanity != null ? `<span>SAN ${Math.round(Number(pal.sanity))}%</span>` : ""}</div>
+          ${palExperience ? `<div class="pal-progression"><span><small>Prochain niveau</small><strong>${Number(palExperience.remaining || 0).toLocaleString("fr-CA")} EXP</strong></span><i aria-label="${Number(palExperience.percent || 0)} % vers le niveau ${Number(palExperience.nextLevel || pal.level + 1)}"><em style="width:${Math.max(0, Math.min(100, Number(palExperience.percent || 0)))}%"></em></i></div>` : ""}
           <div class="pal-talent-score"><span>Potentiel</span><b>${talentScore}</b><i><em style="width:${talentScore}%"></em></i></div>
           <div class="talent-bars">
             <span style="--talent:${Number(pal.talents?.hp || 0)}%">Santé ${Number(pal.talents?.hp || 0)}</span>
@@ -5048,6 +6259,10 @@ function renderPalCollection() {
           </div>
           ${workSuitabilities ? `<div class="pal-work"><small>Aptitudes de travail</small><div>${workSuitabilities}</div></div>` : ""}
           ${learnedSkills ? `<details class="pal-learned"><summary>${(pal.learnedSkills || []).length} attaque${(pal.learnedSkills || []).length > 1 ? "s" : ""} apprise${(pal.learnedSkills || []).length > 1 ? "s" : ""}</summary><div>${learnedSkills}</div></details>` : ""}
+          ${nextLearnedSkills ? `<details class="pal-learned pal-learned--next"><summary>Prochaines compétences</summary><div>${nextLearnedSkills}</div></details>` : ""}
+          <div class="pal-breeding" data-breeding-result>
+            <button type="button" data-load-breeding data-species="${escapeHtml(pal.species)}">Voir des combinaisons d'élevage</button>
+          </div>
           ${(pal.healthStatus || pal.ownedAt) ? `<div class="pal-footnotes">${pal.healthStatus ? `<span>État: ${escapeHtml(pal.healthStatus)}</span>` : ""}${pal.ownedAt ? `<span>Acquis le ${escapeHtml(formatDateTime(pal.ownedAt))}</span>` : ""}</div>` : ""}
         </div>
       </article>
@@ -5055,44 +6270,224 @@ function renderPalCollection() {
   }).join("") : '<p class="detail-empty detail-empty--large">Aucun Pal ne correspond à cette recherche.</p>';
 }
 
+async function ensurePublicCatalogManifest() {
+  if (publicCatalogManifest) return publicCatalogManifest;
+  if (!publicCatalogManifestPromise) {
+    publicCatalogManifestPromise = readJson("data/public-catalogs-manifest.json", { revalidate: true })
+      .then((manifest) => {
+        if (!manifest?.ok || Number(manifest.schemaVersion) !== 1 || !/^[A-Za-z0-9._-]+$/.test(String(manifest.generationId || ""))) {
+          throw new Error("invalid-catalog-manifest");
+        }
+        publicCatalogManifest = manifest;
+        registerPayloadDataUpdate("catalog", manifest);
+        return manifest;
+      })
+      .catch((error) => {
+        registerSourceHealth("catalog", "transient-error", "stale");
+        throw error;
+      })
+      .finally(() => {
+        publicCatalogManifestPromise = null;
+      });
+  }
+  return publicCatalogManifestPromise;
+}
+
+async function ensurePublicCatalog(name) {
+  const manifest = await ensurePublicCatalogManifest();
+  const entry = manifest?.files?.[name];
+  const path = String(entry?.path || "");
+  const expectedPrefix = `public-catalogs/${manifest.generationId}/`;
+  if (!path.startsWith(expectedPrefix) || !new RegExp(`/${name}\\.json$`).test(path) || !v6Sha256IsValid(entry?.sha256)) {
+    throw new Error("invalid-catalog-entry");
+  }
+  const key = `${manifest.generationId}:${name}`;
+  if (!publicCatalogCache.has(key)) {
+    publicCatalogCache.set(key, readJson(`data/${path}`, {
+      immutable: true,
+      expectedSha256: entry.sha256,
+    }).then((payload) => {
+      if (
+        Number(payload?.schemaVersion) !== 1
+        || String(payload?.generationId || "") !== String(manifest.generationId)
+      ) throw new Error("mixed-catalog-generation");
+      return payload;
+    }).catch((error) => {
+      publicCatalogCache.delete(key);
+      throw error;
+    }));
+  }
+  return publicCatalogCache.get(key);
+}
+
+function catalogExperienceProgress(level, experience, table, pal = false) {
+  const current = table?.[String(Math.max(1, Number(level || 1)))];
+  const nextLevel = Math.max(1, Number(level || 1)) + 1;
+  const following = table?.[String(nextLevel)];
+  const totalKey = pal ? "PalTotalEXP" : "TotalEXP";
+  if (!current || !following) return null;
+  const currentTotal = Math.max(0, Number(current[totalKey] || 0));
+  const nextTotal = Math.max(currentTotal, Number(following[totalKey] || currentTotal));
+  const required = nextTotal - currentTotal;
+  if (required <= 0) return null;
+  const gained = Math.min(required, Math.max(0, Number(experience || 0) - currentTotal));
+  return {
+    level: Number(level || 1),
+    nextLevel,
+    gained,
+    required,
+    remaining: Math.max(0, nextTotal - Number(experience || 0)),
+    percent: Math.round((gained / required) * 1000) / 10,
+  };
+}
+
+function catalogFriendshipProgress(points, table) {
+  const rows = Object.values(table || {})
+    .filter((row) => row && Number.isFinite(Number(row.RequiredPoint)))
+    .sort((left, right) => Number(left.RequiredPoint) - Number(right.RequiredPoint));
+  if (!rows.length) return null;
+  const value = Number(points || 0);
+  const current = [...rows].reverse().find((row) => Number(row.RequiredPoint) <= value) || rows[0];
+  const following = rows.find((row) => Number(row.RequiredPoint) > value) || null;
+  const start = Number(current.RequiredPoint || 0);
+  const end = following ? Number(following.RequiredPoint || start) : start;
+  const span = Math.max(0, end - start);
+  return {
+    points: value,
+    rank: Number(current.FriendshipRank || 0),
+    nextRank: following ? Number(following.FriendshipRank || 0) : null,
+    remaining: following ? Math.max(0, end - value) : 0,
+    percent: span ? Math.round((Math.min(span, Math.max(0, value - start)) / span) * 1000) / 10 : 100,
+  };
+}
+
+async function hydratePlayerFromPublicCatalogs(player) {
+  if (!player || player.provisional || catalogHydratedPlayers.has(player)) return false;
+  await ensurePublicCatalogManifest();
+  const pals = Array.isArray(player.pals?.collection) ? player.pals.collection : [];
+  const needsProgression = !player.character?.experienceProgress
+    || pals.some((pal) => !pal.experienceProgress || !pal.friendshipProgress);
+  const needsLearnsets = pals.some((pal) => !Array.isArray(pal.nextLearnedSkills));
+  const [progression, learnsets] = await Promise.all([
+    needsProgression ? ensurePublicCatalog("progression") : null,
+    needsLearnsets ? ensurePublicCatalog("learnsets") : null,
+  ]);
+  let changed = false;
+  if (progression && player.character && !player.character.experienceProgress) {
+    player.character.experienceProgress = catalogExperienceProgress(
+      player.level,
+      player.character.experience,
+      progression.experience,
+    );
+    changed = Boolean(player.character.experienceProgress) || changed;
+  }
+  const skillIndex = new Map((learnsets?.skills || []).map((skill) => [String(skill.asset || "").toLocaleLowerCase("en-CA"), skill]));
+  pals.forEach((pal) => {
+    if (progression && !pal.experienceProgress) {
+      pal.experienceProgress = catalogExperienceProgress(pal.level, pal.experience, progression.experience, true);
+      changed = Boolean(pal.experienceProgress) || changed;
+    }
+    if (progression && !pal.friendshipProgress) {
+      pal.friendshipProgress = catalogFriendshipProgress(pal.friendship, progression.friendship);
+      changed = Boolean(pal.friendshipProgress) || changed;
+    }
+    if (learnsets && !Array.isArray(pal.nextLearnedSkills)) {
+      const rows = learnsets.learnset?.[pal.species] || [];
+      pal.nextLearnedSkills = rows
+        .filter((row) => Number(row.level || 0) > Number(pal.level || 0))
+        .sort((left, right) => Number(left.level || 0) - Number(right.level || 0))
+        .slice(0, 3)
+        .map((row) => {
+          const asset = String(row.WazaID || "").replace(/^EPalWazaID::/, "");
+          return { level: Number(row.level || 0), ...(skillIndex.get(asset.toLocaleLowerCase("en-CA")) || { name: asset }) };
+        });
+      changed = true;
+    }
+  });
+  catalogHydratedPlayers.add(player);
+  return changed;
+}
+
+async function renderBreedingOptions(button) {
+  const container = button.closest("[data-breeding-result]");
+  if (!container) return;
+  button.disabled = true;
+  button.textContent = "Chargement des combinaisons…";
+  try {
+    const catalog = await ensurePublicCatalog("breeding");
+    const species = String(button.dataset.species || "");
+    const palInfo = catalog.pal_info || {};
+    const asset = Object.entries(palInfo).find(([, info]) => String(info?.name || "").localeCompare(species, "fr-CA", { sensitivity: "base" }) === 0)?.[0];
+    const rows = asset ? [
+      ...(catalog.child_to_parents_unique?.[asset] || []),
+      ...(catalog.child_to_parents_formula?.[asset] || []),
+      ...(catalog.child_to_parents_ignore?.[asset] || []),
+    ] : [];
+    const seen = new Set();
+    const combinations = rows.filter((row) => {
+      const key = [row.parent_a, row.parent_b].sort().join("|");
+      if (!row.parent_a || !row.parent_b || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+    container.innerHTML = combinations.length ? `
+      <details open><summary>${combinations.length} combinaisons d'élevage</summary><ul>${combinations.map((row) => `
+        <li>${escapeHtml(palInfo[row.parent_a]?.name || row.parent_a)} <span>×</span> ${escapeHtml(palInfo[row.parent_b]?.name || row.parent_b)}</li>
+      `).join("")}</ul></details>
+    ` : "<p>Aucune combinaison documentée pour ce Pal.</p>";
+  } catch {
+    button.disabled = false;
+    button.textContent = "Réessayer les combinaisons d'élevage";
+  }
+}
+
 async function ensureFullSaveSnapshot() {
-  if (fullSaveSnapshot) return fullSaveSnapshot;
-  if (!fullSaveSnapshotPromise) {
-    fullSaveSnapshotPromise = readJson("data/public-save-snapshot.json")
+  const generationId = await ensureActiveSaveGeneration();
+  if (saveGenerationIsValid(fullSaveSnapshot, generationId)) return fullSaveSnapshot;
+  if (!fullSaveSnapshotPromise || fullSaveSnapshotPromiseGenerationId !== generationId) {
+    fullSaveSnapshotPromiseGenerationId = generationId;
+    const request = readJson("data/public-save-snapshot.json")
       .then((payload) => {
+        assertActiveSaveGeneration(payload, "snapshot", generationId);
         fullSaveSnapshot = payload;
         return payload;
       })
       .finally(() => {
-        fullSaveSnapshotPromise = null;
+        if (fullSaveSnapshotPromise === request) {
+          fullSaveSnapshotPromise = null;
+          fullSaveSnapshotPromiseGenerationId = "";
+        }
       });
+    fullSaveSnapshotPromise = request;
   }
   return fullSaveSnapshotPromise;
 }
 
 async function ensurePlayerSnapshot(indexedPlayer) {
   const slug = playerSlug(indexedPlayer?.name);
-  const revision = String(saveSnapshot?.updatedAt || "");
-  const cached = playerSnapshotCache.get(slug);
-  if (cached?.revision === revision) return cached.payload;
-  if (playerSnapshotPromises.has(slug)) return playerSnapshotPromises.get(slug);
+  const revision = await ensureActiveSaveGeneration();
+  const promiseKey = `${revision}:${slug}`;
+  const cached = playerSnapshotCache.get(promiseKey);
+  if (cached) return cached;
+  if (playerSnapshotPromises.has(promiseKey)) return playerSnapshotPromises.get(promiseKey);
 
   const promise = readJson(`data/players/${slug}.json`)
     .then((payload) => {
       if (!payload?.ok || !payload.player) throw new Error("Invalid player snapshot");
-      playerSnapshotCache.set(slug, { revision, payload });
+      assertActiveSaveGeneration(payload, "player", revision);
+      playerSnapshotCache.set(promiseKey, payload);
       return payload;
     })
     .catch(async () => {
       const payload = await ensureFullSaveSnapshot();
       const player = (payload?.players || []).find((row) => playerSlug(row.name) === slug);
       if (!player) throw new Error("Player profile unavailable");
-      const fallback = { ok: true, updatedAt: payload.updatedAt, player };
-      playerSnapshotCache.set(slug, { revision, payload: fallback });
+      const fallback = { ok: true, generationId: revision, updatedAt: payload.updatedAt, player };
+      playerSnapshotCache.set(promiseKey, fallback);
       return fallback;
     })
-    .finally(() => playerSnapshotPromises.delete(slug));
-  playerSnapshotPromises.set(slug, promise);
+    .finally(() => playerSnapshotPromises.delete(promiseKey));
+  playerSnapshotPromises.set(promiseKey, promise);
   return promise;
 }
 
@@ -5156,9 +6551,15 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
   const activeTab = selectedPlayer.provisional ? "profile" : tab;
   switchDetailTab(activeTab, false);
   const willOpenDialog = !expeditionDialog.open;
-  if (willOpenDialog) lockPlayerView();
+  if (willOpenDialog) {
+    playerDialogReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    lockPlayerView();
+  }
   if (updateRoute) history.replaceState(null, "", playerRoute(selectedPlayer, activeTab));
-  if (willOpenDialog) expeditionDialog.showModal();
+  if (willOpenDialog) {
+    expeditionDialog.showModal();
+    window.requestAnimationFrame(() => expeditionBack?.focus({ preventScroll: true }));
+  }
   trackVirtualPageView();
 }
 
@@ -5212,6 +6613,11 @@ function closePlayerDetails() {
   history.replaceState(null, "", playerReturnUrl || `${location.pathname}${location.search}`);
   trackVirtualPageView();
   unlockPlayerView();
+  const returnFocus = playerDialogReturnFocus;
+  playerDialogReturnFocus = null;
+  window.requestAnimationFrame(() => {
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+  });
 }
 
 let activeTooltipTarget = null;
@@ -5272,18 +6678,29 @@ function clearSearchOnEscape(event) {
   event.currentTarget.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-async function readJson(path) {
+async function readJson(path, options = {}) {
   const source = path.startsWith("/") ? path : `/${path}`;
-  const response = await fetch(`${source}?ts=${Date.now()}`, { cache: "no-store" });
+  const requestSource = options.revalidate || options.immutable
+    ? source
+    : `${source}${source.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+  const response = await fetch(requestSource, {
+    cache: options.immutable ? "force-cache" : options.revalidate ? "no-cache" : "no-store",
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-
-  return response.json();
+  if (!options.expectedSha256) return response.json();
+  if (!window.crypto?.subtle) throw new Error("sha256-unavailable");
+  const bytes = await response.arrayBuffer();
+  const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+  const actual = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const expected = String(options.expectedSha256).replace(/^sha256:/i, "").toLocaleLowerCase("en-CA");
+  if (actual !== expected) throw new Error("sha256-mismatch");
+  return JSON.parse(new TextDecoder("utf-8").decode(bytes));
 }
 
 function isNewDataRevision(source, payload) {
-  const revision = String(payload?.revision || payload?.updatedAt || "");
+  const revision = String(payload?.revision || payload?.generationId || payload?.updatedAt || "");
   if (revision && dataRevisions[source] === revision) return false;
   dataRevisions[source] = revision;
   return true;
@@ -5296,6 +6713,7 @@ async function loadMetrics(silent = false) {
     if (changed) renderMetrics(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("metrics", "transient-error", "stale");
     if (!silent) {
       playersList.textContent = "Les données apparaîtront automatiquement au prochain passage du collecteur.";
       headerPlayers.dataset.tooltip = playersList.textContent;
@@ -5309,9 +6727,9 @@ async function loadStats(silent = false) {
     const payload = await readJson("data/public-stats.json");
     const changed = isNewDataRevision("stats", payload);
     if (changed) renderStats(payload);
-    return { ok: true, changed };
+    return { ok: payload?.ok !== false, changed };
   } catch {
-    if (!silent) statsSnapshot = null;
+    registerSourceHealth("stats", "transient-error", "stale");
     return { ok: false, changed: false };
   }
 }
@@ -5323,6 +6741,7 @@ async function loadUptime(silent = false) {
     if (changed) renderUptime(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("uptime", "transient-error", "stale");
     if (!silent) {
       uptimeSummary.textContent = "La disponibilité apparaîtra automatiquement après le prochain passage du collecteur.";
       uptimeBars.innerHTML = createPlaceholderBars();
@@ -5332,42 +6751,56 @@ async function loadUptime(silent = false) {
 }
 
 async function loadSaveSnapshot(silent = false, syncRoute = true) {
-  try {
-    const payload = await readJson("data/public-save-index.json");
-    const changed = isNewDataRevision("save", payload);
-    if (changed) {
-      fullSaveSnapshot = null;
-      playerSnapshotCache.clear();
-      renderSaveSnapshot(payload, syncRoute);
-    }
-    return { ok: true, changed };
-  } catch {
-    if (!silent) {
-      if (saveState) saveState.textContent = "En attente";
-    }
-    return { ok: false, changed: false };
+  if (!saveIndexPromise) {
+    const request = readJson("data/public-save-index.json")
+      .then((payload) => {
+        const generationId = publicSaveGenerationId(payload);
+        if (!payload?.ok || !generationId) throw new Error("invalid-save-generation:index");
+        const changed = isNewDataRevision("save", payload);
+        if (changed) {
+          renderSaveSnapshot(payload, syncRoute);
+        }
+        return { ok: true, changed };
+      })
+      .catch(() => {
+        registerSourceHealth("save", "transient-error", "stale");
+        if (!silent && saveState) saveState.textContent = "En attente";
+        return { ok: false, changed: false };
+      })
+      .finally(() => {
+        if (saveIndexPromise === request) saveIndexPromise = null;
+      });
+    saveIndexPromise = request;
   }
+  return saveIndexPromise;
 }
 
 async function loadSaveDiagnostics(silent = false) {
   try {
+    const generationId = await ensureActiveSaveGeneration();
     const payload = await readJson("data/public-save-diagnostics.json");
+    assertActiveSaveGeneration(payload, "diagnostics", generationId);
     const changed = isNewDataRevision("diagnostics", payload);
     if (changed) renderSaveDiagnostics(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("diagnostics", "transient-error", "stale");
     if (!silent && worldDataState) worldDataState.textContent = "En attente";
     return { ok: false, changed: false };
   }
 }
 
 async function loadBases(silent = false) {
+  basesGenerationRequested = true;
   try {
+    const generationId = await ensureActiveSaveGeneration();
     const payload = await readJson("data/public-save-bases.json");
+    assertActiveSaveGeneration(payload, "bases", generationId);
     const changed = isNewDataRevision("bases", payload);
     if (changed) renderBaseSnapshot(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("bases", "transient-error", "stale");
     if (!silent) {
       if (basesState) basesState.textContent = "En attente";
       if (baseResultCount) baseResultCount.textContent = "Les données des bases arriveront au prochain passage du collecteur.";
@@ -5377,7 +6810,7 @@ async function loadBases(silent = false) {
 }
 
 function setupLazyBaseData() {
-  if (basesSnapshot) return;
+  if (currentBasesSnapshot()) return;
   const targets = [document.querySelector("#carte")].filter(Boolean);
   if (!("IntersectionObserver" in window)) {
     loadBases(true);
@@ -5393,8 +6826,11 @@ function setupLazyBaseData() {
 
 function renderEventIndexSnapshot(payload) {
   eventsIndexSnapshot = payload;
-  registerDataUpdate("events", payload?.updatedAt);
-  renderEventSyncStatus(new Date(), payload?.updatedAt);
+  const currentPayload = v5TailReplacementWindow(payload, eventsRecentSnapshot)
+    ? eventsRecentSnapshot
+    : payload;
+  registerPayloadDataUpdate("events", currentPayload);
+  renderEventSyncStatus(new Date(), currentPayload?.updatedAt);
   if (eventIndexTotalEvents()) void loadEventExportPage(1).catch(() => {});
   if (eventsDisclosure?.open) renderEventFiltersFromFacets(payload);
 }
@@ -5425,8 +6861,10 @@ async function loadEvents(silent = false) {
 }
 
 async function loadEventsIndex(silent = false) {
+  const recentSnapshot = loadEventsRecent(true, { snapshotOnly: true });
   try {
     const payload = await readJson("data/public-events-index.json");
+    const recentResult = await recentSnapshot;
     const previousIndex = eventsIndexSnapshot;
     const previousRevision = eventsIndexSnapshot?.revision || "";
     const changed = isNewDataRevision("eventsIndex", payload);
@@ -5434,8 +6872,9 @@ async function loadEventsIndex(silent = false) {
       invalidateChangedEventPages(previousIndex, payload);
     }
     renderEventIndexSnapshot(payload);
-    return { ok: true, changed };
+    return { ok: true, changed: changed || recentResult.changed };
   } catch {
+    await recentSnapshot;
     return loadEventsWithRecentOverlay(silent);
   }
 }
@@ -5444,11 +6883,12 @@ function mergeEventPayload(payload) {
   return mergeEventPayloads(eventsSnapshot || {}, payload);
 }
 
-async function loadEventsRecent(silent = true) {
+async function loadEventsRecent(silent = true, options = {}) {
   if (Date.now() - lastEventRecentRefreshAt < refreshEveryMs - 500 && eventsSnapshot) {
     return { ok: true, changed: false };
   }
   try {
+    const previousRecentRevision = String(eventsRecentSnapshot?.revision || "");
     const payload = await readJson("data/public-events-recent.json");
     const recentPayload = {
       ...payload,
@@ -5457,6 +6897,8 @@ async function loadEventsRecent(silent = true) {
     };
     eventsRecentSnapshot = recentPayload;
     lastEventRecentRefreshAt = Date.now();
+    const snapshotChanged = previousRecentRevision !== String(recentPayload.revision || "");
+    if (options.snapshotOnly) return { ok: true, changed: snapshotChanged };
     if (!eventsFullLoaded) {
       const changed = isNewDataRevision("events", recentPayload);
       if (changed) renderEventSnapshot(recentPayload);
@@ -5506,6 +6948,7 @@ async function refreshDataInBackground() {
     refreshMessageState = result.ok ? "updated" : "error";
     const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
     refreshMessage = result.ok ? (result.changed ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`) : "Nouvel essai bientôt";
+    if (result.changed) announceDataUpdate("Les données du serveur ont été actualisées.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
@@ -5524,21 +6967,13 @@ async function refreshDataInBackground() {
     refreshMessage = synchronizedSources
       ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
       : "Nouvel essai bientôt";
+    if (changedSources) announceDataUpdate("Le résumé quotidien a été actualisé.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
   }
   if (isTerminalRoute()) {
-    const eventRefresh = eventFiltersRequireFullHistory() && !eventsFullLoaded
-      ? loadEventsWithRecentOverlay(true)
-      : eventsFullLoaded
-      ? loadEventsRecent(true)
-      : loadEventsIndex(true).then(async (result) => {
-        if (result.ok && !eventsFullLoaded) {
-          await renderPagedTerminalEvents(false, { preserveDom: true, preserveViewport: true });
-        }
-        return result;
-      });
+    const eventRefresh = loadTerminalEventsPreferred(true);
     const results = await Promise.all([
       loadMetrics(true),
       eventRefresh,
@@ -5552,6 +6987,7 @@ async function refreshDataInBackground() {
     refreshMessage = synchronizedSources
       ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
       : "Nouvel essai bientôt";
+    if (changedSources) announceDataUpdate("De nouveaux échos sont disponibles.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
@@ -5561,9 +6997,9 @@ async function refreshDataInBackground() {
     loadStats(true),
     loadUptime(true),
     loadSaveSnapshot(true, false),
-    basesSnapshot ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
+    basesGenerationRequested ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
     loadSaveDiagnostics(true),
-    loadEventsRecent(true),
+    loadHomeEchoes(true),
   ]);
   const synchronizedSources = results.filter((result) => result.ok).length;
   const changedSources = results.filter((result) => result.changed).length;
@@ -5575,6 +7011,7 @@ async function refreshDataInBackground() {
   refreshMessage = synchronizedSources
     ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
     : "Nouvel essai bientôt";
+  if (changedSources) announceDataUpdate("Les données du portail ont été actualisées.");
   refreshMessageUntil = Date.now() + 6500;
   renderNextUpdate();
 }
@@ -5583,18 +7020,17 @@ readTerminalState();
 syncTerminalView();
 if (isTerminalRoute()) {
   if (eventsDisclosure) eventsDisclosure.open = true;
-  const terminalEventsLoad = eventFiltersRequireFullHistory()
-    ? loadEventsWithRecentOverlay()
-    : loadEventsIndex().then(async (result) => {
-      if (result.ok && !eventsFullLoaded) await renderPagedTerminalEvents();
-      return result;
-    });
+  const terminalEventsLoad = loadTerminalEventsPreferred();
   Promise.all([
     loadMetrics(),
     terminalEventsLoad,
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
-    if (eventsFullLoaded && eventsSnapshot) {
+    if (eventsContractMode === "v6" && eventsSnapshot) {
+      renderEventFiltersFromFacets(eventsIndexSnapshot);
+      renderEvents();
+      writeTerminalState();
+    } else if (eventsFullLoaded && eventsSnapshot) {
       renderEventFilters(eventsSnapshot.events || []);
       renderEvents();
       writeTerminalState();
@@ -5641,7 +7077,7 @@ if (isTerminalRoute()) {
   const initialBaseLoad = location.hash === "#carte"
     ? loadBases()
     : Promise.resolve({ ok: true, changed: false });
-  const initialEventsLoad = eventsDisclosure ? loadEventsRecent(true) : Promise.resolve({ ok: true, changed: false });
+  const initialEventsLoad = loadHomeEchoes(true);
 
   Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), initialEventsLoad]).then(() => {
     document.documentElement.classList.add("data-loaded");
@@ -5679,9 +7115,16 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 
-window.addEventListener("pagehide", () => window.clearInterval(clockTimer));
+window.addEventListener("pagehide", () => {
+  window.clearInterval(clockTimer);
+  if (isTerminalRoute() && eventsContractMode === "v6") markTerminalEchoesSeen();
+});
 
 if (isDashboardRoute()) {
+playerVisibilityToggle?.addEventListener("click", () => {
+  showInactivePlayers = !showInactivePlayers;
+  syncPlayerVisibilityToggle(Boolean(savePlayers?.querySelector('[data-player-visibility="inactive"]')));
+});
 savePlayers.addEventListener("click", (event) => {
   const link = event.target.closest("[data-player-index]");
   if (link) {
@@ -5774,22 +7217,22 @@ leaderboardHead?.addEventListener("click", (event) => {
 document.querySelectorAll('a[href="#carte"]').forEach((link) => {
   link.addEventListener("click", () => {
     if (mapDisclosure) mapDisclosure.open = true;
-    if (!basesSnapshot) loadBases(true);
+    if (!currentBasesSnapshot()) loadBases(true);
   });
 });
 
 mapDisclosure?.addEventListener("toggle", () => {
   if (!mapDisclosure.open) return;
   loadDeferredImage(globalMapImage);
-  if (!basesSnapshot) loadBases(true);
+  if (!currentBasesSnapshot()) loadBases(true);
   window.requestAnimationFrame(restoreGlobalMapView);
 });
 
 mapBaseToggle?.addEventListener("click", async () => {
   const shouldShow = !showMapBases;
-  if (shouldShow && !basesSnapshot) await loadBases(true);
+  if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
   showMapBases = shouldShow;
-  renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+  renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
 });
 
 baseSearch?.addEventListener("input", filterBases);
@@ -5923,6 +7366,10 @@ palSearch.addEventListener("input", () => { palVisibleLimit = 24; renderPalColle
 palContainerFilter.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palSort.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palLoadMore.addEventListener("click", () => { palVisibleLimit += 24; renderPalCollection(); });
+expeditionPals?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-load-breeding]");
+  if (button) renderBreedingOptions(button);
+});
 inventorySearch.addEventListener("input", () => renderInventory(selectedPlayer));
 }
 
@@ -5951,35 +7398,61 @@ if (isLeaderboardRoute()) {
 if (isMapRoute()) {
   mapPlayerToggle?.addEventListener("click", () => {
     showMapPlayers = !showMapPlayers;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
   mapBaseToggle?.addEventListener("click", async () => {
     const shouldShow = !showMapBases;
-    if (shouldShow && !basesSnapshot) await loadBases(true);
+    if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
     showMapBases = shouldShow;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
   mapLegendToggle?.addEventListener("click", () => {
     showMapLegend = !showMapLegend;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
 }
 
-eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
-eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
-eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
+eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
+eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
+eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
 eventControls?.addEventListener("toggle", () => {
   if (isTerminalRoute() && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
     void updateTerminalEvents(false);
   }
 });
 eventPagination?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-event-page]");
+  const button = event.target.closest("[data-event-page], [data-event-cursor]");
   if (!button || button.disabled) return;
-  eventCurrentPage = Number(button.dataset.eventPage) || 1;
+  if (eventsContractMode === "v6") {
+    eventCursor = button.dataset.eventCursor || "";
+  } else {
+    eventCurrentPage = Number(button.dataset.eventPage) || 1;
+  }
   void updateTerminalEvents().then(() => {
     document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
   });
+});
+eventDateInput?.addEventListener("change", () => {
+  void selectEventDate(eventDateInput.value);
+});
+eventDatePrevious?.addEventListener("click", () => {
+  const dates = v6NavigableDates();
+  const index = dates.indexOf(eventSelectedDateKey);
+  if (index >= 0 && dates[index + 1]) void selectEventDate(dates[index + 1]);
+});
+eventDateNext?.addEventListener("click", () => {
+  const dates = v6NavigableDates();
+  const index = dates.indexOf(eventSelectedDateKey);
+  if (index > 0) void selectEventDate(dates[index - 1]);
+});
+eventDateToday?.addEventListener("click", () => {
+  const today = dailyDateKeyFromDate(new Date());
+  if (today) void selectEventDate(today);
+});
+eventUnseen?.addEventListener("click", () => {
+  const latestDate = v6ManifestDays()[0]?.date;
+  markTerminalEchoesSeen();
+  if (latestDate) void selectEventDate(latestDate);
 });
 dailyDateInput?.addEventListener("change", () => {
   void selectDailyDate(dailyDateInput.value);
@@ -5993,6 +7466,10 @@ dailyNext?.addEventListener("click", () => {
   const index = dailyAvailableDateKeys.indexOf(dailySelectedDateKey);
   const nextKey = index > 0 ? dailyAvailableDateKeys[index - 1] : "";
   if (nextKey) void selectDailyDate(nextKey);
+});
+dailyToday?.addEventListener("click", () => {
+  const today = dailyDateKeyFromDate(new Date());
+  if (today) void selectDailyDate(today);
 });
 palSearch?.addEventListener("keydown", clearSearchOnEscape);
 inventorySearch?.addEventListener("keydown", clearSearchOnEscape);
@@ -6061,7 +7538,7 @@ window.addEventListener("hashchange", () => {
   if (location.hash === "#evenements" && eventsDisclosure) eventsDisclosure.open = true;
   if (location.hash === "#carte" && mapDisclosure) {
     mapDisclosure.open = true;
-    if (!basesSnapshot) loadBases(true);
+    if (!currentBasesSnapshot()) loadBases(true);
   }
   openPlayerFromRoute();
   trackVirtualPageView();

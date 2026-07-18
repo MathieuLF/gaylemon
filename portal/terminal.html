@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260718.2">
-    <script src="/assets/app.js?v=20260718.4" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260718.9">
+    <script src="/assets/app.js?v=20260718.15" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -105,6 +105,19 @@
               <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
               <strong>palpagos://journal/public</strong>
             </div>
+            <div class="event-date-navigation" id="event-date-navigation" hidden>
+              <button id="event-date-previous" type="button" aria-label="Afficher la journée précédente">←</button>
+              <label>
+                <span>Journée</span>
+                <input id="event-date" type="date">
+              </label>
+              <button id="event-date-next" type="button" aria-label="Afficher la journée suivante">→</button>
+              <button id="event-date-today" type="button">Aujourd’hui</button>
+              <button class="event-unseen" id="event-unseen" type="button" hidden>
+                <strong id="event-unseen-count">0</strong>
+                <span>nouvel écho depuis ta dernière visite</span>
+              </button>
+            </div>
             <details class="event-controls" id="event-controls">
               <summary>
                 <span>Recherche et filtres</span>
@@ -132,10 +145,10 @@
               <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
               <time id="event-sync-status">Synchronisation en attente</time>
             </div>
-            <ol class="event-stream" id="event-stream" aria-live="polite">
+            <ol class="event-stream" id="event-stream" aria-live="off">
               <li class="event-stream__empty">Les premiers échos arrivent...</li>
             </ol>
-            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique" hidden></nav>
+            <nav class="event-pagination" id="event-pagination" aria-label="Navigation chronologique des échos" hidden></nav>
           </div>
         </div>
       </section>

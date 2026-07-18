@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import hashlib
 import json
 import re
 import sys
@@ -11,12 +12,50 @@ from pathlib import Path
 
 CONFIG_FILE = Path("/srv/storage/steam/servers/palworld/game/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini")
 STATS_FILE = Path("/srv/storage/steam/servers/palworld/stats/stats.json")
+STEAM_MANIFEST_FILE = Path("/srv/storage/steam/servers/palworld/game/steamapps/appmanifest_2394010.acf")
+PARSER_REPO = Path("/home/gaylemon/Gaylemon/vendor/PalworldSaveTools-current")
 BASE_URL = "http://127.0.0.1:8212/v1/api"
 MAX_INTERVAL_SECONDS = 300
 GAME_DATA_INTERVAL_SECONDS = 300
 GAME_DATA_FAILURE_BACKOFF_SECONDS = 3600
-GAME_DATA_DISABLED_HTTP_CODES = {404, 405}
+GAME_DATA_DOCUMENTED_RETRY_SECONDS = 21600
+SETTINGS_INTERVAL_SECONDS = 21600
+SETTINGS_FAILURE_BACKOFF_SECONDS = 3600
 MAX_SESSION_HISTORY = 200
+MAX_SOURCE_SAMPLES = 60
+MAX_SETTINGS_CHANGES = 50
+SCHEMA_VERSION = 2
+
+PUBLIC_SETTINGS_FIELDS = {
+    "Difficulty",
+    "DayTimeSpeedRate",
+    "NightTimeSpeedRate",
+    "ExpRate",
+    "PalCaptureRate",
+    "PalSpawnNumRate",
+    "PalDamageRateAttack",
+    "PalDamageRateDefense",
+    "PlayerDamageRateAttack",
+    "PlayerDamageRateDefense",
+    "CollectionDropRate",
+    "CollectionObjectHpRate",
+    "CollectionObjectRespawnSpeedRate",
+    "EnemyDropItemRate",
+    "DeathPenalty",
+    "BaseCampMaxNum",
+    "BaseCampWorkerMaxNum",
+    "GuildPlayerMaxNum",
+    "PalEggDefaultHatchingTime",
+    "WorkSpeedRate",
+    "AutoSaveSpan",
+    "bIsPvP",
+    "bEnablePlayerToPlayerDamage",
+    "bEnableFriendlyFire",
+    "bEnableInvaderEnemy",
+    "bEnableFastTravel",
+    "bUseBackupSaveData",
+    "CrossplayPlatforms",
+}
 
 
 def now_iso():
@@ -47,33 +86,225 @@ def read_admin_password():
     return match.group(1)
 
 
-def api_get(endpoint, password):
+def percentile_95(values):
+    values = sorted(float(value) for value in values if value is not None)
+    if not values:
+        return 0
+    index = max(0, min(len(values) - 1, int((len(values) - 1) * 0.95 + 0.5)))
+    return round(values[index], 1)
+
+
+def record_source_observation(stats, endpoint, observed_at, status, latency_ms, byte_count=0, error=None):
+    sources = stats.setdefault("sources", {})
+    source = sources.setdefault(endpoint, {
+        "status": "unknown",
+        "lastObservedAt": None,
+        "lastSuccessAt": None,
+        "latencyMs": 0,
+        "latencyP95Ms": 0,
+        "responseBytes": 0,
+        "sampleCount": 0,
+        "consecutiveFailures": 0,
+        "error": None,
+        "latencySamples": [],
+    })
+    samples = list(source.get("latencySamples") or [])
+    samples.append(round(float(latency_ms), 1))
+    samples = samples[-MAX_SOURCE_SAMPLES:]
+    source.update({
+        "status": status,
+        "lastObservedAt": observed_at,
+        "latencyMs": round(float(latency_ms), 1),
+        "latencyP95Ms": percentile_95(samples),
+        "responseBytes": int(byte_count or 0),
+        "sampleCount": int(source.get("sampleCount") or 0) + 1,
+        "error": str(error)[:240] if error else None,
+        "latencySamples": samples,
+    })
+    if status == "available":
+        source["lastSuccessAt"] = observed_at
+        source["consecutiveFailures"] = 0
+    else:
+        source["consecutiveFailures"] = int(source.get("consecutiveFailures") or 0) + 1
+
+
+def api_get(endpoint, password, stats=None, observed_at=None):
     token = base64.b64encode(f"admin:{password}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(
         f"{BASE_URL}/{endpoint}",
         headers={"Authorization": f"Basic {token}", "Accept": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8"))
+    started_at = time.perf_counter()
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = response.read()
+        if stats is not None:
+            record_source_observation(
+                stats,
+                endpoint,
+                observed_at or now_iso(),
+                "available",
+                (time.perf_counter() - started_at) * 1000,
+                len(payload),
+            )
+        return json.loads(payload.decode("utf-8"))
+    except Exception as exc:
+        if stats is not None:
+            record_source_observation(
+                stats,
+                endpoint,
+                observed_at or now_iso(),
+                "error",
+                (time.perf_counter() - started_at) * 1000,
+                error=exc,
+            )
+        raise
+
+
+def future_iso(seconds):
+    return datetime.fromtimestamp(time.time() + seconds, tz=timezone.utc).astimezone().isoformat()
+
+
+def read_steam_build_id():
+    try:
+        text = STEAM_MANIFEST_FILE.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    match = re.search(r'"buildid"\s+"([0-9]+)"', text)
+    return match.group(1) if match else None
+
+
+def read_git_commit(repository):
+    try:
+        git_dir = repository.resolve() / ".git"
+        head = (git_dir / "HEAD").read_text(encoding="ascii", errors="ignore").strip()
+        if head.startswith("ref: "):
+            return (git_dir / head[5:]).read_text(encoding="ascii", errors="ignore").strip() or None
+        return head or None
+    except OSError:
+        return None
+
+
+def game_version_from_info(info):
+    if not isinstance(info, dict):
+        return None
+    return info.get("version") or info.get("Version") or info.get("serverVersion")
+
+
+def update_provenance(stats, ts, info, steam_build_id):
+    parser_commit = read_git_commit(PARSER_REPO)
+    provenance = stats.setdefault("provenance", {})
+    provenance.update({
+        "observedAt": ts,
+        "sourceUpdatedAt": ts,
+        "gameVersion": game_version_from_info(info),
+        "steamBuildId": steam_build_id,
+        "parserCommit": parser_commit,
+        "catalogCommit": parser_commit,
+        "schemaVersion": SCHEMA_VERSION,
+        "freshness": "current",
+        "sourceStatus": "available",
+    })
+    return provenance
+
+
+def public_settings(payload):
+    if not isinstance(payload, dict):
+        return {}
+    if isinstance(payload.get("settings"), dict):
+        payload = payload["settings"]
+    return {
+        field: payload[field]
+        for field in sorted(PUBLIC_SETTINGS_FIELDS)
+        if field in payload and payload[field] is not None
+    }
+
+
+def canonical_digest(payload):
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def update_settings(stats, payload, ts):
+    filtered = public_settings(payload)
+    digest = canonical_digest(filtered)
+    settings = stats.setdefault("settings", {
+        "status": "unknown",
+        "updatedAt": None,
+        "nextAttemptAt": None,
+        "digest": None,
+        "current": {},
+        "changes": [],
+        "error": None,
+    })
+    previous = settings.get("current") if isinstance(settings.get("current"), dict) else {}
+    previous_digest = settings.get("digest")
+    if previous_digest and previous_digest != digest:
+        changed = {
+            key: {"before": previous.get(key), "after": filtered.get(key)}
+            for key in sorted(set(previous) | set(filtered))
+            if previous.get(key) != filtered.get(key)
+        }
+        changes = list(settings.get("changes") or [])
+        change_digest = canonical_digest({"before": previous_digest, "after": digest, "changed": changed})
+        if not any(item.get("digest") == change_digest for item in changes if isinstance(item, dict)):
+            changes.append({"observedAt": ts, "digest": change_digest, "fields": changed})
+        settings["changes"] = changes[-MAX_SETTINGS_CHANGES:]
+    settings.update({
+        "status": "available",
+        "updatedAt": ts,
+        "nextAttemptAt": future_iso(SETTINGS_INTERVAL_SECONDS),
+        "digest": digest,
+        "current": filtered,
+        "error": None,
+    })
+    return settings
+
+
+def should_read_settings(stats, now=None):
+    now = now or datetime.now(timezone.utc).astimezone()
+    next_attempt = stats.get("settings", {}).get("nextAttemptAt")
+    if not next_attempt:
+        return True
+    try:
+        return now >= datetime.fromisoformat(next_attempt)
+    except (TypeError, ValueError):
+        return True
 
 
 def empty_stats(ts):
     return {
-        "version": 1,
+        "version": 2,
+        "schemaVersion": SCHEMA_VERSION,
         "ok": True,
         "updatedAt": ts,
         "updatedAtLocal": now_local(),
+        "provenance": {
+            "observedAt": ts,
+            "sourceUpdatedAt": ts,
+            "gameVersion": None,
+            "steamBuildId": None,
+            "parserCommit": None,
+            "catalogCommit": None,
+            "schemaVersion": SCHEMA_VERSION,
+            "freshness": "current",
+            "sourceStatus": "available",
+        },
         "collection": {
             "source": "ubuntu-systemd",
             "firstSampleAt": ts,
             "lastSampleAt": None,
             "lastGameDataAt": None,
+            "lastGameDataAttemptAt": None,
             "nextGameDataAttemptAt": None,
             "sampleCount": 0,
             "gameDataStatus": "unknown",
             "gameDataDisabledAt": None,
             "gameDataAvailable": False,
             "gameDataError": None,
+            "gameDataCapabilityKey": None,
+            "gameDataRestartGeneration": 0,
+            "lastServerRestartDetectedAt": None,
             "note": "Les temps et connexions sont estimés par échantillonnage local côté serveur Ubuntu.",
         },
         "server": {
@@ -108,6 +339,16 @@ def empty_stats(ts):
             "wildPals": 0,
             "npcs": 0,
         },
+        "settings": {
+            "status": "unknown",
+            "updatedAt": None,
+            "nextAttemptAt": None,
+            "digest": None,
+            "current": {},
+            "changes": [],
+            "error": None,
+        },
+        "sources": {},
     }
 
 
@@ -121,20 +362,38 @@ def load_stats(ts):
 
 
 def ensure_collection_defaults(stats):
+    stats["version"] = max(2, int(stats.get("version") or 0))
+    stats["schemaVersion"] = SCHEMA_VERSION
     collection = stats.setdefault("collection", {})
     collection.setdefault("source", "ubuntu-systemd")
     collection.setdefault("lastGameDataAt", None)
+    collection.setdefault("lastGameDataAttemptAt", None)
     collection.setdefault("nextGameDataAttemptAt", None)
     collection.setdefault("gameDataStatus", "unknown")
     collection.setdefault("gameDataDisabledAt", None)
     collection.setdefault("gameDataAvailable", False)
     collection.setdefault("gameDataError", None)
+    collection.setdefault("gameDataCapabilityKey", None)
+    collection.setdefault("gameDataRestartGeneration", 0)
+    collection.setdefault("lastServerRestartDetectedAt", None)
 
     error = str(collection.get("gameDataError") or "")
-    if collection.get("gameDataStatus") != "disabled" and error in {"HTTP 404", "HTTP 405"}:
-        collection["gameDataStatus"] = "disabled"
+    if collection.get("gameDataStatus") == "disabled" or error in {"HTTP 404", "HTTP 405"}:
+        collection["gameDataStatus"] = "documented-but-unavailable"
         collection["gameDataDisabledAt"] = collection.get("lastGameDataAt")
-        collection["nextGameDataAttemptAt"] = None
+        collection["nextGameDataAttemptAt"] = collection.get("nextGameDataAttemptAt") or future_iso(
+            GAME_DATA_DOCUMENTED_RETRY_SECONDS
+        )
+
+    settings = stats.setdefault("settings", {})
+    settings.setdefault("status", "unknown")
+    settings.setdefault("updatedAt", None)
+    settings.setdefault("nextAttemptAt", None)
+    settings.setdefault("digest", None)
+    settings.setdefault("current", {})
+    settings.setdefault("changes", [])
+    settings.setdefault("error", None)
+    stats.setdefault("sources", {})
 
     return collection
 
@@ -247,11 +506,12 @@ def update_player_from_online(stats, player, ts, interval):
 
 
 def update_game_data(stats, game_data, ts):
-    actors = game_data.get("ActorData") or []
+    actors = game_data.get("ActorData") or game_data.get("actorData") or []
     stats["collection"]["gameDataAvailable"] = True
     stats["collection"]["gameDataError"] = None
     stats["collection"]["lastGameDataAt"] = ts
-    stats["collection"]["nextGameDataAttemptAt"] = None
+    stats["collection"]["lastGameDataAttemptAt"] = ts
+    stats["collection"]["nextGameDataAttemptAt"] = future_iso(GAME_DATA_INTERVAL_SECONDS)
     stats["collection"]["gameDataStatus"] = "available"
     stats["collection"]["gameDataDisabledAt"] = None
     stats["actors"] = {
@@ -300,32 +560,80 @@ def update_game_data(stats, game_data, ts):
                     "activePlayerCount": 0,
                 })
                 guild["playerCount"] += 1
-                if actor.get("IsActive") == "true":
+                if actor.get("IsActive") is True or str(actor.get("IsActive") or "").casefold() == "true":
                     guild["activePlayerCount"] += 1
 
     stats["guilds"] = guilds
 
 
-def should_read_game_data(stats):
-    if stats.get("collection", {}).get("gameDataStatus") == "disabled":
-        return False
+def refresh_game_data_capability(stats, capability_key):
+    collection = stats.setdefault("collection", {})
+    previous = collection.get("gameDataCapabilityKey")
+    if capability_key and previous and previous != capability_key:
+        collection["gameDataStatus"] = "unknown"
+        collection["gameDataAvailable"] = False
+        collection["gameDataError"] = None
+        collection["nextGameDataAttemptAt"] = None
+    collection["gameDataCapabilityKey"] = capability_key
+
+
+def update_game_data_restart_generation(stats, current_uptime, observed_at=None):
+    collection = stats.setdefault("collection", {})
+    server = stats.setdefault("server", {})
+    generation = int(collection.get("gameDataRestartGeneration") or 0)
+    previous_uptime = int(server.get("lastUptimeSeconds") or 0)
+    current_uptime = max(0, int(current_uptime or 0))
+    if previous_uptime >= 60 and current_uptime + 30 < previous_uptime:
+        generation += 1
+        collection["lastServerRestartDetectedAt"] = observed_at or now_iso()
+    collection["gameDataRestartGeneration"] = generation
+    return generation
+
+
+def should_read_game_data(stats, now=None):
+    now = now or datetime.now(timezone.utc).astimezone()
 
     next_attempt = stats.get("collection", {}).get("nextGameDataAttemptAt")
     if next_attempt:
         try:
-            if datetime.now(timezone.utc).astimezone() < datetime.fromisoformat(next_attempt):
+            if now < datetime.fromisoformat(next_attempt):
                 return False
-        except ValueError:
+        except (TypeError, ValueError):
             pass
 
-    last = stats.get("collection", {}).get("lastGameDataAt")
+    last = stats.get("collection", {}).get("lastGameDataAttemptAt") or stats.get("collection", {}).get("lastGameDataAt")
     if not last:
         return True
     try:
         last_ts = datetime.fromisoformat(last)
     except ValueError:
         return True
-    return (datetime.now(timezone.utc).astimezone() - last_ts).total_seconds() >= GAME_DATA_INTERVAL_SECONDS
+    return (now - last_ts).total_seconds() >= GAME_DATA_INTERVAL_SECONDS
+
+
+def write_stats_atomic(stats):
+    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp_file = STATS_FILE.with_suffix(".json.tmp")
+    tmp_file.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_file.replace(STATS_FILE)
+
+
+def persist_primary_source_failure(stats, endpoint, observed_at, error):
+    source = stats.setdefault("sources", {}).get(endpoint)
+    if not isinstance(source, dict) or source.get("lastObservedAt") != observed_at or source.get("status") != "error":
+        record_source_observation(stats, endpoint, observed_at, "error", 0, error=error)
+    provenance = stats.setdefault("provenance", {})
+    provenance.update({
+        "observedAt": observed_at,
+        "schemaVersion": SCHEMA_VERSION,
+        "freshness": "stale",
+        "sourceStatus": "transient-error",
+    })
+    stats["ok"] = False
+    stats["updatedAt"] = observed_at
+    stats["updatedAtLocal"] = now_local()
+    stats["error"] = f"primary-source-unavailable:{endpoint}"
+    write_stats_atomic(stats)
 
 
 def main():
@@ -333,8 +641,35 @@ def main():
     stats = load_stats(ts)
     ensure_collection_defaults(stats)
     password = read_admin_password()
-    metrics = api_get("metrics", password)
-    players_payload = api_get("players", password)
+    primary_payloads = {}
+    for endpoint in ("info", "metrics", "players"):
+        try:
+            primary_payloads[endpoint] = api_get(endpoint, password, stats, ts)
+        except Exception as exc:
+            persist_primary_source_failure(stats, endpoint, ts, exc)
+            raise
+    info = primary_payloads["info"]
+    metrics = primary_payloads["metrics"]
+    players_payload = primary_payloads["players"]
+    steam_build_id = read_steam_build_id()
+    provenance = update_provenance(stats, ts, info, steam_build_id)
+    current_uptime = int(metrics.get("uptime") or 0)
+    restart_generation = update_game_data_restart_generation(stats, current_uptime, ts)
+    capability_key = canonical_digest({
+        "gameVersion": provenance.get("gameVersion"),
+        "steamBuildId": steam_build_id,
+        "restartGeneration": restart_generation,
+    })
+    refresh_game_data_capability(stats, capability_key)
+
+    if should_read_settings(stats):
+        try:
+            update_settings(stats, api_get("settings", password, stats, ts), ts)
+        except Exception as exc:
+            settings = stats.setdefault("settings", {})
+            settings["status"] = "transient-error"
+            settings["error"] = str(exc)[:240]
+            settings["nextAttemptAt"] = future_iso(SETTINGS_FAILURE_BACKOFF_SECONDS)
 
     last_sample = stats.get("collection", {}).get("lastSampleAt")
     interval = 0
@@ -371,7 +706,7 @@ def main():
     server["lastFrameMs"] = round(float(metrics.get("serverframetime") or 0), 1)
     server["lastBaseCamps"] = int(metrics.get("basecampnum") or 0)
     server["lastDays"] = int(metrics.get("days") or 0)
-    server["lastUptimeSeconds"] = int(metrics.get("uptime") or 0)
+    server["lastUptimeSeconds"] = current_uptime
     server["lastUptime"] = duration(server["lastUptimeSeconds"])
     server["totalObservedSeconds"] = int(server.get("totalObservedSeconds") or 0) + interval
     server["totalObserved"] = duration(server["totalObservedSeconds"])
@@ -386,42 +721,44 @@ def main():
         server["peakPlayersAt"] = ts
 
     if should_read_game_data(stats):
+        stats["collection"]["lastGameDataAttemptAt"] = ts
         try:
-            update_game_data(stats, api_get("game-data", password), ts)
+            update_game_data(stats, api_get("game-data", password, stats, ts), ts)
         except urllib.error.HTTPError as exc:
             stats["collection"]["gameDataAvailable"] = False
             stats["collection"]["gameDataError"] = f"HTTP {exc.code}"
-            stats["collection"]["lastGameDataAt"] = ts
-            if exc.code in GAME_DATA_DISABLED_HTTP_CODES:
-                stats["collection"]["gameDataStatus"] = "disabled"
+            if exc.code in {404, 405}:
+                stats["collection"]["gameDataStatus"] = "documented-but-unavailable"
                 stats["collection"]["gameDataDisabledAt"] = ts
-                stats["collection"]["nextGameDataAttemptAt"] = None
+                stats["collection"]["nextGameDataAttemptAt"] = future_iso(
+                    GAME_DATA_DOCUMENTED_RETRY_SECONDS
+                )
+            elif exc.code in {400, 501}:
+                stats["collection"]["gameDataStatus"] = "unsupported"
+                stats["collection"]["nextGameDataAttemptAt"] = future_iso(
+                    GAME_DATA_DOCUMENTED_RETRY_SECONDS
+                )
             else:
-                stats["collection"]["gameDataStatus"] = "error"
-                stats["collection"]["nextGameDataAttemptAt"] = datetime.fromtimestamp(
-                    time.time() + GAME_DATA_FAILURE_BACKOFF_SECONDS,
-                    tz=timezone.utc,
-                ).astimezone().isoformat()
+                stats["collection"]["gameDataStatus"] = "transient-error"
+                stats["collection"]["nextGameDataAttemptAt"] = future_iso(
+                    GAME_DATA_FAILURE_BACKOFF_SECONDS
+                )
         except Exception as exc:
             stats["collection"]["gameDataAvailable"] = False
             stats["collection"]["gameDataError"] = str(exc)
-            stats["collection"]["lastGameDataAt"] = ts
-            stats["collection"]["gameDataStatus"] = "error"
-            stats["collection"]["nextGameDataAttemptAt"] = datetime.fromtimestamp(
-                time.time() + GAME_DATA_FAILURE_BACKOFF_SECONDS,
-                tz=timezone.utc,
-            ).astimezone().isoformat()
+            stats["collection"]["gameDataStatus"] = "transient-error"
+            stats["collection"]["nextGameDataAttemptAt"] = future_iso(
+                GAME_DATA_FAILURE_BACKOFF_SECONDS
+            )
 
     stats["ok"] = True
+    stats["error"] = None
     stats["updatedAt"] = ts
     stats["updatedAtLocal"] = now_local()
     stats["collection"]["lastSampleAt"] = ts
     stats["collection"]["sampleCount"] = int(stats["collection"].get("sampleCount") or 0) + 1
 
-    STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp_file = STATS_FILE.with_suffix(".json.tmp")
-    tmp_file.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_file.replace(STATS_FILE)
+    write_stats_atomic(stats)
     print(f"Stats written to {STATS_FILE}")
 
 

@@ -2,6 +2,8 @@ param(
     [int]$IntervalSeconds = 20,
     [int]$EventSyncIntervalSeconds = 20,
     [int]$EventSyncTimeoutSeconds = 60,
+    [int]$FullEventSyncIntervalSeconds = 900,
+    [int]$FullEventSyncTimeoutSeconds = 240,
     [int]$SaveSnapshotSyncIntervalSeconds = 60,
     [int]$SaveSnapshotSyncTimeoutSeconds = 180,
     [int]$UpdateTimeoutSeconds = 120
@@ -12,6 +14,7 @@ $ErrorActionPreference = "Continue"
 $dataDirectory = Join-Path $PSScriptRoot "..\portal\data"
 $pidPath = Join-Path $dataDirectory "metrics-watcher.pid"
 $logPath = Join-Path $dataDirectory "metrics-watcher.log"
+$eventSyncStatePath = Join-Path $dataDirectory "public-events-sync-state.json"
 $recoveryAuditPending = $true
 $nextRecoveryAuditAt = Get-Date
 $saveSnapshotSyncProcess = $null
@@ -25,6 +28,17 @@ function Write-WatcherLog {
 
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
+}
+
+function Test-EventReprojectionRequired {
+    if (-not (Test-Path -LiteralPath $eventSyncStatePath -PathType Leaf)) { return $false }
+    try {
+        $state = Get-Content -LiteralPath $eventSyncStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        return [bool]$state.requiresReprojection
+    }
+    catch {
+        return $false
+    }
 }
 
 function Get-PowerShellHost {
@@ -104,25 +118,33 @@ function Invoke-MetricsUpdate {
 }
 
 function Invoke-EventHistorySync {
+    param([switch]$Full)
+
     $syncScript = Join-Path $PSScriptRoot "sync-palworld-events.ps1"
     $powerShellHost = Get-PowerShellHost
     $runId = [Guid]::NewGuid().ToString("N")
     $outputPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-events-$runId.out.log"
     $errorPath = Join-Path ([IO.Path]::GetTempPath()) "gaylemon-events-$runId.err.log"
 
-    try {
-        $process = Start-Process -FilePath $powerShellHost -ArgumentList @(
+    $arguments = [Collections.Generic.List[string]]::new()
+    foreach ($argument in @(
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            $syncScript,
-            "-Fast"
-        ) -WindowStyle Hidden -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -PassThru
+            $syncScript
+        )) {
+        $arguments.Add($argument)
+    }
+    if (-not $Full) { $arguments.Add("-Fast") }
+    $timeoutSeconds = if ($Full) { [Math]::Max(30, $FullEventSyncTimeoutSeconds) } else { [Math]::Max(15, $EventSyncTimeoutSeconds) }
 
-        if (-not $process.WaitForExit([Math]::Max(15, $EventSyncTimeoutSeconds) * 1000)) {
+    try {
+        $process = Start-Process -FilePath $powerShellHost -ArgumentList $arguments.ToArray() -WindowStyle Hidden -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -PassThru
+
+        if (-not $process.WaitForExit($timeoutSeconds * 1000)) {
             Stop-ProcessTree -RootPid $process.Id
-            throw "Event history sync timed out after $EventSyncTimeoutSeconds seconds."
+            throw "Event history sync timed out after $timeoutSeconds seconds."
         }
 
         if ($process.ExitCode -ne 0) {
@@ -237,10 +259,11 @@ if (Test-Path -LiteralPath $pidPath) {
 }
 
 Set-Content -LiteralPath $pidPath -Value $PID -Encoding ASCII
-Write-WatcherLog "Microsite watcher started. MetricsInterval=${IntervalSeconds}s EventSyncInterval=${EventSyncIntervalSeconds}s SaveSnapshotInterval=${SaveSnapshotSyncIntervalSeconds}s MetricsTimeout=${UpdateTimeoutSeconds}s EventSyncTimeout=${EventSyncTimeoutSeconds}s SaveSnapshotTimeout=${SaveSnapshotSyncTimeoutSeconds}s PID=$PID."
+Write-WatcherLog "Microsite watcher started. MetricsInterval=${IntervalSeconds}s EventSyncInterval=${EventSyncIntervalSeconds}s FullEventSyncInterval=${FullEventSyncIntervalSeconds}s SaveSnapshotInterval=${SaveSnapshotSyncIntervalSeconds}s MetricsTimeout=${UpdateTimeoutSeconds}s EventSyncTimeout=${EventSyncTimeoutSeconds}s FullEventSyncTimeout=${FullEventSyncTimeoutSeconds}s SaveSnapshotTimeout=${SaveSnapshotSyncTimeoutSeconds}s PID=$PID."
 
 try {
     $nextEventSyncAt = Get-Date
+    $nextFullEventSyncAt = Get-Date
     $nextSaveSnapshotSyncAt = Get-Date
     while ($true) {
         $now = Get-Date
@@ -253,13 +276,29 @@ try {
         $eventSyncAttempted = $false
         if ((Get-Date) -ge $nextEventSyncAt) {
             $eventSyncAttempted = $true
+            $runFullEventSync = (Get-Date) -ge $nextFullEventSyncAt
             try {
-                Invoke-EventHistorySync
-                Write-WatcherLog "Event history sync completed."
+                Invoke-EventHistorySync -Full:$runFullEventSync
+                if ($runFullEventSync) {
+                    Write-WatcherLog "Full event history reconciliation completed."
+                    $nextFullEventSyncAt = (Get-Date).AddSeconds([Math]::Max(60, $FullEventSyncIntervalSeconds))
+                }
+                else {
+                    Write-WatcherLog "Recent event history sync completed."
+                    if (Test-EventReprojectionRequired) {
+                        Write-WatcherLog "A full event history reconciliation is required by the recent projection."
+                        Invoke-EventHistorySync -Full
+                        Write-WatcherLog "Full event history reconciliation completed after a recent projection divergence."
+                        $nextFullEventSyncAt = (Get-Date).AddSeconds([Math]::Max(60, $FullEventSyncIntervalSeconds))
+                    }
+                }
                 $nextEventSyncAt = (Get-Date).AddSeconds([Math]::Max(5, $EventSyncIntervalSeconds))
             }
             catch {
-                Write-WatcherLog "Event history sync skipped: $($_.Exception.Message)"
+                Write-WatcherLog "$(if ($runFullEventSync) { 'Full event history reconciliation' } else { 'Recent event history sync' }) skipped: $($_.Exception.Message)"
+                if ($runFullEventSync) {
+                    $nextFullEventSyncAt = (Get-Date).AddSeconds([Math]::Max(30, [Math]::Min(120, $EventSyncIntervalSeconds * 3)))
+                }
                 $nextEventSyncAt = (Get-Date).AddSeconds([Math]::Max(10, [Math]::Min(60, $EventSyncIntervalSeconds)))
             }
         }
@@ -286,8 +325,8 @@ try {
                 continue
             }
             try {
-                Invoke-EventHistorySync
-                Write-WatcherLog "Event history sync completed after skipped metrics update."
+                Invoke-EventHistorySync -Full:$false
+                Write-WatcherLog "Recent event history sync completed after skipped metrics update."
                 $nextEventSyncAt = (Get-Date).AddSeconds([Math]::Max(5, $EventSyncIntervalSeconds))
             }
             catch {

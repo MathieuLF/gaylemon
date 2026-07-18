@@ -54,19 +54,18 @@ Le dépôt ne doit pas:
 
 ## Routes publiques
 
-Le microsite reste statique, mais sert quatre routes humaines:
+Le microsite reste statique, mais sert six routes humaines:
 
-- `/`: tableau de bord public;
 - `/`: tableau de bord avec métriques, specs publiques et fiches joueurs;
 - `/terminal`: terminal plein écran du journal des échos;
-- `/resume`: résumé quotidien calculé depuis les échos paginés et l'index public des joueurs;
+- `/resume`: résumé quotidien précalculé par génération v6, avec repli v5 temporaire;
 - `/classements`: page dédiée aux palmarès des joueurs;
 - `/carte`: carte dédiée de Palpagos avec positions et bases publiques;
 - `/github`: page technique publique du dépôt.
 
 Les variantes capitalisées `/Terminal`, `/Resume`, `/Classements`, `/Carte` et `/Github` redirigent vers les routes canoniques quand Nginx les reçoit. Les anciens liens de section `/#classements`, `/#carte`, `/#evenements` et `/#terminal` sont repris côté navigateur vers les pages dédiées. Les liens internes doivent pointer vers `/terminal`, `/resume`, `/classements`, `/carte` et `/github`.
 
-Les fichiers HTML et JSON dynamiques sont servis en `no-store`. Les assets versionnés sous `assets/` et les polices sont servis en cache long avec `immutable`.
+Les pages HTML et les contrats v5 dynamiques sont servis en `no-store`. Le pointeur actif et le manifeste v6 de compatibilité sont revalidés avec ETag. Les assets versionnés, manifestes et têtes de génération, fragments journaliers et résumés sont servis en cache long avec `immutable`.
 
 ## Données publiques
 
@@ -80,12 +79,22 @@ Contrats principaux:
 - `players/{slug}.json`: profil public détaillé d'un joueur, chargé à l'ouverture de sa fiche;
 - `public-save-snapshot.json`: projection complète publique v3;
 - `public-save-bases.json`: bases, constructions, travailleurs, stockage agrégé et productions;
-- `public-events.json`: historique complet des échos;
-- `public-events-recent.json`: fenêtre chaude de 2 000 échos relue par le tableau de bord et fusionnée avec l'historique complet au besoin;
-- `public-events-index.json` et `public-events-page-*.json`: pagination du terminal et compilation du résumé quotidien;
+- `public-save-diagnostics.json`: état public filtré de la dernière analyse de sauvegarde;
+- `public-events-manifest-v6.json`: génération active, curseurs, comptes, provenance et hachages;
+- `public-events-head-v6.json`: petit pointeur actif revalidé par ETag vers le manifeste et la tête immuables;
+- `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables du terminal;
+- `public-daily/{génération}/{jour}.json`: résumés quotidiens précalculés;
+- `public-events.json`, `public-events-recent.json`, `public-events-index.json` et `public-events-page-*.json`: contrats v5 conservés durant la transition;
 - `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: état Uptime Kuma filtré.
 
-`public-events-sync-state.json` peut exister localement dans `portal/data/`; il est ignoré et sert seulement à retenir la dernière révision distante déjà synchronisée.
+`public-events-sync-state.json` peut exister localement dans `portal/data/`; il est ignoré, refusé par Nginx et sert seulement à retenir la dernière révision distante déjà synchronisée. Le détail du contrat et de sa publication atomique est décrit dans [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
+
+Les contrats de sauvegarde partagent un `generationId`. La synchronisation
+prépare snapshot, bases, diagnostic, fiches et pages joueurs avant de remplacer
+l'index actif en dernier. Le portail conserve la génération déjà rendue si un
+artefact ne correspond pas à cet index; il ne compose jamais deux captures.
+
+La projection canonique des échos est matérialisée dans SQLite. Le collecteur met à jour sa queue récente sans réconcilier tout l'historique brut et publie la borne ainsi que les révisions couvertes par cette queue. Le poste Windows la remplace comme un bloc canonique, ce qui prend en charge les ajouts, retraits et regroupements récents sans reproduire les règles métier. L'export complet v5 est un checkpoint froid produit au plus toutes les 15 minutes ou sur demande. Une correction ancienne exige une reprojection explicite et conserve jusque-là la génération publique précédente.
 
 Ne pas publier:
 

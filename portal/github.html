@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260718.2">
-    <script src="/assets/app.js?v=20260718.4" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260718.9">
+    <script src="/assets/app.js?v=20260718.15" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -132,9 +132,9 @@
           <li><strong>Ops Windows</strong><span><code>Gaylemon Ops</code> charge <code>scripts/lib/Gaylemon.Config.ps1</code>, vérifie SSH, lance les commandes locales et déclenche les opérations distantes autorisées.</span></li>
           <li><strong>Collecte live</strong><span><code>palworld-stats.timer</code> et les scripts API lisent l'API REST Palworld locale sur Ubuntu. Le site reçoit <code>public-metrics.json</code> avec le nombre de joueurs, la liste affichable, l'heure d'arrivée détectée et la fraîcheur des données, jamais le mot de passe admin ni l'API brute.</span></li>
           <li><strong>Snapshots de saves</strong><span><code>palworld-save-snapshot.timer</code> travaille sur une copie de sauvegarde terminée, lit les données avec PalworldSaveTools, puis écrit <code>public-save-index.json</code>, <code>public-save-snapshot.json</code>, <code>public-save-bases.json</code> et <code>players/{slug}.json</code> pour les fiches joueurs.</span></li>
-          <li><strong>Journal d'événements</strong><span><code>palworld-events.timer</code> alimente SQLite aux 20 secondes, déduplique avec des clés stables, normalise les arrivées, départs et libellés de bases par joueur, puis exporte <code>public-events.json</code> et une fenêtre chaude de 2 000 échos dans <code>public-events-recent.json</code>. La sync Windows prioritaire lit le flux récent distant et met à jour l'index et la première page du terminal sans attendre la reconstruction complète.</span></li>
+          <li><strong>Journal d'événements</strong><span><code>palworld-events.timer</code> alimente SQLite aux 20 secondes et met à jour une projection publique matérialisée. La fenêtre récente est exportée immédiatement; l’export v5 complet reste un checkpoint froid. Le portail privilégie une génération v6 atomique composée d’un manifeste, de fragments journaliers immuables, d’une tête légère et de bilans quotidiens précalculés.</span></li>
           <li><strong>Déploiement Ubuntu</strong><span><code>scripts/deployer-ubuntu.ps1</code> prépare le manifeste résolu, met en scène sous <code>/tmp/gaylemon-staging</code>, valide Bash/Python/systemd/sudoers/sysctl, puis sauvegarde sous <code>/var/backups/gaylemon-deploy</code> avant installation.</span></li>
-          <li><strong>Publication statique</strong><span>Les synchronisations PowerShell recopient uniquement les exports publics dans <code>portal/data/</code>. Nginx sert les pages et les JSON dynamiques en <code>no-store</code>, garde les assets versionnés en cache long, et bloque les chemins privés.</span></li>
+          <li><strong>Publication statique</strong><span>Les synchronisations PowerShell recopient uniquement les exports publics dans <code>portal/data/</code>. Nginx revalide le manifeste avec son ETag, garde la tête, les fragments et les ressources versionnées en cache immuable, laisse les pages se rafraîchir et bloque les chemins privés.</span></li>
         </ol>
       </section>
 
@@ -146,7 +146,7 @@
             <li><code>scripts/palworld-console.ps1</code>: menu Ops, actions SSH, logs, maintenance et confirmations.</li>
             <li><code>scripts/deployer-ubuntu.ps1</code> et <code>server/deploy/gaylemon_deploy.py</code>: livraison contrôlée vers Ubuntu.</li>
             <li><code>server/bin/palworld-save-snapshot.py</code>: projection publique des sauvegardes.</li>
-            <li><code>server/bin/palworld-events-collect.py</code>: SQLite, backfill, confiance et déduplication des échos.</li>
+            <li><code>server/bin/palworld-events-collect.py</code>: observations privées, projection SQLite incrémentale, backfill contrôlé, confiance et déduplication des échos.</li>
             <li><code>docker/microsite/default.conf</code>: routes canoniques <code>/</code>, <code>/terminal</code>, <code>/resume</code>, <code>/classements</code>, <code>/carte</code>, <code>/github</code>, cache public et blocage des chemins privés.</li>
             <li><code>portal/assets/app.js</code>: rendu du dashboard, terminal plein écran, résumé quotidien, infobulle des présences, export JSON joueur, polling et fusion des flux récents.</li>
           </ul>
@@ -160,8 +160,8 @@
             <li><code>public-save-*.json</code>: index, profils, bases, diagnostics et projections v3.</li>
             <li><code>players/{slug}.json</code>: détails publics d'un joueur, utilisés par les fiches et l'export JSON d'analyse.</li>
             <li><code>public-events.json</code>: historique complet, non plafonné, utilisé comme source canonique.</li>
-            <li><code>public-events-recent.json</code>: fenêtre récente de 2 000 échos, pollée au même rythme que le tableau de bord.</li>
-            <li><code>public-events-index.json</code> et <code>public-events-page-0001.json</code>: navigation paginée et chargement paresseux du terminal.</li>
+            <li><code>public-events-manifest-v6.json</code> et <code>public-events-v6/{generationId}/head.json</code>: génération active, provenance, comptes et derniers échos vérifiés.</li>
+            <li><code>public-events-v6/{generationId}/{jour}.json</code> et <code>public-daily/{generationId}/{jour}.json</code>: tête, fragments journaliers et bilans immuables. Les anciens index et pages v5 servent de repli durant la transition.</li>
           </ul>
         </article>
       </section>
@@ -192,7 +192,7 @@
         </div>
         <p>Le serveur Palworld reste prioritaire: les workers lisent des copies, tournent avec des limites de ressources et n'impliquent pas de redémarrage de <code>palworld.service</code>. Le backfill traite une sauvegarde à la fois et reprend avec checkpoint.</p>
         <p>Les exports publics sont construits par allowlist. Une donnée incertaine reste absente plutôt que d'être présentée comme un fait. Les identifiants techniques restent côté SQLite ou Ubuntu; le public reçoit seulement des clés stables non réversibles et des détails lisibles.</p>
-        <p>Le tableau de bord reste compact. <code>/terminal</code> donne toute la place au journal: filtres masqués par défaut, pages ajustées à la hauteur disponible, couleurs par joueur, retour clair au tableau de bord et relecture rapide du flux récent, même quand l'historique complet sert aux recherches. <code>/resume</code> réutilise le même index paginé pour compiler une journée sans relire tout l'historique.</p>
+        <p>Le tableau de bord reste compact. <code>/terminal</code> navigue par journée et par curseur, sans télécharger l’historique complet. Il refuse de combiner deux générations différentes. <code>/resume</code> lit le bilan précalculé de la journée sélectionnée; si v6 n’est pas encore disponible, les pages v5 assurent le repli.</p>
         <p>Les fiches joueurs peuvent exporter un JSON d'analyse à partir des données publiques déjà en vigueur: Pals en équipe, Pals en Palbox, bases, constructions, stockage et métadonnées de snapshot.</p>
       </section>
     </main>

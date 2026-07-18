@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "generationId": "example-catalog-20260718",
+  "generatedAt": "2026-07-18T12:00:00-04:00",
+  "observedAt": "2026-07-18T12:00:00-04:00",
+  "sourceUpdatedAt": "2026-07-18T11:59:55-04:00",
+  "gameVersion": "v0.6.8.81234",
+  "steamBuildId": "24181105",
+  "parserCommit": "example-parser",
+  "catalogCommit": "example-catalog",
+  "freshness": "current",
+  "sourceStatus": "available",
+  "contentRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "files": {
+    "progression": {
+      "path": "public-catalogs/example-catalog-20260718/progression.json",
+      "sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bytes": 1200
+    },
+    "learnsets": {
+      "path": "public-catalogs/example-catalog-20260718/learnsets.json",
+      "sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "bytes": 2400
+    },
+    "breeding": {
+      "path": "public-catalogs/example-catalog-20260718/breeding.json",
+      "sha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "bytes": 4800
+    }
+  }
+}
