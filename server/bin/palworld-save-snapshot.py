@@ -804,6 +804,16 @@ def resolve_structure(asset, catalogs):
     return {}
 
 
+WORLD_DROP_STRUCTURE_ASSETS = {"commondropitem3d", "commonitemdrop3d"}
+
+
+def is_world_drop_structure_asset(asset):
+    raw = str(asset or "")
+    tail = re.split(r"[/\\]", raw)[-1]
+    normalized = re.sub(r"[\s_-]+", "", tail).casefold()
+    return normalized in WORLD_DROP_STRUCTURE_ASSETS
+
+
 def structure_category(asset, info):
     text = f"{asset} {info.get('type_ui_display', '')} {info.get('type_a_display', '')}".casefold()
     groups = (
@@ -910,25 +920,30 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         if not base_key or set(base_key) == {"0"}:
             continue
         asset = str(scalar(obj.get("MapObjectId"), "Structure") or "Structure")
-        info = resolve_structure(asset, catalogs)
-        name = str(info.get("name") or asset.replace("_", " "))
-        structure_name_by_model[normalized_id(model.get("instance_id"))] = name
+        world_drop = is_world_drop_structure_asset(asset)
+        info = {} if world_drop else resolve_structure(asset, catalogs)
+        name = "Butin au sol" if world_drop else str(info.get("name") or asset.replace("_", " "))
+        if not world_drop:
+            structure_name_by_model[normalized_id(model.get("instance_id"))] = name
         build = nested(
             obj, "Model", "value", "BuildProcess", "value", "RawData", "value", default={}
         )
         hp = model.get("hp") if isinstance(model.get("hp"), dict) else {}
         current_hp = to_int(hp.get("current"), 0)
         maximum_hp = to_int(hp.get("max"), 0)
-        row = {
-            "name": name,
-            "asset": asset,
-            "icon": web_icon(info.get("icon")),
-            "category": structure_category(asset, info),
-            "completed": to_int(build.get("state"), 0) == 1,
-            "damaged": maximum_hp > 0 and current_hp < maximum_hp,
-            "healthPercent": round(current_hp / maximum_hp * 100, 1) if maximum_hp else None,
-        }
-        structures_by_base.setdefault(base_key, []).append(row)
+        category = "Butin au sol" if world_drop else structure_category(asset, info)
+        row = None
+        if not world_drop:
+            row = {
+                "name": name,
+                "asset": asset,
+                "icon": web_icon(info.get("icon")),
+                "category": category,
+                "completed": to_int(build.get("state"), 0) == 1,
+                "damaged": maximum_hp > 0 and current_hp < maximum_hp,
+                "healthPercent": round(current_hp / maximum_hp * 100, 1) if maximum_hp else None,
+            }
+            structures_by_base.setdefault(base_key, []).append(row)
 
         for module in nested(
             obj, "ConcreteModel", "value", "ModuleMap", "value", default=[]
@@ -940,11 +955,11 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
             if not target:
                 continue
             inventory = container_inventory(target, item_records, dynamic_items, catalogs)
-            if asset == "CommonDropItem3D":
+            if world_drop:
                 inventory_kind = "world-drop"
-            elif row["category"] == "Stockage" or asset.startswith("ItemChest"):
+            elif category == "Stockage" or asset.startswith("ItemChest"):
                 inventory_kind = "storage"
-            elif row["category"] in {"Production", "Agriculture"}:
+            elif category in {"Production", "Agriculture"}:
                 inventory_kind = "production"
             else:
                 inventory_kind = "internal"
