@@ -428,12 +428,18 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   assert.equal(state("available", "stale"), "delayed");
   assert.equal(state("transient-error", "stale"), "error");
   assert.doesNotMatch(statsRenderer, /statsSnapshot = null/);
+  assert.match(statsRenderer, /normalizeStatsSourceStatus\(payload, source, value\)/);
+  assert.match(app, /function formatStatsSourceStatus/);
+  assert.match(app, /données avancées/);
+  assert.match(app, /return "non disponible"/);
+  assert.match(app, /sourceFreshnessTimeMarkup/);
   assert.match(statsRenderer, /provenance\.sourceStatus/);
   assert.match(app, /source-freshness__value/);
   assert.match(app, /normalizedFreshness === "stable"/);
   assert.match(app, /Catalogue \$\{manifest\.generationId\} disponible/);
   assert.match(app, /registerDataUpdate\(\s*"bases"/);
   assert.match(app, /"base indexée", "bases indexées"/);
+  assert.match(app, /data\/public-availability\.json/);
 });
 
 test("le terminal v6 ne limite pas les filtres à la tête courte", async () => {
@@ -529,12 +535,17 @@ test("les snapshots publics refusent les mélanges de générations", async () =
 
 test("la voie PowerShell conserve les mêmes états game-data que le collecteur principal", async () => {
   const script = await readFile(new URL("../../scripts/update-palworld-stats.ps1", import.meta.url), "utf8");
+  const exportScript = await readFile(new URL("../../scripts/export-public-microsite-data.ps1", import.meta.url), "utf8");
+  const collector = await readFile(new URL("../../server/bin/palworld-stats-collect.py", import.meta.url), "utf8");
 
   assert.match(script, /function Test-GameDataUnsupportedError/);
   assert.match(script, /HTTP \(\?:400\|501\)/);
   assert.match(script, /gameDataStatus = "unsupported"/);
   assert.match(script, /gameDataStatus = "documented-but-unavailable"/);
   assert.match(script, /gameDataStatus = "transient-error"/);
+  assert.match(exportScript, /\$sourceStatus = \$gameDataStatus/);
+  assert.match(collector, /set_source_semantic_status\(stats, "game-data", "documented-but-unavailable"/);
+  assert.match(collector, /set_source_semantic_status\(stats, "game-data", "unsupported"/);
 });
 
 test("le digest quotidien v6 extrait les Pals même quand les détails sont vides", async () => {
@@ -567,6 +578,6 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260719\.10/);
-    assert.match(html, /app\.js\?v=20260719\.8/);
+    assert.match(html, /app\.js\?v=20260719\.9/);
   }
 });

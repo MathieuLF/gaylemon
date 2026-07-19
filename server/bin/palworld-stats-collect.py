@@ -128,6 +128,17 @@ def record_source_observation(stats, endpoint, observed_at, status, latency_ms, 
         source["consecutiveFailures"] = int(source.get("consecutiveFailures") or 0) + 1
 
 
+def set_source_semantic_status(stats, endpoint, status, error=None):
+    source = stats.setdefault("sources", {}).get(endpoint)
+    if not isinstance(source, dict):
+        return
+    source["status"] = status
+    if error:
+        source["error"] = str(error)[:240]
+    if status in {"documented-but-unavailable", "unsupported"}:
+        source["consecutiveFailures"] = 0
+
+
 def api_get(endpoint, password, stats=None, observed_at=None):
     token = base64.b64encode(f"admin:{password}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(
@@ -733,16 +744,19 @@ def main():
                 stats["collection"]["nextGameDataAttemptAt"] = future_iso(
                     GAME_DATA_DOCUMENTED_RETRY_SECONDS
                 )
+                set_source_semantic_status(stats, "game-data", "documented-but-unavailable", f"HTTP {exc.code}")
             elif exc.code in {400, 501}:
                 stats["collection"]["gameDataStatus"] = "unsupported"
                 stats["collection"]["nextGameDataAttemptAt"] = future_iso(
                     GAME_DATA_DOCUMENTED_RETRY_SECONDS
                 )
+                set_source_semantic_status(stats, "game-data", "unsupported", f"HTTP {exc.code}")
             else:
                 stats["collection"]["gameDataStatus"] = "transient-error"
                 stats["collection"]["nextGameDataAttemptAt"] = future_iso(
                     GAME_DATA_FAILURE_BACKOFF_SECONDS
                 )
+                set_source_semantic_status(stats, "game-data", "transient-error", f"HTTP {exc.code}")
         except Exception as exc:
             stats["collection"]["gameDataAvailable"] = False
             stats["collection"]["gameDataError"] = str(exc)
@@ -750,6 +764,7 @@ def main():
             stats["collection"]["nextGameDataAttemptAt"] = future_iso(
                 GAME_DATA_FAILURE_BACKOFF_SECONDS
             )
+            set_source_semantic_status(stats, "game-data", "transient-error", exc)
 
     stats["ok"] = True
     stats["error"] = None
