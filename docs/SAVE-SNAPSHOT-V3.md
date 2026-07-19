@@ -44,6 +44,13 @@ cas d'échec, la génération précédente est restaurée intégralement. Le por
 refuse un snapshot, des bases, un diagnostic ou une fiche dont le
 `generationId` diffère de celui de l'index actif.
 
+Avant le transfert, la synchronisation Windows prend brièvement le verrou
+partagé du producteur Ubuntu et copie les seules projections publiques dans un
+répertoire privé temporaire. Le verrou est libéré dès la copie terminée; le
+téléchargement plus long se fait ensuite depuis ce lot immuable. Une nouvelle
+génération peut donc être produite pendant le transfert sans mélanger snapshot,
+bases et diagnostic. Le lot distant temporaire est supprimé après lecture.
+
 Le service utilise:
 
 - priorité CPU basse;

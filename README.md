@@ -105,7 +105,7 @@ Les exports publics réels restent non versionnés. Le site lit notamment:
 - `public-metrics.json` pour l'état live, les joueurs connectés et `onlineSinceAt`;
 - `public-stats.json` pour les sessions et agrégats joueurs;
 - `public-save-index.json`, `public-save-snapshot.json`, `public-save-bases.json`, `public-save-diagnostics.json` et `players/{slug}.json` pour les fiches, Pals, bases et exports JSON d'analyse; ces fichiers partagent une génération et l'index devient actif en dernier;
-- `public-events-channel.json` pour l'observation et la promotion, `public-events-head-v6.json` comme pointeur actif, le manifeste de compatibilité, les générations immuables `public-events-v6/` et les résumés `public-daily/` pour `/terminal`, `/resume` et les derniers échos de l'accueil;
+- `public-events-channel.json` pour le canal v6 actif et son repli contrôlé, `public-events-head-v6.json` comme pointeur actif, le manifeste de compatibilité, les générations immuables `public-events-v6/` et les résumés `public-daily/` pour `/terminal`, `/resume` et les derniers échos de l'accueil;
 - les contrats `public-events*.json` v5 pendant la période de compatibilité;
 - `public-uptime.json`, `public-uptime-history.json` et `public-availability.json` pour l'état Kuma filtré.
 

@@ -207,7 +207,7 @@ test("le sondage v6 passe par le petit pointeur actif et les manifestes immuable
   assert.match(loader, /mixed-v6-active-pointer/);
 });
 
-test("le canal public garde v6 en observation avant la promotion", async () => {
+test("le canal public active v6 et conserve v5 comme repli temporaire", async () => {
   const [app, channel] = await Promise.all([
     portalFile("assets/app.js"),
     portalFile("public-events-channel.json").then(JSON.parse),
@@ -219,7 +219,7 @@ test("le canal public garde v6 en observation avant la promotion", async () => {
 
   assert.deepEqual(channel, {
     schemaVersion: 1,
-    activeContract: "v5",
+    activeContract: "v6",
     candidateContract: "v6",
   });
   assert.match(app, /async function loadEventsContractChannel/);
@@ -271,7 +271,6 @@ test("le compteur de nouveautés distingue un total exact d’une tête saturée
   assert.deepEqual(summarize(head, 90, 190), { count: 10, displayCount: "10", saturated: false });
   assert.deepEqual(summarize(head, 103, null), { count: 2, displayCount: "2", saturated: false });
   assert.deepEqual(summarize({ ...head, hasMore: undefined }, 90, null), { count: 5, displayCount: "5", saturated: false });
-  assert.match(app, /verifiedEchoes/);
 });
 
 test("les exemples v6 distinguent le pointeur actif de la tête immuable", async () => {
@@ -307,14 +306,17 @@ test("les exemples v6 distinguent le pointeur actif de la tête immuable", async
 });
 
 test("les parcours publics exposent les nouveaux contrôles accessibles", async () => {
-  const [index, terminal, resume, app] = await Promise.all([
+  const [index, terminal, resume, app, styles] = await Promise.all([
     portalFile("index.html"),
     portalFile("terminal.html"),
     portalFile("resume.html"),
     portalFile("assets/app.js"),
+    portalFile("assets/styles.css"),
   ]);
 
   assert.match(index, /id="home-latest-echoes"/);
+  assert.match(index, /Les échos les plus récents/);
+  assert.doesNotMatch(index, /derniers échos vérifiés/i);
   assert.match(index, /id="player-visibility-toggle"/);
   assert.match(index, /aria-modal="true"/);
   assert.match(terminal, /id="event-date"/);
@@ -324,6 +326,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(resume, /id="daily-today"/);
   assert.match(app, /data-update-announcer/);
   assert.match(app, /source-freshness/);
+  assert.match(app, /assets\/icons\/clock-3\.svg/);
+  assert.match(app, /<span class="visually-hidden">Fraîcheur des données<\/span>/);
+  assert.match(app, /role="tooltip"/);
+  assert.doesNotMatch(app, /<\/ul>\s*<small>\$\{escapeHtml\(updatedText\)\}<\/small>/);
   assert.match(app, /registerPayloadDataUpdate\("catalog", manifest\)/);
   assert.match(app, /Attribution déduite/);
   assert.match(app, /settings: \{ label: "Règles du monde"/);
@@ -335,6 +341,47 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /function v6NavigableDates/);
   assert.match(app, /contentHash: `empty:\$\{dateKey\}`/);
   assert.match(app, /v6DateCanBeOpened/);
+  assert.match(styles, /site-header__players-tooltip[\s\S]*?max-height:\s*none;[\s\S]*?overflow:\s*visible;/);
+  assert.match(styles, /site-header__players-tooltip ul[\s\S]*?grid-template-columns:\s*repeat\(2,/);
+  assert.match(styles, /home-echoes__list[\s\S]*?gap:\s*10px;/);
+  assert.match(styles, /home-echoes__list \.event-line,[\s\S]*?border:\s*1px solid[\s\S]*?border-radius:\s*18px;/);
+});
+
+test("l'accueil affiche les cinq échos réellement les plus récents", async () => {
+  const app = await portalFile("assets/app.js");
+  const renderer = app.slice(
+    app.indexOf("function renderHomeLatestEchoes"),
+    app.indexOf("function currentV6MaxCursor"),
+  );
+
+  assert.match(renderer, /payload\?\.events/);
+  assert.match(renderer, /slice\(0, 5\)/);
+  assert.doesNotMatch(renderer, /verifiedEchoes/);
+  assert.doesNotMatch(renderer, /confidence\s*===\s*["']confirmed["']/);
+  assert.doesNotMatch(renderer, /vérifié|confirmé/i);
+  assert.match(renderer, /mis à jour/);
+});
+
+test("les événements compilés rendent explicitement leur fenêtre de cinq minutes", async () => {
+  const app = await portalFile("assets/app.js");
+  const minutes = extractFunction(app, "eventAggregationWindowMinutes");
+  globalThis.eventAggregationWindowMinutes = minutes;
+  try {
+    const label = extractFunction(app, "eventAggregationWindowLabel");
+    const headline = extractFunction(app, "eventAggregationHeadline");
+    const groupedCraft = { type: "craft", details: { windowMinutes: 5 } };
+    const groupedProduction = { type: "production", details: { windowMinutes: 5 } };
+    assert.equal(minutes(groupedCraft), 5);
+    assert.equal(label(groupedCraft), "les 5 dernières minutes");
+    assert.equal(headline(groupedCraft, "Fabrications compilées"), "Fabrications des 5 dernières minutes");
+    assert.equal(headline(groupedProduction, "Stocks compilés"), "Productions des 5 dernières minutes");
+    assert.equal(headline({ type: "boss", details: {} }, "Boss vaincu"), "Boss vaincu");
+  } finally {
+    delete globalThis.eventAggregationWindowMinutes;
+  }
+  assert.match(app, /event-line__window/);
+  assert.match(app, /Activité regroupée sur les \$\{windowMinutes\} dernières minutes/);
+  assert.match(app, /<time datetime="\$\{escapeHtml\(event\.occurredAt\)\}"><strong>\$\{escapeHtml\(timestamp\.time\)\}<\/strong><span>\$\{escapeHtml\(timestamp\.date\)\}<\/span><\/time>/);
 });
 
 test("la fraîcheur traduit les états publics sans effacer la dernière donnée utile", async () => {
@@ -427,7 +474,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260718\.9/);
-    assert.match(html, /app\.js\?v=20260718\.15/);
+    assert.match(html, /styles\.css\?v=20260718\.12/);
+    assert.match(html, /app\.js\?v=20260718\.17/);
   }
 });

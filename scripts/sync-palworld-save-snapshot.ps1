@@ -10,6 +10,7 @@ param(
     [string]$RemoteDiagnosticsPath = "",
     [string]$RemoteBasesPath = "",
     [string]$RemoteCatalogsManifestPath = "",
+    [string]$SshExecutable = "ssh.exe",
     [string]$SourceBundlePath = "",
     [int]$DiagnosticsRefreshIntervalHours = 2,
     [int]$DiagnosticsRefreshAnchorHour = 1,
@@ -122,7 +123,7 @@ function Read-RemoteJson {
         [switch]$Optional
     )
 
-    $raw = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && gzip -c '$RemotePath' | base64 -w0" 2>$null
+    $raw = & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && gzip -c '$RemotePath' | base64 -w0" 2>$null
     if ($LASTEXITCODE -ne 0) {
         if ($Optional) { return $null }
         throw "Le fichier public distant n'est pas disponible: $RemotePath"
@@ -201,7 +202,7 @@ function Get-OptionalProperty($Value, [string]$Name) {
 function Get-RemoteFileSha256 {
     param([Parameter(Mandatory)] [string]$RemotePath)
 
-    $raw = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && sha256sum -- '$RemotePath'" 2>$null
+    $raw = & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && sha256sum -- '$RemotePath'" 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "Le fichier public distant n'est pas disponible pour validation: $RemotePath"
     }
@@ -210,6 +211,93 @@ function Get-RemoteFileSha256 {
         throw "L'empreinte distante est invalide: $RemotePath"
     }
     return $hash
+}
+
+function ConvertTo-PosixShellLiteral {
+    param([Parameter(Mandatory)] [string]$Value)
+
+    if ($Value.Contains("'")) {
+        throw "Le chemin distant contient un caractère non pris en charge."
+    }
+    return "'$Value'"
+}
+
+function Get-RemoteParentPath {
+    param([Parameter(Mandatory)] [string]$RemotePath)
+
+    $normalized = $RemotePath.TrimEnd('/')
+    $separator = $normalized.LastIndexOf('/')
+    if ($separator -le 0) {
+        throw "Le chemin public distant est invalide: $RemotePath"
+    }
+    return $normalized.Substring(0, $separator)
+}
+
+function New-RemoteSaveSourceStage {
+    param(
+        [Parameter(Mandatory)] [string]$SnapshotPath,
+        [Parameter(Mandatory)] [string]$BasesPath,
+        [Parameter(Mandatory)] [string]$DiagnosticsPath,
+        [Parameter(Mandatory)] [string]$CatalogsManifestPath
+    )
+
+    $remoteRoot = Get-RemoteParentPath -RemotePath $SnapshotPath
+    $lockPath = "$remoteRoot/palworld-save-snapshot.lock"
+    $template = @'
+set -eu
+# GAYLEMON_SAVE_STAGE_V1
+find __ROOT__ -maxdepth 1 -type d -name '.public-save-export.*' -mmin +120 -exec rm -rf -- {} + 2>/dev/null || true
+stage=$(mktemp -d __STAGE_TEMPLATE__)
+chmod 700 "$stage"
+trap 'rm -rf -- "$stage"' EXIT HUP INT TERM
+exec 9<>__LOCK__
+flock -s 9
+cp --reflink=auto -- __SNAPSHOT__ "$stage/public-save-snapshot.json"
+cp --reflink=auto -- __BASES__ "$stage/public-save-bases.json"
+cp --reflink=auto -- __DIAGNOSTICS__ "$stage/public-save-diagnostics.json"
+if test -s __CATALOGS__; then
+    cp --reflink=auto -- __CATALOGS__ "$stage/public-catalogs-manifest.json"
+fi
+flock -u 9
+exec 9<&-
+test -s "$stage/public-save-snapshot.json"
+test -s "$stage/public-save-bases.json"
+test -s "$stage/public-save-diagnostics.json"
+trap - EXIT HUP INT TERM
+printf '%s\n' "$stage"
+'@
+    $command = $template.
+        Replace('__ROOT__', (ConvertTo-PosixShellLiteral -Value $remoteRoot)).
+        Replace('__STAGE_TEMPLATE__', (ConvertTo-PosixShellLiteral -Value "$remoteRoot/.public-save-export.XXXXXXXX")).
+        Replace('__LOCK__', (ConvertTo-PosixShellLiteral -Value $lockPath)).
+        Replace('__SNAPSHOT__', (ConvertTo-PosixShellLiteral -Value $SnapshotPath)).
+        Replace('__BASES__', (ConvertTo-PosixShellLiteral -Value $BasesPath)).
+        Replace('__DIAGNOSTICS__', (ConvertTo-PosixShellLiteral -Value $DiagnosticsPath)).
+        Replace('__CATALOGS__', (ConvertTo-PosixShellLiteral -Value $CatalogsManifestPath))
+
+    $raw = & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias $command 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Impossible de figer le lot public distant sous le verrou du producteur."
+    }
+    $stagePath = (($raw | Out-String).Trim())
+    $expectedPrefix = "$remoteRoot/.public-save-export."
+    if (-not $stagePath.StartsWith($expectedPrefix, [StringComparison]::Ordinal) -or
+        $stagePath.Substring($expectedPrefix.Length) -notmatch '^[A-Za-z0-9]+$') {
+        throw "Le chemin du lot public distant figé est invalide."
+    }
+    return $stagePath
+}
+
+function Remove-RemoteSaveSourceStage {
+    param([Parameter(Mandatory)] [string]$RemotePath)
+
+    $remoteRoot = Get-RemoteParentPath -RemotePath $RemoteSnapshotPath
+    $expectedPrefix = "$remoteRoot/.public-save-export."
+    if (-not $RemotePath.StartsWith($expectedPrefix, [StringComparison]::Ordinal) -or
+        $RemotePath.Substring($expectedPrefix.Length) -notmatch '^[A-Za-z0-9]+$') {
+        throw "Refus de nettoyer un chemin distant qui n'est pas un lot public temporaire."
+    }
+    & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "rm -rf -- $(ConvertTo-PosixShellLiteral -Value $RemotePath)" 2>$null | Out-Null
 }
 
 function ConvertTo-GenerationInstant {
@@ -320,7 +408,7 @@ function Read-RemoteText {
         [switch]$Optional
     )
 
-    $raw = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && gzip -c '$RemotePath' | base64 -w0" 2>$null
+    $raw = & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "test -s '$RemotePath' && gzip -c '$RemotePath' | base64 -w0" 2>$null
     if ($LASTEXITCODE -ne 0) {
         if ($Optional) { return $null }
         throw "Le fichier public distant n'est pas disponible: $RemotePath"
@@ -908,7 +996,17 @@ function Move-SnapshotPathWithRetry {
     Invoke-SnapshotFileOperationWithRetry `
         -Description "déplacement de $Source vers $Destination" `
         -MaxAttempts $MaxAttempts `
-        -Operation { Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop }
+        -Operation {
+            if (Test-Path -LiteralPath $Source -PathType Container) {
+                if (Test-Path -LiteralPath $Destination) {
+                    throw [IO.IOException]::new("La destination existe déjà: $Destination")
+                }
+                [IO.Directory]::Move($Source, $Destination)
+            }
+            else {
+                [IO.File]::Move($Source, $Destination, $false)
+            }
+        }
 }
 
 function Remove-SnapshotPathWithRetry {
@@ -1035,7 +1133,7 @@ function Publish-PublicSaveGeneration {
                         }
                     }
                     else {
-                        if ($item.Published -and (Test-Path -LiteralPath $item.Destination)) {
+                        if (Test-Path -LiteralPath $item.Destination) {
                             Remove-SnapshotPathWithRetry -Path $item.Destination -MaxAttempts $FileOperationMaxAttempts
                         }
                         Move-SnapshotPathWithRetry -Source $item.Backup -Destination $item.Destination -MaxAttempts $FileOperationMaxAttempts
@@ -1075,15 +1173,20 @@ if ($SourceBundlePath) {
     $sourceCatalogsManifest = Get-OptionalProperty $sourceBundle "catalogsManifest"
 }
 else {
-    $snapshotHashBefore = Get-RemoteFileSha256 -RemotePath $RemoteSnapshotPath
-    $source = Read-RemoteJson -RemotePath $RemoteSnapshotPath
-    $sourceBases = Read-RemoteJson -RemotePath $RemoteBasesPath
-    $sourceDiagnostics = Read-RemoteJson -RemotePath $RemoteDiagnosticsPath
-    $snapshotHashAfter = Get-RemoteFileSha256 -RemotePath $RemoteSnapshotPath
-    if ($snapshotHashBefore -ne $snapshotHashAfter) {
-        throw "La génération distante a changé pendant le téléchargement; la génération locale précédente est conservée."
+    $remoteStagePath = New-RemoteSaveSourceStage `
+        -SnapshotPath $RemoteSnapshotPath `
+        -BasesPath $RemoteBasesPath `
+        -DiagnosticsPath $RemoteDiagnosticsPath `
+        -CatalogsManifestPath $RemoteCatalogsManifestPath
+    try {
+        $source = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-snapshot.json"
+        $sourceBases = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-bases.json"
+        $sourceDiagnostics = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-diagnostics.json"
+        $sourceCatalogsManifest = Read-RemoteJson -RemotePath "$remoteStagePath/public-catalogs-manifest.json" -Optional
     }
-    $sourceCatalogsManifest = Read-RemoteJson -RemotePath $RemoteCatalogsManifestPath -Optional
+    finally {
+        Remove-RemoteSaveSourceStage -RemotePath $remoteStagePath
+    }
 }
 $sourceGeneration = Assert-SaveSourceBundle -Snapshot $source -Bases $sourceBases -Diagnostics $sourceDiagnostics
 $projectionVersion = if (

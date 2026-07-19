@@ -9,6 +9,7 @@ $diagnosticsExample = Join-Path $projectRoot "portal\data\public-save-diagnostic
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("gaylemon-public-save-sync-test-" + [Guid]::NewGuid().ToString("N"))
 $lockJob = $null
 $heldFile = $null
+$previousTestRemoteRoot = [Environment]::GetEnvironmentVariable("GAYLEMON_TEST_REMOTE_ROOT", "Process")
 
 function Assert-True {
     param(
@@ -133,6 +134,28 @@ function Invoke-TestSync {
         -PlayerDataRoot (Join-Path $dataRoot "players") `
         -PlayerPagesRoot (Join-Path $tempRoot "site\joueur") `
         -TestFailurePoint $FailurePoint | Out-Null
+}
+
+function Invoke-TestRemoteSync {
+    param(
+        [Parameter(Mandatory)] [string]$SshMockPath,
+        [Parameter(Mandatory)] [string]$DestinationRoot
+    )
+
+    $dataRoot = Join-Path $DestinationRoot "data"
+    & $syncScript `
+        -SshExecutable $SshMockPath `
+        -RemoteSnapshotPath "/remote/runtime/public-save-snapshot.json" `
+        -RemoteDiagnosticsPath "/remote/runtime/public-save-diagnostics.json" `
+        -RemoteBasesPath "/remote/runtime/public-save-bases.json" `
+        -RemoteCatalogsManifestPath "/remote/runtime/public-catalogs-manifest.json" `
+        -OutputPath (Join-Path $dataRoot "public-save-snapshot.json") `
+        -DiagnosticsOutputPath (Join-Path $dataRoot "public-save-diagnostics.json") `
+        -BasesOutputPath (Join-Path $dataRoot "public-save-bases.json") `
+        -CatalogsManifestOutputPath (Join-Path $dataRoot "public-catalogs-manifest.json") `
+        -CatalogsOutputRoot (Join-Path $dataRoot "public-catalogs") `
+        -PlayerDataRoot (Join-Path $dataRoot "players") `
+        -PlayerPagesRoot (Join-Path $DestinationRoot "joueur") | Out-Null
 }
 
 function Start-TestSyncJob {
@@ -285,9 +308,96 @@ try {
     Assert-True ($fifthPrimary[0].generationId -ne $thirdPrimary[0].generationId) "Le remplacement avec backoff n'a pas publié la nouvelle génération."
     Assert-True ((Get-ChildItem -LiteralPath $dataRoot -Directory -Filter ".public-save-sync-*" -Force -ErrorAction SilentlyContinue).Count -eq 0) "Un dossier transactionnel subsiste après un remplacement réussi."
 
-    Write-Host "[OK] Synchronisation atomique des snapshots: cohérence, rejet, rollback, verrou et backoff validés."
+    $remoteRoot = Join-Path $tempRoot "remote-source"
+    $remoteRuntime = Join-Path $remoteRoot "runtime"
+    $remoteNext = Join-Path $remoteRoot "next"
+    $remoteDestination = Join-Path $tempRoot "remote-destination"
+    New-Item -ItemType Directory -Force -Path $remoteRuntime, $remoteNext | Out-Null
+    $remoteFirst = New-SourceBundle -Backup "2026.07.18-19.45.00" -SourceUpdatedAt "2026-07-18T19:45:20-04:00"
+    $remoteSecond = New-SourceBundle -Backup "2026.07.18-20.00.00" -SourceUpdatedAt "2026-07-18T20:00:20-04:00"
+    foreach ($entry in @(
+        [pscustomobject]@{ Name = "public-save-snapshot.json"; First = $remoteFirst.snapshot; Second = $remoteSecond.snapshot },
+        [pscustomobject]@{ Name = "public-save-bases.json"; First = $remoteFirst.bases; Second = $remoteSecond.bases },
+        [pscustomobject]@{ Name = "public-save-diagnostics.json"; First = $remoteFirst.diagnostics; Second = $remoteSecond.diagnostics }
+    )) {
+        Write-TestJson -Path (Join-Path $remoteRuntime $entry.Name) -Value $entry.First
+        Write-TestJson -Path (Join-Path $remoteNext $entry.Name) -Value $entry.Second
+    }
+    [IO.File]::WriteAllText((Join-Path $remoteRoot "replace-after-stage"), "1", [Text.UTF8Encoding]::new($false))
+    $sshMockPath = Join-Path $tempRoot "ssh-mock.ps1"
+    $sshMock = @'
+$ErrorActionPreference = "Stop"
+$root = [Environment]::GetEnvironmentVariable("GAYLEMON_TEST_REMOTE_ROOT", "Process")
+$command = [string]$args[$args.Count - 1]
+[IO.File]::AppendAllText((Join-Path $root "ssh-commands.log"), $command + [Environment]::NewLine + "--CALL--" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+
+function Convert-RemotePath([string]$value) {
+    if (-not $value.StartsWith("/remote/", [StringComparison]::Ordinal)) { exit 91 }
+    return Join-Path $root $value.Substring(8).Replace('/', [IO.Path]::DirectorySeparatorChar)
+}
+
+if ($command.Contains("GAYLEMON_SAVE_STAGE_V1", [StringComparison]::Ordinal)) {
+    $runtime = Join-Path $root "runtime"
+    $stageName = ".public-save-export." + [Guid]::NewGuid().ToString("N")
+    $stage = Join-Path $runtime $stageName
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    foreach ($name in @("public-save-snapshot.json", "public-save-bases.json", "public-save-diagnostics.json")) {
+        Copy-Item -LiteralPath (Join-Path $runtime $name) -Destination (Join-Path $stage $name)
+    }
+    $marker = Join-Path $root "replace-after-stage"
+    if (Test-Path -LiteralPath $marker) {
+        foreach ($name in @("public-save-snapshot.json", "public-save-bases.json", "public-save-diagnostics.json")) {
+            Copy-Item -LiteralPath (Join-Path (Join-Path $root "next") $name) -Destination (Join-Path $runtime $name) -Force
+        }
+        Remove-Item -LiteralPath $marker -Force
+    }
+    Write-Output "/remote/runtime/$stageName"
+    exit 0
+}
+
+if ($command -match "^test -s '([^']+)' && gzip -c '[^']+' \| base64 -w0$") {
+    $path = Convert-RemotePath $Matches[1]
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0) { exit 1 }
+    $bytes = [IO.File]::ReadAllBytes($path)
+    $output = [IO.MemoryStream]::new()
+    $gzip = [IO.Compression.GZipStream]::new($output, [IO.Compression.CompressionMode]::Compress, $true)
+    $gzip.Write($bytes, 0, $bytes.Length)
+    $gzip.Dispose()
+    Write-Output ([Convert]::ToBase64String($output.ToArray()))
+    $output.Dispose()
+    exit 0
+}
+
+if ($command -match "^rm -rf -- '([^']+)'$") {
+    $path = Convert-RemotePath $Matches[1]
+    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+    exit 0
+}
+
+exit 92
+'@
+    [IO.File]::WriteAllText($sshMockPath, $sshMock, [Text.UTF8Encoding]::new($false))
+    [Environment]::SetEnvironmentVariable("GAYLEMON_TEST_REMOTE_ROOT", $remoteRoot, "Process")
+
+    Invoke-TestRemoteSync -SshMockPath $sshMockPath -DestinationRoot $remoteDestination
+    $remoteFirstPublished = Get-Content -LiteralPath (Join-Path $remoteDestination "data\public-save-snapshot.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ($remoteFirstPublished.source.backup -eq $remoteFirst.snapshot.source.backup) "Le téléchargement a mélangé la génération remplacée pendant le transfert."
+    $activeRemote = Get-Content -LiteralPath (Join-Path $remoteRuntime "public-save-snapshot.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ($activeRemote.source.backup -eq $remoteSecond.snapshot.source.backup) "Le scénario de course distant n'a pas remplacé la source active."
+    Assert-True ((Get-ChildItem -LiteralPath $remoteRuntime -Directory -Filter ".public-save-export.*" -Force -ErrorAction SilentlyContinue).Count -eq 0) "Le lot distant figé n'a pas été nettoyé."
+
+    Invoke-TestRemoteSync -SshMockPath $sshMockPath -DestinationRoot $remoteDestination
+    $remoteSecondPublished = Get-Content -LiteralPath (Join-Path $remoteDestination "data\public-save-snapshot.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ($remoteSecondPublished.source.backup -eq $remoteSecond.snapshot.source.backup) "La génération distante suivante n'a pas été publiée au passage suivant."
+    Assert-True ($remoteSecondPublished.generationId -ne $remoteFirstPublished.generationId) "Le curseur de génération n'a pas avancé après la course distante."
+    $sshCommands = [IO.File]::ReadAllText((Join-Path $remoteRoot "ssh-commands.log"), [Text.Encoding]::UTF8)
+    Assert-True ($sshCommands -match 'flock -s 9') "Le lot distant n'a pas été figé sous le verrou partagé du producteur."
+    Assert-True ($sshCommands -match 'cp --reflink=auto') "Le lot distant n'a pas été copié avant le téléchargement."
+
+    Write-Host "[OK] Synchronisation atomique des snapshots: cohérence, course distante, rejet, rollback, verrou et backoff validés."
 }
 finally {
+    [Environment]::SetEnvironmentVariable("GAYLEMON_TEST_REMOTE_ROOT", $previousTestRemoteRoot, "Process")
     if ($heldFile) { $heldFile.Dispose() }
     if ($lockJob) {
         Stop-Job -Job $lockJob -ErrorAction SilentlyContinue
