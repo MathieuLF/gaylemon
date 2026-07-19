@@ -13895,7 +13895,7 @@ body.terminal-view .event-pagination--top,
 .event-pagination--top {
   grid-area: pages;
   display: inline-grid;
-  grid-template-columns: 30px minmax(92px, max-content) 30px;
+  grid-template-columns: 32px minmax(142px, max-content) 32px;
   min-height: 0;
   gap: 6px;
   border: 0;
@@ -13909,6 +13909,10 @@ body.terminal-view .event-pagination--top,
 
 .event-pagination--top .event-pagination__position {
   display: inline-flex;
+  grid-column: 2;
+  order: 0;
+  min-width: 0;
+  width: 100%;
   min-height: 28px;
   align-items: center;
   justify-content: center;
@@ -13923,9 +13927,16 @@ body.terminal-view .event-pagination--top,
   white-space: nowrap;
 }
 
-.event-pagination__page-input {
-  width: 5ch;
+.event-pagination__label,
+.event-pagination__total {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-pagination__page-input {
+  width: clamp(4.6rem, 12vw, 6.2rem);
+  min-width: 4.6rem;
   height: 22px;
   border: 1px solid rgba(159, 222, 207, .18);
   border-radius: 999px;
@@ -13945,16 +13956,28 @@ body.terminal-view .event-pagination--top,
 .event-pagination--top button,
 body.terminal-view .event-pagination--top button {
   display: inline-grid;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
   place-items: center;
   border-radius: 999px;
   padding: 0;
   color: #d8eee8;
   font-size: 1rem;
   line-height: 1;
+}
+
+.event-pagination--top > button.event-pagination__step:first-child,
+body.terminal-view .event-pagination--top > button.event-pagination__step:first-child {
+  grid-column: 1;
+  min-width: 32px;
+}
+
+.event-pagination--top > button.event-pagination__step:last-child,
+body.terminal-view .event-pagination--top > button.event-pagination__step:last-child {
+  grid-column: 3;
+  min-width: 32px;
 }
 
 body.terminal-view .event-console > .event-unseen {
@@ -14014,27 +14037,47 @@ body.terminal-view .event-console > .event-unseen span {
   .event-pagination--top {
     justify-self: stretch;
     width: 100%;
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
     gap: 8px;
   }
 
   .event-pagination--top .event-pagination__position {
+    order: 0;
     min-height: 40px;
-    padding-inline: 8px;
-    font-size: .68rem;
+    gap: 6px;
+    padding-inline: 7px;
+    font-size: .64rem;
   }
 
   .event-pagination--top button,
   body.terminal-view .event-pagination--top button {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .event-pagination--top > button.event-pagination__step:first-child,
+  body.terminal-view .event-pagination--top > button.event-pagination__step:first-child,
+  .event-pagination--top > button.event-pagination__step:last-child,
+  body.terminal-view .event-pagination--top > button.event-pagination__step:last-child {
+    min-width: 42px;
   }
 
   .event-pagination__page-input {
-    width: 4.5ch;
+    flex: 0 0 clamp(3.9rem, 22vw, 5.4rem);
+    width: clamp(3.9rem, 22vw, 5.4rem);
+    min-width: 3.9rem;
     height: 30px;
+  }
+
+  .event-pagination__label {
+    flex: 0 0 auto;
+  }
+
+  .event-pagination__total {
+    flex: 1 1 auto;
+    text-align: left;
   }
 }
 

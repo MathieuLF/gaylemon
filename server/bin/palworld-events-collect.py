@@ -1063,6 +1063,7 @@ def public_event(
 
 ITEMIZED_PUBLIC_GROUP_TYPES = {"craft", "fishing", "production", "build", "repair", "base"}
 WORLD_DROP_STRUCTURE_NAMES = {"commondropitem3d", "commonitemdrop3d"}
+DERIVED_PRODUCTION_DUPLICATE_TOLERANCE_SECONDS = 2
 
 
 def is_world_drop_structure_name(value: str | None) -> bool:
@@ -1127,6 +1128,50 @@ def itemized_public_group_key(event: dict) -> tuple[str, str, str] | None:
         return None
     owner = itemized_public_group_owner(event).casefold()
     return event["type"], owner, bucket.isoformat()
+
+
+def itemized_public_item_signature(event: dict) -> tuple[tuple[str, int], ...]:
+    signature = []
+    for item in itemized_public_event_items(event):
+        identity = str(item.get("asset") or item.get("name") or "").strip().casefold()
+        added = int(item.get("added") or item.get("count") or 0)
+        if identity and added > 0:
+            signature.append((identity, added))
+    return tuple(sorted(signature))
+
+
+def duplicate_derived_production_event_ids(events: list[dict]) -> set[int]:
+    crafts: dict[tuple[str, tuple[tuple[str, int], ...]], list[tuple[datetime, int]]] = {}
+    duplicate_ids: set[int] = set()
+    for event in events:
+        if event.get("type") != "craft" or event.get("source") != "save":
+            continue
+        player = str(event.get("player") or "").strip().casefold()
+        occurred_at = parse_timestamp(event.get("occurredAt"))
+        signature = itemized_public_item_signature(event)
+        if not player or occurred_at is None or not signature:
+            continue
+        crafts.setdefault((player, signature), []).append((occurred_at, int(event.get("id") or 0)))
+
+    for event in events:
+        if (
+            event.get("type") != "production"
+            or event.get("source") != "save"
+            or event.get("confidence") != "derived"
+        ):
+            continue
+        player = str(event.get("player") or "").strip().casefold()
+        occurred_at = parse_timestamp(event.get("occurredAt"))
+        signature = itemized_public_item_signature(event)
+        if not player or occurred_at is None or not signature:
+            continue
+        for craft_at, craft_id in crafts.get((player, signature), []):
+            if craft_id == int(event.get("id") or 0):
+                continue
+            if abs((occurred_at - craft_at).total_seconds()) <= DERIVED_PRODUCTION_DUPLICATE_TOLERANCE_SECONDS:
+                duplicate_ids.add(int(event.get("id") or 0))
+                break
+    return duplicate_ids
 
 
 def aggregate_itemized_public_items(events: list[dict]) -> list[dict]:
@@ -1358,7 +1403,10 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
 def group_itemized_public_projection(events: list[dict]) -> tuple[list[dict], dict[str, list[int]]]:
     groups: dict[tuple[str, str, str], list[dict]] = {}
     event_keys: dict[int, tuple[str, str, str]] = {}
+    duplicate_productions = duplicate_derived_production_event_ids(events)
     for event in events:
+        if int(event.get("id") or 0) in duplicate_productions:
+            continue
         key = itemized_public_group_key(event)
         if key is None:
             continue
@@ -1369,6 +1417,8 @@ def group_itemized_public_projection(events: list[dict]) -> tuple[list[dict], di
     grouped = []
     members: dict[str, list[int]] = {}
     for event in events:
+        if int(event.get("id") or 0) in duplicate_productions:
+            continue
         key = event_keys.get(int(event["id"]))
         if key is None or len(groups.get(key, [])) < 2:
             grouped.append(event)

@@ -258,23 +258,6 @@ test("un fragment manquant ou invalide ne peut pas adopter le nouveau manifeste"
   assert.doesNotMatch(terminalLoader, /loadEventsV6State/);
 });
 
-test("le compteur de nouveautés distingue un total exact d’une tête saturée", async () => {
-  const app = await portalFile("assets/app.js");
-  const summarize = extractFunction(app, "terminalUnseenSummary");
-  const head = {
-    events: [105, 104, 103, 102, 101].map((id) => ({ id })),
-    cursor: { minId: 1, maxId: 999 },
-    windowCursor: { minId: 101, maxId: 105 },
-    counts: { totalEchoes: 200 },
-    hasMore: true,
-  };
-
-  assert.deepEqual(summarize(head, 90, null), { count: 5, displayCount: "5+", saturated: true });
-  assert.deepEqual(summarize(head, 90, 190), { count: 10, displayCount: "10", saturated: false });
-  assert.deepEqual(summarize(head, 103, null), { count: 2, displayCount: "2", saturated: false });
-  assert.deepEqual(summarize({ ...head, hasMore: undefined }, 90, null), { count: 5, displayCount: "5", saturated: false });
-});
-
 test("les exemples v6 distinguent le pointeur actif de la tête immuable", async () => {
   const [manifest, pointer, head, day, daily] = await Promise.all([
     portalFile("data/public-events-manifest-v6.example.json").then(JSON.parse),
@@ -326,7 +309,8 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.doesNotMatch(terminal, /id="event-date"/);
   assert.doesNotMatch(terminal, /id="event-date-today"/);
   assert.doesNotMatch(terminal, /Journée/);
-  assert.match(terminal, /id="event-unseen"/);
+  assert.doesNotMatch(terminal, /id="event-unseen"/);
+  assert.doesNotMatch(terminal, /nouveaux échos|ajouts dans le journal/i);
   assert.match(terminal, /aria-live="off"/);
   assert.match(resume, /id="daily-today"/);
   assert.doesNotMatch(carte, /id="map-activity-toggle"/);
@@ -381,6 +365,7 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.doesNotMatch(terminal, /depuis ta dernière visite/);
   assert.match(terminal, /event-pagination--top/);
   assert.match(app, /event-pagination__page-input/);
+  assert.match(app, /event-pagination__total/);
   assert.match(styles, /site-header__players-tooltip[\s\S]*?max-height:\s*none;[\s\S]*?overflow:\s*visible;/);
   assert.match(styles, /site-header__players-tooltip ul[\s\S]*?grid-template-columns:\s*repeat\(2,/);
   assert.match(styles, /home-echoes__list[\s\S]*?gap:\s*10px;/);
@@ -577,7 +562,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260719\.7/);
-    assert.match(html, /app\.js\?v=20260719\.7/);
+    assert.match(html, /styles\.css\?v=20260719\.8/);
+    assert.match(html, /app\.js\?v=20260719\.8/);
   }
 });
