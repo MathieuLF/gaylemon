@@ -185,6 +185,8 @@ let terminalVisitStartTotalEchoes = null;
 let eventCurrentPage = 1;
 let eventsFullLoaded = false;
 let eventsV6FullLoadPromise = null;
+let eventsV6HistoryLoadPromise = null;
+let eventsV6HistorySignature = "";
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
 const terminalV6EchoLimit = 6;
@@ -368,9 +370,10 @@ function sourceHealthState(status, freshness = "") {
 
 function registerSourceHealth(source, status = "available", freshness = "current", details = "") {
   const state = sourceHealthState(status, freshness);
+  const normalizedFreshness = String(freshness || "").trim().toLocaleLowerCase("fr-CA");
   sourceHealth.set(source, {
     state,
-    label: state === "available" ? "Disponible" : state === "error" ? "Erreur" : "Retard",
+    label: state === "available" ? (normalizedFreshness === "stable" ? "Stable" : "Disponible") : state === "error" ? "Erreur" : "Retard",
     details: String(details || ""),
   });
   renderSourceFreshness();
@@ -3126,6 +3129,8 @@ function clearV6GenerationCaches() {
   eventDayCache.clear();
   dailyV6Cache.clear();
   eventsV6FullLoadPromise = null;
+  eventsV6HistoryLoadPromise = null;
+  eventsV6HistorySignature = "";
   eventsFullLoaded = false;
   eventCursor = "";
   eventCurrentPage = 1;
@@ -3521,7 +3526,9 @@ function v6TerminalPayloadFromEvents(events, options = {}) {
     version: 6,
     ok: true,
     terminalFull: Boolean(options.full),
-    terminalHead: !options.full,
+    terminalHead: !options.full && !options.historyComplete,
+    terminalHistoryComplete: Boolean(options.historyComplete || options.full),
+    terminalHistorySignature: options.historySignature || "",
     generationId,
     activeGenerationId: generationId,
     revision: `${generationId}:${head?.revision || manifest?.generatedAt || ""}:${options.full ? "terminal-full" : "terminal-window"}`,
@@ -3571,6 +3578,78 @@ async function loadFullTerminalEventsV6(force = false) {
   });
 
   return eventsV6FullLoadPromise;
+}
+
+async function loadTerminalHistoryForFiltersV6(force = false) {
+  const generationId = String(eventsManifestV6?.generationId || eventsHeadV6?.baseGenerationId || "");
+  if (!generationId) throw new Error("v6-terminal-history-unavailable");
+  const filters = currentTerminalFilters();
+  const signature = terminalFilterSignature(filters);
+  if (!eventFiltersRequireFullHistory()) {
+    restoreTerminalV6HeadSnapshot();
+    return eventsSnapshot;
+  }
+  if (!force && eventsFullLoaded && eventsSnapshot?.schemaVersion === 6 && String(eventsSnapshot.activeGenerationId || "") === generationId) {
+    return eventsSnapshot;
+  }
+  if (!force && terminalV6HistoryCoversActiveFilters()) return eventsSnapshot;
+  if (!force && eventsV6HistoryLoadPromise && eventsV6HistorySignature === signature) return eventsV6HistoryLoadPromise;
+
+  eventsV6HistorySignature = signature;
+  const loadPromise = (async () => {
+    const abandonIfStale = () => {
+      if (eventsSnapshot) return eventsSnapshot;
+      restoreTerminalV6HeadSnapshot();
+      return eventsSnapshot;
+    };
+    const candidateDays = v6ManifestDays(eventsManifestV6)
+      .filter((entry) => v6DayCouldMatchTerminalFilters(entry, filters));
+    const totalDays = candidateDays.length;
+    const matchedEvents = [];
+    if (eventResultCount) {
+      eventResultCount.textContent = totalDays
+        ? `Recherche dans l'historique... 0/${formatInteger(totalDays)} journée`
+        : "Aucun jour ne correspond à ces filtres";
+    }
+
+    let loadedDays = 0;
+    for (const entry of candidateDays) {
+      if (signature !== terminalFilterSignature()) {
+        return abandonIfStale();
+      }
+      const payload = await loadEventDayV6(entry.date, eventsManifestV6, eventsHeadV6);
+      matchedEvents.push(...(payload.events || []).filter((event) => eventMatchesTerminalFilters(event, filters)));
+      loadedDays += 1;
+      if (eventResultCount && (loadedDays === 1 || loadedDays === totalDays || loadedDays % 3 === 0)) {
+        const dayLabel = totalDays > 1 ? "journées" : "journée";
+        eventResultCount.textContent = `Recherche dans l'historique... ${formatInteger(loadedDays)}/${formatInteger(totalDays)} ${dayLabel}`;
+      }
+    }
+
+    if (signature !== terminalFilterSignature()) {
+      return abandonIfStale();
+    }
+    const payload = v6TerminalPayloadFromEvents(matchedEvents, {
+      manifest: eventsManifestV6,
+      head: eventsHeadV6,
+      historyComplete: true,
+      historySignature: signature,
+    });
+    payload.summary = {
+      ...(payload.summary || {}),
+      matchedEvents: payload.events.length,
+      searchedDays: totalDays,
+    };
+    eventsSnapshot = payload;
+    eventsFullLoaded = false;
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    return payload;
+  })().finally(() => {
+    if (eventsV6HistoryLoadPromise === loadPromise) eventsV6HistoryLoadPromise = null;
+  });
+
+  eventsV6HistoryLoadPromise = loadPromise;
+  return loadPromise;
 }
 
 async function collectPagedTerminalEventsV6() {
@@ -3701,7 +3780,10 @@ async function loadTerminalEventsV6(silent = false) {
     renderEventSyncStatus(new Date(), payload.updatedAt);
     renderEventFiltersFromFacets(eventsIndexSnapshot);
     eventDateNavigation?.setAttribute("hidden", "");
-    if (terminalFiltersAreActive() || hadFullGeneration) {
+    if (terminalFiltersAreActive()) {
+      await loadTerminalHistoryForFiltersV6(state.generationChanged);
+      renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    } else if (hadFullGeneration) {
       await loadFullTerminalEventsV6(state.generationChanged);
       renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
     } else if (eventCurrentPage > 1) {
@@ -3730,7 +3812,10 @@ async function loadTerminalEventsV6(silent = false) {
         renderEventSyncStatus(new Date(), payload.updatedAt);
         renderEventFiltersFromFacets(eventsIndexSnapshot);
         eventDateNavigation?.setAttribute("hidden", "");
-        if (terminalFiltersAreActive() || hadFullGeneration) {
+        if (terminalFiltersAreActive()) {
+          await loadTerminalHistoryForFiltersV6(false);
+          renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        } else if (hadFullGeneration) {
           await loadFullTerminalEventsV6(false);
           renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
         } else if (eventCurrentPage > 1) {
@@ -3977,6 +4062,72 @@ function eventFiltersRequireFullHistory() {
     selectedEventTypeValue() !== "all" ||
     selectedEventPlayerValue() !== "all"
   );
+}
+
+function currentTerminalFilters() {
+  return {
+    query: normalizeEventSearch(eventSearch?.value),
+    type: selectedEventTypeValue(),
+    player: selectedEventPlayerValue(),
+  };
+}
+
+function terminalFilterSignature(filters = currentTerminalFilters()) {
+  return JSON.stringify([
+    filters.query || "",
+    filters.type || "all",
+    filters.player || "all",
+  ]);
+}
+
+function eventMatchesTerminalFilters(event, filters = currentTerminalFilters()) {
+  if (filters.type !== "all" && event.type !== filters.type) return false;
+  if (filters.player !== "all" && event.player !== filters.player) return false;
+  if (!filters.query) return true;
+  return normalizeEventSearch([
+    event.player,
+    event.guild,
+    event.base,
+    event.title,
+    event.message,
+    event.display?.headline,
+    event.display?.body,
+    ...(event.display?.bullets || []),
+    event.type,
+  ].filter(Boolean).join(" ")).includes(filters.query);
+}
+
+function v6FacetHasValue(rows, value) {
+  const expected = String(value || "").trim().toLocaleLowerCase("fr-CA");
+  if (!expected) return true;
+  if (!Array.isArray(rows) || !rows.length) return true;
+  return rows.some((row) => String(typeof row === "string" ? row : row?.value || "")
+    .trim()
+    .toLocaleLowerCase("fr-CA") === expected);
+}
+
+function v6DayCouldMatchTerminalFilters(entry, filters = currentTerminalFilters()) {
+  const facets = entry?.facets || {};
+  if (filters.type !== "all" && !v6FacetHasValue(facets.types, filters.type)) return false;
+  if (filters.player !== "all" && !v6FacetHasValue(facets.players, filters.player)) return false;
+  return true;
+}
+
+function terminalV6HistoryCoversActiveFilters() {
+  return Boolean(
+    eventsSnapshot?.terminalHistoryComplete &&
+    eventsSnapshot?.terminalHistorySignature === terminalFilterSignature()
+  );
+}
+
+function restoreTerminalV6HeadSnapshot() {
+  if (!isTerminalRoute() || eventsContractMode !== "v6" || !eventsHeadV6 || !eventsManifestV6) return false;
+  const payload = v6HeadAsTerminalPayload(eventsHeadV6, eventsManifestV6);
+  eventsSnapshot = payload;
+  eventsRecentSnapshot = payload;
+  eventsFullLoaded = false;
+  eventsV6HistorySignature = "";
+  return true;
 }
 
 function eventPageNumbers(current, total) {
@@ -4520,9 +4671,11 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
 
 async function updateTerminalEvents(refinePageSize = true) {
   if (isTerminalRoute() && eventsContractMode === "v6") {
-    if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
-      if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
-      await loadFullTerminalEventsV6();
+    if (eventFiltersRequireFullHistory() && !terminalV6HistoryCoversActiveFilters() && !eventsFullLoaded) {
+      await loadTerminalHistoryForFiltersV6();
+    }
+    if (!eventFiltersRequireFullHistory() && eventsSnapshot?.terminalHistoryComplete && !eventsFullLoaded) {
+      restoreTerminalV6HeadSnapshot();
     }
     if (!eventFiltersRequireFullHistory() && !eventsFullLoaded && eventCurrentPage > 1) {
       await renderPagedTerminalEventsV6({ preserveDom: true, preserveViewport: true });
@@ -4551,45 +4704,29 @@ function renderEvents(refinePageSize = true, options = {}) {
   const preserveViewport = Boolean(options.preserveViewport);
   const streamTopBefore = preserveViewport ? eventStream?.getBoundingClientRect().top : null;
   const events = dedupeSessionFallbackEvents(eventsSnapshot?.events);
-  const query = normalizeEventSearch(eventSearch?.value);
-  const type = selectedEventTypeValue();
-  const player = selectedEventPlayerValue();
-  const filtered = events.filter((event) => {
-    if (type !== "all" && event.type !== type) return false;
-    if (player !== "all" && event.player !== player) return false;
-    if (!query) return true;
-    return normalizeEventSearch([
-      event.player,
-      event.guild,
-      event.base,
-      event.title,
-      event.message,
-      event.display?.headline,
-      event.display?.body,
-      ...(event.display?.bullets || []),
-      event.type,
-    ].filter(Boolean).join(" ")).includes(query);
-  });
+  const activeFilters = currentTerminalFilters();
+  const filtered = events.filter((event) => eventMatchesTerminalFilters(event, activeFilters));
   const terminal = isTerminalRoute();
   const terminalV6 = terminal && eventsContractMode === "v6";
   if (terminal && !terminalV6) updateTerminalPageSize();
   const pageSize = terminalV6 ? terminalV6EchoLimit : terminal ? terminalEventPageSize : dashboardEventPageSize;
   const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
-  const v6HeadOnly = terminalV6 && !eventsFullLoaded && !eventFiltersRequireFullHistory();
+  const terminalHistoryComplete = eventsFullLoaded || terminalV6HistoryCoversActiveFilters();
+  const v6HeadOnly = terminalV6 && !terminalHistoryComplete && !eventFiltersRequireFullHistory();
   const paginationTotal = v6HeadOnly ? Math.max(v6ManifestTotalEchoes(), filtered.length) : filtered.length;
   const pageCount = Math.max(1, Math.ceil(paginationTotal / pageSize));
   if (terminalV6) {
     eventCursor = "";
     eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
-    terminalEventWindowStart = eventsFullLoaded ? (eventCurrentPage - 1) * pageSize : 0;
-    terminalVisibleEvents = eventsFullLoaded ? filtered : filtered.slice(0, terminalV6EchoLimit);
+    terminalEventWindowStart = terminalHistoryComplete ? (eventCurrentPage - 1) * pageSize : 0;
+    terminalVisibleEvents = terminalHistoryComplete ? filtered : filtered.slice(0, terminalV6EchoLimit);
   } else {
     eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
     terminalEventWindowStart = (eventCurrentPage - 1) * pageSize;
     terminalVisibleEvents = filtered;
   }
   const start = terminalEventWindowStart;
-  const visible = terminalV6 && !eventsFullLoaded ? terminalVisibleEvents : filtered.slice(start, start + pageSize);
+  const visible = terminalV6 && !terminalHistoryComplete ? terminalVisibleEvents : filtered.slice(start, start + pageSize);
 
   const resultLabel = terminalV6
     ? (filtered.length === events.length && !eventFiltersRequireFullHistory()
@@ -5508,10 +5645,10 @@ function renderDailyBrief(summary) {
   const factTotal = dailyFactTotal(summary.totals);
   const lead = summary.presenceAvailable === false
     ? (summary.totals.eventCount
-      ? `${dailyPlural(summary.totals.activePlayers, "joueur dans les échos", "joueurs dans les échos")} · ${dailyPlural(summary.totals.eventCount, "moment publié", "moments publiés")}`
+      ? `${dailyPlural(summary.totals.activePlayers, "aventurier visible", "aventuriers visibles")} · ${dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus")}`
       : "Aucun moment publié pour cette journée.")
     : (summary.totals.eventCount || summary.totals.presenceSessions
-      ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · ${dailyPlural(summary.totals.eventCount, "moment publié", "moments publiés")}`
+      ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · ${dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus")}`
       : "Aucun fait ni présence pour cette journée.");
   const workshopLine = [
     summary.totals.craft ? dailyPlural(summary.totals.craft, "objet fabriqué", "objets fabriqués") : "",
@@ -5521,7 +5658,7 @@ function renderDailyBrief(summary) {
     .filter(Boolean).join(" · ");
   const palLine = palSignals
     ? `${dailyPlural(palSignals, "Pal repéré", "Pals repérés")}${topPal ? ` · ${topPal.name} ressort le plus` : " dans les captures et collections"}`
-    : "Aucune capture ou collection marquante.";
+    : "Aucun Pal nommé ne ressort dans les captures ou collections.";
   return `
     <div class="daily-brief__lead">
       <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
@@ -5529,9 +5666,9 @@ function renderDailyBrief(summary) {
     </div>
     <ul class="daily-brief__list">
       <li><b>Joueur qui ressort</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement."}</span></li>
-      <li><b>Ateliers et bases</b><span>${workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Peu de fabrication ou production visible."}</span></li>
+      <li><b>Ateliers et bases</b><span>${workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Les ateliers sont restés plutôt calmes."}</span></li>
       <li><b>Pals</b><span>${palLine}</span></li>
-      <li><b>Progression</b><span>${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "fait marquant", "faits marquants")}</span></li>
+      <li><b>Progression</b><span>${summary.totals.levelUps || factTotal ? `${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "moment spécial", "moments spéciaux")}` : "Pas de grande poussée de progression visible."}</span></li>
       <li><b>Moment fort</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler."}</span></li>
       <li><b>Rythme</b><span>${busiestHour?.count ? `${String(busiestHour.hour).padStart(2, "0")} h est la période la plus animée` : "Pas assez de données pour dégager un pic."}</span></li>
     </ul>
@@ -5870,18 +6007,18 @@ function renderDailyDigest(summary) {
       || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
   const factTotal = dailyFactTotal(totals);
   const palMetricDetail = topPal
-    ? dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true })
+    ? dailyTopAggregateLabel(topPal, "Aucun Pal nommé ne ressort", { withDont: true })
     : palSignals
       ? "Captures et collections repérées dans la journée"
-      : "Aucun Pal dominant";
+      : "Aucun Pal nommé ne ressort";
   dailyMetrics.innerHTML = [
     renderDailyMetric("Joueur du jour", leader?.name || "--", leader ? dailyPlayerReasons(leader) : "Aucune activité joueur", "events", "Score pondéré par niveaux, captures, fabrications, productions, bases et faits non routiniers."),
-    renderDailyMetric("Objets fabriqués", formatInteger(totals.craft), dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true }), "craft", "Somme des quantités ajoutées par les fabrications du jour."),
-    renderDailyMetric("Ressources produites", formatInteger(totals.production), dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true }), "production", "Somme des ressources prêtes dans les productions du jour."),
-    renderDailyMetric("Pals repérés", formatInteger(palSignals), palMetricDetail, "capture", "Captures et ajouts de collection regroupés par Pal."),
+    renderDailyMetric("Fabrications", formatInteger(totals.craft), dailyTopAggregateLabel(topCraft, "Rien ne domine les ateliers", { withDont: true }), "craft", "Objets terminés pendant la journée."),
+    renderDailyMetric("Productions", formatInteger(totals.production), dailyTopAggregateLabel(topProduction, "Aucune ressource ne domine", { withDont: true }), "production", "Ressources relevées dans les productions du jour."),
+    renderDailyMetric("Pals repérés", formatInteger(palSignals), palMetricDetail, "capture", "Captures et ajouts de collection reconnus par Pal."),
     renderDailyMetric("Niveaux gagnés", formatInteger(totals.levelUps), topLevelPlayer ? `dont ${topLevelPlayer.name} · ${dailyPlural(topLevelPlayer.metrics.levelUps, "niveau gagné", "niveaux gagnés")}` : "Aucune montée détectée", "level", "Montées de niveau détectées pendant la journée."),
-    renderDailyMetric("Structures", formatInteger(totals.build), `dont ${dailyPlural(totals.repair, "structure réparée", "structures réparées")}`, "base", "Structures ajoutées et réparations détectées dans les bases."),
-    renderDailyMetric("Faits divers", formatInteger(factTotal), `dont ${dailyPlural(totals.boss, "boss", "boss")} · ${dailyPlural(totals.discovery, "découverte")}`, "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres faits moins routiniers."),
+    renderDailyMetric("Bases", formatInteger(totals.build), totals.repair ? `dont ${dailyPlural(totals.repair, "réparation", "réparations")}` : "Aucune réparation relevée", "base", "Structures ajoutées et réparations visibles dans les bases."),
+    renderDailyMetric("Autres moments", formatInteger(factTotal), `dont ${dailyPlural(totals.boss, "boss", "boss")} · ${dailyPlural(totals.discovery, "découverte")}`, "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres moments moins routiniers."),
   ].join("");
   if (dailyBrief) dailyBrief.innerHTML = renderDailyBrief(summary);
   if (dailyHourly) dailyHourly.innerHTML = renderDailyHourly(summary);
@@ -5996,8 +6133,8 @@ function renderDailyV6Basic(payload) {
     : `${dailyPlural(players.length, "joueur dans le journal", "joueurs dans le journal")} · journée prête`;
   if (dailyUpdatedAt) dailyUpdatedAt.textContent = `Journal actualisé ${formatRelativeAge(payload.sourceUpdatedAt || payload.generatedAt)}`;
   if (dailyMetrics) dailyMetrics.innerHTML = [
-    renderDailyMetric("Moments du jour", formatInteger(echoes), derived ? `${dailyPlural(derived, "action rattachée à la guilde", "actions rattachées à la guilde")}` : "Journée prête à lire", "events"),
-    renderDailyMetric("Actions regroupées", formatInteger(represented), "Actions proches réunies pour garder une lecture claire", "rare"),
+    renderDailyMetric("Moments du jour", formatInteger(echoes), derived ? `${dailyPlural(derived, "moment rattaché à la guilde", "moments rattachés à la guilde")}` : "Prêt à lire", "events"),
+    renderDailyMetric("Activité condensée", formatInteger(represented), "Les actions proches sont réunies pour alléger la lecture", "rare"),
     renderDailyMetric("Aventuriers", formatInteger(players.length), "Joueurs présents dans le journal du jour", "capture"),
     ...typeRows.slice(0, 4).map((entry) => renderDailyMetric(eventTypeMeta[entry.type]?.label || entry.type, formatInteger(entry.count), "Moments de cette catégorie", entry.type)),
   ].join("");
@@ -6912,6 +7049,14 @@ async function ensurePublicCatalogManifest() {
         }
         publicCatalogManifest = manifest;
         registerPayloadDataUpdate("catalog", manifest);
+        if ((manifest.provenance?.freshness || manifest.freshness || "current") === "current") {
+          registerSourceHealth(
+            "catalog",
+            manifest.provenance?.sourceStatus || manifest.sourceStatus || "available",
+            "stable",
+            `Catalogue ${manifest.generationId} disponible; aucune mise à jour du jeu détectée depuis cette version.`,
+          );
+        }
         return manifest;
       })
       .catch((error) => {
@@ -7849,9 +7994,8 @@ eventsDisclosure?.addEventListener("toggle", () => {
   }
   if (!eventsDisclosure.open) return;
   if (eventsContractMode === "v6") {
-    if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
-      if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
-      void loadFullTerminalEventsV6().then(() => {
+    if (eventFiltersRequireFullHistory() && !terminalV6HistoryCoversActiveFilters() && !eventsFullLoaded) {
+      void loadTerminalHistoryForFiltersV6().then(() => {
         if (!eventsDisclosure.open || !eventsSnapshot) return;
         renderEventFiltersFromFacets(eventsIndexSnapshot);
         renderEvents();

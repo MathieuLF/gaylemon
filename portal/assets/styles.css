@@ -14307,3 +14307,70 @@ body.terminal-view .event-console > .event-unseen span {
     transition-duration: .01ms !important;
   }
 }
+
+.archipelago-map__toolbar--layers {
+  grid-template-columns: repeat(3, minmax(0, auto));
+  gap: 5px;
+  max-width: min(520px, calc(100% - 20px));
+}
+
+.archipelago-map__toolbar--layers button,
+.archipelago-map__toolbar--layers .map-base-toggle,
+.archipelago-map__toolbar--layers button:last-child {
+  min-height: 34px;
+  border-radius: 11px;
+  padding-inline: 9px;
+}
+
+.archipelago-map__toolbar--layers button b {
+  max-width: 92px;
+}
+
+.archipelago-map figcaption {
+  max-width: min(420px, calc(100% - 20px));
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .2);
+}
+
+.global-base-legend {
+  background:
+    radial-gradient(circle at 96% 0, rgba(64, 200, 117, .16), transparent 34%),
+    linear-gradient(145deg, rgba(246, 255, 251, .95), rgba(255, 255, 255, .9));
+}
+
+.daily-summary-block h2,
+.daily-section h2 {
+  color: #123641;
+}
+
+.daily-brief__list li {
+  border-radius: 12px;
+  border-top: 0;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, .58);
+}
+
+@media (max-width: 760px) {
+  .archipelago-map__toolbar--layers {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: calc(100% - 20px);
+    max-width: none;
+  }
+
+  .archipelago-map__toolbar--layers button,
+  .archipelago-map__toolbar--layers .map-base-toggle,
+  .archipelago-map__toolbar--layers button:last-child {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 430px) {
+  .archipelago-map__toolbar--layers button b {
+    max-width: 58px;
+  }
+
+  .daily-brief__list li {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

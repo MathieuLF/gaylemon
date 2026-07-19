@@ -372,6 +372,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /const terminalV6EchoLimit = 6/);
   assert.match(app, /terminalHead: true/);
   assert.match(app, /async function loadFullTerminalEventsV6/);
+  assert.match(app, /async function loadTerminalHistoryForFiltersV6/);
+  assert.match(app, /v6DayCouldMatchTerminalFilters/);
+  assert.match(app, /terminalHistoryComplete/);
+  assert.match(app, /Recherche dans l'historique/);
   assert.match(app, /async function renderPagedTerminalEventsV6/);
   assert.doesNotMatch(app, /nouveaux échos depuis ta dernière visite/);
   assert.doesNotMatch(terminal, /depuis ta dernière visite/);
@@ -437,8 +441,39 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   assert.doesNotMatch(statsRenderer, /statsSnapshot = null/);
   assert.match(statsRenderer, /provenance\.sourceStatus/);
   assert.match(app, /source-freshness__value/);
+  assert.match(app, /normalizedFreshness === "stable"/);
+  assert.match(app, /Catalogue \$\{manifest\.generationId\} disponible/);
   assert.match(app, /registerDataUpdate\(\s*"bases"/);
   assert.match(app, /"base indexée", "bases indexées"/);
+});
+
+test("le terminal v6 ne limite pas les filtres à la tête courte", async () => {
+  const app = await portalFile("assets/app.js");
+  const filterLoader = app.slice(
+    app.indexOf("async function loadTerminalHistoryForFiltersV6"),
+    app.indexOf("async function collectPagedTerminalEventsV6"),
+  );
+  const updater = app.slice(
+    app.indexOf("async function updateTerminalEvents"),
+    app.indexOf("function renderEvents"),
+  );
+  const renderer = app.slice(
+    app.indexOf("function renderEvents"),
+    app.indexOf("function formatInteger"),
+  );
+
+  assert.match(filterLoader, /v6ManifestDays\(eventsManifestV6\)/);
+  assert.match(filterLoader, /v6DayCouldMatchTerminalFilters/);
+  assert.match(filterLoader, /loadEventDayV6\(entry\.date/);
+  assert.match(filterLoader, /eventMatchesTerminalFilters/);
+  assert.match(filterLoader, /historyComplete: true/);
+  assert.match(filterLoader, /historySignature: signature/);
+  assert.doesNotMatch(filterLoader, /public-events-recent/);
+  assert.doesNotMatch(filterLoader, /2000|2 000/);
+  assert.match(updater, /loadTerminalHistoryForFiltersV6/);
+  assert.doesNotMatch(updater, /Chargement de l'historique complet[\s\S]{0,180}loadFullTerminalEventsV6/);
+  assert.match(renderer, /terminalV6HistoryCoversActiveFilters/);
+  assert.match(renderer, /terminalHistoryComplete \? filtered : filtered\.slice/);
 });
 
 test("les snapshots publics refusent les mélanges de générations", async () => {
@@ -523,11 +558,26 @@ test("le digest quotidien v6 extrait les Pals même quand les détails sont vide
   assert.match(script, /Add-V6PalFind -Target \$player\["palFinds"\]/);
 });
 
+test("la synchronisation v6 demande un backfill autonome quand le complet est derrière la tête", async () => {
+  const script = await readFile(new URL("../../scripts/sync-palworld-events.ps1", import.meta.url), "utf8");
+
+  assert.match(script, /public-reprojection\.request/);
+  assert.match(script, /function Request-RemotePublicEventBackfill/);
+  assert.match(script, /function Test-HotProjectionWindowCoversRevision/);
+  assert.match(script, /full-export-behind-head/);
+  assert.match(script, /recentCompletenessProjectionRevision -gt \$probeProjectionRevision/);
+  assert.match(script, /hotWindowCoversFullProbeGap/);
+  assert.match(script, /Queue chaude v6 synchronisée/);
+  assert.match(script, /remoteBackfillRequested/);
+  assert.match(script, /Get-V6DayFacets/);
+  assert.match(script, /facets = \$dayFacets/);
+});
+
 test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260719\.6/);
-    assert.match(html, /app\.js\?v=20260719\.6/);
+    assert.match(html, /styles\.css\?v=20260719\.7/);
+    assert.match(html, /app\.js\?v=20260719\.7/);
   }
 });

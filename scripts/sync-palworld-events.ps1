@@ -12,7 +12,8 @@ param(
     [ValidateRange(0, 30000)]
     [int]$TestHoldLockMilliseconds = 0,
     [switch]$Fast,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$RequestRemoteBackfill
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,7 @@ $allowedTypes = @(
 $allowedSources = @("journal", "players", "save", "update", "server")
 $remotePath = "$($config.RemoteProjectRoot)/runtime/public-events.json"
 $remoteRecentPath = "$($config.RemoteProjectRoot)/runtime/public-events-recent.json"
+$remoteReprojectionRequestPath = "$($config.RemoteProjectRoot)/runtime/events/public-reprojection.request"
 $resolvedSourcePayloadPath = if ($SourcePayloadPath) {
     $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SourcePayloadPath)
 }
@@ -165,6 +167,26 @@ function ConvertTo-ShellSingleQuoted {
     return "'" + $Value.Replace("'", "'""'""'") + "'"
 }
 
+function Request-RemotePublicEventBackfill {
+    param([string]$Reason = "remote-full-export-behind-head")
+
+    if ($SourcePayloadPath -or $RecentSourcePayloadPath) {
+        return $false
+    }
+
+    $remoteDirectory = $remoteReprojectionRequestPath -replace '/[^/]+$', ''
+    $quotedDirectory = ConvertTo-ShellSingleQuoted -Value $remoteDirectory
+    $quotedPath = ConvertTo-ShellSingleQuoted -Value $remoteReprojectionRequestPath
+    $quotedReason = ConvertTo-ShellSingleQuoted -Value "$Reason $((Get-Date).ToString('o'))"
+    $command = "mkdir -p $quotedDirectory && umask 177 && printf '%s\n' $quotedReason > $quotedPath"
+    & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias $command 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Impossible de demander le rattrapage complet des échos sur Ubuntu."
+    }
+
+    return $true
+}
+
 function ConvertTo-EventProbe {
     param([Parameter(Mandatory)] $Payload)
 
@@ -184,6 +206,7 @@ function ConvertTo-EventProbe {
         revision = [string]$Payload.revision
         projectionRevision = Get-ProjectionRevision -Payload $Payload
         provenanceRevision = [string](Get-OptionalProperty $Payload "provenanceRevision")
+        projectionWindow = Get-OptionalProperty $Payload "projectionWindow"
         updatedAt = [string]$Payload.updatedAt
         events = $eventCount
         lastAt = if ($summary -and (Get-OptionalProperty $summary "lastAt")) { [string](Get-OptionalProperty $summary "lastAt") } else { "" }
@@ -211,6 +234,7 @@ print(json.dumps({
     "revision": payload.get("revision") or "",
     "projectionRevision": payload.get("projectionRevision"),
     "provenanceRevision": payload.get("provenanceRevision") or "",
+    "projectionWindow": payload.get("projectionWindow"),
     "updatedAt": payload.get("updatedAt") or "",
     "events": summary.get("echoes") or summary.get("totalEvents") or summary.get("events") or 0,
     "lastAt": summary.get("lastAt") or "",
@@ -1449,6 +1473,37 @@ function Get-ProjectionRevision {
     }
 }
 
+function Test-HotProjectionWindowCoversRevision {
+    param(
+        [Parameter(Mandatory)] $RecentPayload,
+        [Parameter(Mandatory)] [long]$BaseProjectionRevision,
+        [Parameter(Mandatory)] [long]$TargetProjectionRevision
+    )
+
+    if ($TargetProjectionRevision -le $BaseProjectionRevision) {
+        return $true
+    }
+
+    $projectionWindow = Get-OptionalProperty $RecentPayload "projectionWindow"
+    if ($null -eq $projectionWindow) { return $false }
+    if ([string](Get-OptionalProperty $projectionWindow "mode") -cne "replace-tail") { return $false }
+    if (-not [bool](Get-OptionalProperty $projectionWindow "complete")) { return $false }
+
+    try {
+        $windowFromRevision = Get-StrictInteger -Value (Get-OptionalProperty $projectionWindow "fromProjectionRevision") -Name "projectionWindow.fromProjectionRevision"
+        $windowThroughRevision = Get-StrictInteger -Value (Get-OptionalProperty $projectionWindow "throughProjectionRevision") -Name "projectionWindow.throughProjectionRevision"
+    }
+    catch {
+        return $false
+    }
+
+    return [bool](
+        $BaseProjectionRevision -ge $windowFromRevision -and
+        $BaseProjectionRevision -lt $windowThroughRevision -and
+        $windowThroughRevision -eq $TargetProjectionRevision
+    )
+}
+
 function Get-Sha256Hex {
     param([Parameter(Mandatory)] [byte[]]$Bytes)
 
@@ -1567,22 +1622,38 @@ function Get-SourceSummaryMetric {
     return $Fallback
 }
 
+function New-V6FacetRows {
+    param(
+        [array]$Events,
+        [Parameter(Mandatory)] [string]$PropertyName
+    )
+
+    return @(
+        $Events | Where-Object { ([string](Get-OptionalProperty $_ $PropertyName)).Trim() } |
+            Group-Object -Property $PropertyName | Sort-Object -Property Name | ForEach-Object {
+                [ordered]@{ value = [string]$_.Name; count = [int]$_.Count }
+            }
+    )
+}
+
 function Get-V6Facets {
     param([array]$Events)
 
-    $types = @(
-        $Events | Where-Object { Get-OptionalProperty $_ "type" } |
-            Group-Object -Property type | Sort-Object -Property Name | ForEach-Object {
-                [ordered]@{ value = [string]$_.Name; count = [int]$_.Count }
-            }
-    )
-    $players = @(
-        $Events | Where-Object { Get-OptionalProperty $_ "player" } |
-            Group-Object -Property player | Sort-Object -Property Name | ForEach-Object {
-                [ordered]@{ value = [string]$_.Name; count = [int]$_.Count }
-            }
-    )
-    return [ordered]@{ types = $types; players = $players }
+    return [ordered]@{
+        types = New-V6FacetRows -Events $Events -PropertyName "type"
+        players = New-V6FacetRows -Events $Events -PropertyName "player"
+    }
+}
+
+function Get-V6DayFacets {
+    param([array]$Events)
+
+    return [ordered]@{
+        types = New-V6FacetRows -Events $Events -PropertyName "type"
+        players = New-V6FacetRows -Events $Events -PropertyName "player"
+        guilds = New-V6FacetRows -Events $Events -PropertyName "guild"
+        bases = New-V6FacetRows -Events $Events -PropertyName "base"
+    }
 }
 
 function Get-EventAddedQuantity {
@@ -1952,6 +2023,10 @@ function Get-V6ReusableDayEntry {
     $dailyGenerationId = [string](Get-OptionalProperty $entry "dailyGenerationId")
     if (-not $dailyGenerationId) { $dailyGenerationId = [string](Get-OptionalProperty $daily "generationId") }
     if (-not $fragmentGenerationId -or -not $dailyGenerationId) { return $null }
+    $facets = Get-OptionalProperty $entry "facets"
+    if ($null -eq $facets -or $null -eq (Get-OptionalProperty $facets "types") -or $null -eq (Get-OptionalProperty $facets "players")) {
+        $facets = Get-V6DayFacets -Events @(Get-EventsArray -Payload $fragment)
+    }
 
     return [ordered]@{
         date = $DateKey
@@ -1962,6 +2037,7 @@ function Get-V6ReusableDayEntry {
         dailySha256 = [string](Get-OptionalProperty $entry "dailySha256")
         dailyGenerationId = $dailyGenerationId
         contentHash = "sha256:$ContentHash"
+        facets = $facets
         events = Convert-ToPositiveInt (Get-OptionalProperty $entry "events")
         representedEvents = Convert-ToPositiveInt (Get-OptionalProperty $entry "representedEvents")
         firstAt = Convert-ToIsoTimestamp (Get-OptionalProperty $entry "firstAt")
@@ -2034,6 +2110,7 @@ function Write-V6DayArtifacts {
     $derivedEchoes = @($Events | Where-Object { [string](Get-OptionalProperty $_ "confidence") -eq "derived" }).Count
     $confirmedEchoes = $Events.Count - $derivedEchoes
     $dayContentHash = Get-JsonContentHash -Value $Events
+    $dayFacets = Get-V6DayFacets -Events $Events
     $fragment = [ordered]@{
         schemaVersion = $PublicEventContractVersion
         ok = $true
@@ -2055,6 +2132,7 @@ function Write-V6DayArtifacts {
             confirmedEchoes = $confirmedEchoes
             derivedEchoes = $derivedEchoes
         }
+        facets = $dayFacets
         contentHash = "sha256:$dayContentHash"
         events = $Events
     }
@@ -2097,6 +2175,7 @@ function Write-V6DayArtifacts {
         dailySha256 = "sha256:$($writtenDaily.Sha256)"
         dailyGenerationId = $GenerationId
         contentHash = "sha256:$dayContentHash"
+        facets = $dayFacets
         events = $Events.Count
         representedEvents = $representedEvents
         firstAt = if ($Events.Count) { Convert-ToIsoTimestamp (Get-OptionalProperty $Events[-1] "occurredAt") } else { $null }
@@ -2800,14 +2879,77 @@ function Write-FastEventOutputs {
 $remoteProbePath = if ($Fast) { $remoteRecentPath } else { $remotePath }
 $localProbePath = if ($Fast) { $resolvedRecentSourcePayloadPath } else { $resolvedSourcePayloadPath }
 $remoteProbe = Read-EventProbe -RemotePath $remoteProbePath -LocalPath $localProbePath
+$remoteRecentProbeForCompleteness = $null
+if (-not $Fast) {
+    try {
+        $remoteRecentProbeForCompleteness = Read-EventProbe -RemotePath $remoteRecentPath -LocalPath $resolvedRecentSourcePayloadPath
+    }
+    catch {
+        $remoteRecentProbeForCompleteness = $null
+    }
+}
 $syncState = Read-JsonFile -Path $SyncStatePath
 $probeProjectionRevision = Get-ProjectionRevision -Payload $remoteProbe
+$recentCompletenessProjectionRevision = if ($remoteRecentProbeForCompleteness) { Get-ProjectionRevision -Payload $remoteRecentProbeForCompleteness } else { -1 }
+$hotWindowCoversFullProbeGap = [bool](
+    $remoteRecentProbeForCompleteness -and
+    (Test-HotProjectionWindowCoversRevision `
+        -RecentPayload $remoteRecentProbeForCompleteness `
+        -BaseProjectionRevision $probeProjectionRevision `
+        -TargetProjectionRevision $recentCompletenessProjectionRevision)
+)
+$fullProbeBehindRecent = [bool](
+    (-not $Fast) -and
+    (-not ($SourcePayloadPath -or $RecentSourcePayloadPath)) -and
+    $remoteRecentProbeForCompleteness -and
+    $probeProjectionRevision -ge 0 -and
+    $recentCompletenessProjectionRevision -gt $probeProjectionRevision -and
+    (-not $hotWindowCoversFullProbeGap)
+)
+if ($fullProbeBehindRecent) {
+    $requestWritten = Request-RemotePublicEventBackfill -Reason "full-export-behind-head"
+    Write-SyncState -State ([ordered]@{
+        remotePath = $remotePath
+        remoteRecentPath = $remoteRecentPath
+        remoteRevision = [string]$remoteProbe.revision
+        recentRevision = [string]$remoteRecentProbeForCompleteness.revision
+        remoteProjectionRevision = $probeProjectionRevision
+        recentProjectionRevision = $recentCompletenessProjectionRevision
+        remoteProvenanceRevision = [string]$remoteProbe.provenanceRevision
+        recentProvenanceRevision = [string]$remoteRecentProbeForCompleteness.provenanceRevision
+        localRecentRevision = if ($syncState) { [string](Get-StateValue $syncState "localRecentRevision") } else { "" }
+        remoteUpdatedAt = [string]$remoteProbe.updatedAt
+        remoteEvents = [int]$remoteProbe.events
+        remoteRecentEvents = [int]$remoteRecentProbeForCompleteness.events
+        remoteMaxId = if ($syncState) { Get-StateValue $syncState "remoteMaxId" } else { $null }
+        pageSize = $PageSize
+        recentEventLimit = $RecentEventLimit
+        pageCount = if ($syncState) { Get-StateValue $syncState "pageCount" } else { 0 }
+        v6GenerationId = if ($syncState) { [string](Get-StateValue $syncState "v6GenerationId") } else { "" }
+        v6IncrementalChanged = $false
+        v6IncrementalSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "v6IncrementalSyncedAt") } else { $null }
+        requiresReprojection = $true
+        reprojectionReason = "remote-full-export-behind-head"
+        remoteBackfillRequested = [bool]$requestWritten
+        remoteBackfillRequestedAt = (Get-Date).ToString("o")
+        fastSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "fastSyncedAt") } else { $null }
+        fullSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "fullSyncedAt") } else { $null }
+    })
+    throw "L'export complet distant est en retard sur la tête des échos; un rattrapage complet vient d'être demandé."
+}
 $stateProjectionRevision = if ($Fast) {
     Get-ProjectionRevision -Payload ([ordered]@{ projectionRevision = Get-StateValue $syncState "recentProjectionRevision" })
 }
 else {
     Get-ProjectionRevision -Payload ([ordered]@{ projectionRevision = Get-StateValue $syncState "remoteProjectionRevision" })
 }
+$stateRecentProjectionRevision = Get-ProjectionRevision -Payload ([ordered]@{ projectionRevision = Get-StateValue $syncState "recentProjectionRevision" })
+$hotTailNeedsSync = [bool](
+    (-not $Fast) -and
+    $remoteRecentProbeForCompleteness -and
+    $hotWindowCoversFullProbeGap -and
+    $recentCompletenessProjectionRevision -gt $stateRecentProjectionRevision
+)
 $revisionMatches = ((-not $Fast -and [string](Get-StateValue $syncState "remoteRevision") -eq [string]$remoteProbe.revision) -or
     ($Fast -and [string](Get-StateValue $syncState "recentRevision") -eq [string]$remoteProbe.revision))
 $projectionRevisionMatches = $probeProjectionRevision -lt 0 -or
@@ -2822,10 +2964,30 @@ else {
 $provenanceRevisionMatches = -not $probeProvenanceRevision -or
     ($stateProvenanceRevision -and $stateProvenanceRevision -eq $probeProvenanceRevision)
 if (-not $Force -and $syncState -and $remoteProbe.revision -and
+    (-not [bool](Get-StateValue $syncState "requiresReprojection")) -and
     $revisionMatches -and $projectionRevisionMatches -and $provenanceRevisionMatches -and
     [int](Get-StateValue $syncState "pageSize") -eq $PageSize -and
     [int](Get-StateValue $syncState "recentEventLimit") -eq $RecentEventLimit -and
     (Test-LocalEventOutputsComplete -State $syncState)) {
+    if ($hotTailNeedsSync) {
+        $recentSourceForTail = Read-EventPayload -RemotePath $remoteRecentPath -LocalPath $resolvedRecentSourcePayloadPath
+        Write-FastEventOutputs -RecentPayload $recentSourceForTail
+        $afterTailState = Read-JsonFile -Path $SyncStatePath
+        if ($afterTailState -and [bool](Get-StateValue $afterTailState "requiresReprojection")) {
+            throw "La queue chaude des échos exige une reprojection complète: $([string](Get-StateValue $afterTailState 'reprojectionReason'))"
+        }
+        Write-Host "Queue chaude v6 synchronisée jusqu'à la révision $([string](Get-OptionalProperty $recentSourceForTail 'revision'))."
+        return
+    }
+    $nowIso = (Get-Date).ToString("o")
+    if ($Fast) {
+        Set-OptionalProperty -Value $syncState -Name "fastSyncedAt" -PropertyValue $nowIso
+    }
+    else {
+        Set-OptionalProperty -Value $syncState -Name "fullSyncedAt" -PropertyValue $nowIso
+    }
+    Set-OptionalProperty -Value $syncState -Name "syncedAt" -PropertyValue $nowIso
+    Write-SyncState -State $syncState
     Write-Host "Historique des échos déjà à jour: révision $($remoteProbe.revision), dernier événement $($remoteProbe.lastAt)."
     return
 }
@@ -3225,7 +3387,7 @@ $recentResolved = Write-JsonAtomic -Path $RecentOutputPath -Value $recent
 $pageResolved = @(Write-EventPages -Events $events -OutputPath $OutputPath -PageSize $PageSize)
 $indexResolved = Write-JsonAtomic -Path $IndexOutputPath -Value $index
 $v6Manifest = Write-V6Generation -Events $events -SourcePayload $source
-Write-SyncState -State ([ordered]@{
+$fullSyncState = [ordered]@{
     remotePath = $remotePath
     remoteRecentPath = $remoteRecentPath
     remoteRevision = [string]$source.revision
@@ -3249,7 +3411,20 @@ Write-SyncState -State ([ordered]@{
     syncedAt = (Get-Date).ToString("o")
     fullSyncedAt = (Get-Date).ToString("o")
     fastSyncedAt = (Get-Date).ToString("o")
-})
+}
+Write-SyncState -State $fullSyncState
+$syncState = $fullSyncState | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+if ($remoteRecentProbeForCompleteness -and
+    $recentCompletenessProjectionRevision -gt $probeProjectionRevision -and
+    $hotWindowCoversFullProbeGap) {
+    $recentSourceForTail = Read-EventPayload -RemotePath $remoteRecentPath -LocalPath $resolvedRecentSourcePayloadPath
+    Write-FastEventOutputs -RecentPayload $recentSourceForTail
+    $afterTailState = Read-JsonFile -Path $SyncStatePath
+    if ($afterTailState -and [bool](Get-StateValue $afterTailState "requiresReprojection")) {
+        throw "La queue chaude des échos exige une reprojection complète: $([string](Get-StateValue $afterTailState 'reprojectionReason'))"
+    }
+    Write-Host "Queue chaude v6 synchronisée jusqu'à la révision $([string](Get-OptionalProperty $recentSourceForTail 'revision'))."
+}
 Write-Host "Historique public synchronisé vers $resolved"
 Write-Host "Flux récent synchronisé vers $recentResolved"
 Write-Host "Index paginé synchronisé vers $indexResolved"
