@@ -123,9 +123,47 @@ if (Test-Path -LiteralPath $publicMetricsPath) {
     Write-Host "Dernier export public-metrics: ${ageSeconds}s" -ForegroundColor $freshnessColor
 }
 
+$publicSaveIndexPath = Join-Path $PSScriptRoot "..\portal\data\public-save-index.json"
+if (Test-Path -LiteralPath $publicSaveIndexPath) {
+    try {
+        $saveIndex = Get-Content -Raw -Encoding UTF8 -LiteralPath $publicSaveIndexPath | ConvertFrom-Json
+        $snapshotSourceAt = $null
+        $parsedSnapshotSourceAt = [DateTimeOffset]::MinValue
+        $snapshotSourceValue = if ($saveIndex.provenance -and $saveIndex.provenance.sourceUpdatedAt) {
+            $saveIndex.provenance.sourceUpdatedAt
+        }
+        else {
+            $saveIndex.updatedAt
+        }
+        if ($snapshotSourceValue -is [DateTimeOffset]) {
+            $snapshotSourceAt = $snapshotSourceValue
+        }
+        elseif ($snapshotSourceValue -is [datetime]) {
+            $snapshotSourceAt = [DateTimeOffset]::new($snapshotSourceValue.ToUniversalTime(), [TimeSpan]::Zero)
+        }
+        elseif ($snapshotSourceValue -and [DateTimeOffset]::TryParse([string]$snapshotSourceValue, [ref]$parsedSnapshotSourceAt)) {
+            $snapshotSourceAt = $parsedSnapshotSourceAt
+        }
+
+        $snapshotAgeSeconds = if ($snapshotSourceAt) {
+            $nowOffset = [DateTimeOffset]::new((Get-Date).ToUniversalTime(), [TimeSpan]::Zero)
+            [int][Math]::Max(0, ($nowOffset - $snapshotSourceAt.ToUniversalTime()).TotalSeconds)
+        }
+        else {
+            [int][Math]::Max(0, ((Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $publicSaveIndexPath).LastWriteTimeUtc).TotalSeconds)
+        }
+        $snapshotFreshLimitSeconds = [Math]::Max(120, $config.SaveSnapshotSyncTimeoutSeconds + ($config.SaveSnapshotSyncIntervalSeconds * 2))
+        $snapshotFreshnessColor = if ($snapshotAgeSeconds -le $snapshotFreshLimitSeconds) { "Green" } else { "Yellow" }
+        Write-Host "Dernier snapshot joueurs: ${snapshotAgeSeconds}s, génération $($saveIndex.generationId)" -ForegroundColor $snapshotFreshnessColor
+    }
+    catch {
+        Write-Host "⚠️  Snapshot joueurs local illisible: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
 if (Test-Path -LiteralPath $watcherLogPath) {
     $lastWatcherLine = Get-Content -LiteralPath $watcherLogPath -Tail 120 -ErrorAction SilentlyContinue |
-        Where-Object { $_ -match "Metrics update (completed|skipped)|Metrics watcher (started|stopped)" } |
+        Where-Object { $_ -match "Metrics update (completed|skipped)|(?:Metrics|Microsite) watcher (started|stopped)|Save snapshot sync (started|completed|skipped)" } |
         Select-Object -Last 1
     if ($lastWatcherLine) {
         Write-Host "Dernier log watcher: $lastWatcherLine"

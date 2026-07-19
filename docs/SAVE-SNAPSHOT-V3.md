@@ -31,7 +31,10 @@ même snapshot public que l'index, les bases et les fiches joueurs.
 `palworld-save-snapshot.timer` vérifie les sauvegardes toutes les 30 secondes, avec `OnUnitInactiveSec` pour éviter les chevauchements si une génération prend plus longtemps.
 
 La synchronisation Windows vérifie les données joueurs, profils, Pals, bases et
-index publics toutes les 60 secondes. Le diagnostic technique visible dans le
+index publics toutes les 45 secondes. Au démarrage du microsite, l'audit de
+reprise compare aussi le snapshot public Ubuntu au snapshot local; si la copie
+locale est en retard, les fiches joueurs sont resynchronisées immédiatement.
+Le diagnostic technique visible dans le
 bloc `Données du monde` du microsite, lui, est conservé entre deux analyses
 lourdes et rafraîchi aux deux heures, sur les créneaux impairs `01:00`, `03:00`,
 ..., `21:00`, `23:00`.
