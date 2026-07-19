@@ -13846,6 +13846,247 @@ body.terminal-view .event-line__meta .event-line__window {
   }
 }
 
+.source-freshness > summary {
+  cursor: help;
+}
+
+.dashboard-hero__routes .dashboard-hero__route {
+  grid-template-columns: 44px minmax(0, 1fr) 34px;
+  column-gap: 12px;
+}
+
+.dashboard-hero__route strong,
+.dashboard-hero__route span:not(.dashboard-hero__route-icon) {
+  min-width: 0;
+}
+
+.dashboard-hero__route em {
+  justify-self: end;
+  width: 34px;
+  height: 34px;
+}
+
+.archipelago-map__toolbar--layers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, auto));
+  align-items: center;
+  max-width: min(710px, calc(100% - 20px));
+  gap: 4px;
+}
+
+.archipelago-map__toolbar--layers button,
+.archipelago-map__toolbar--layers .map-base-toggle,
+.archipelago-map__toolbar--layers button:last-child {
+  display: inline-grid;
+  grid-template-columns: 16px minmax(0, auto) auto;
+  width: auto;
+  min-width: 0;
+  min-height: 31px;
+  gap: 6px;
+  margin-left: 0;
+  border-left: 0;
+  border-radius: 9px;
+  padding: 0 8px;
+}
+
+.archipelago-map__toolbar--layers button span {
+  display: grid;
+  min-width: 16px;
+  place-items: center;
+  font-size: .72rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.archipelago-map__toolbar--layers button b {
+  overflow: hidden;
+  max-width: 86px;
+  font-size: .56rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archipelago-map__toolbar--layers button small {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .12);
+  font-size: .5rem;
+  font-weight: 950;
+}
+
+.archipelago-map__toolbar--layers .map-layer-toggle.is-active,
+.archipelago-map__toolbar--layers .map-base-toggle.is-active {
+  background: color-mix(in srgb, #66efa8 22%, rgba(255, 255, 255, .1));
+}
+
+.global-poi-marker {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(255, 255, 255, .96);
+  border-radius: 50%;
+  place-items: center;
+  color: #fff;
+  background:
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, .34), transparent 28%),
+    color-mix(in srgb, var(--poi-color, #259db9) 86%, #122b36);
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--poi-color, #259db9) 38%, rgba(3, 20, 26, .42));
+  text-decoration: none;
+  transform: translate(-50%, -50%) scale(var(--map-inverse-scale, 1));
+  transition: transform .15s ease, z-index .15s ease, box-shadow .15s ease;
+}
+
+.global-poi-marker > i {
+  font-size: .62rem;
+  font-style: normal;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.global-poi-marker > strong {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  display: none;
+  min-width: 150px;
+  max-width: 230px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 10px;
+  padding: 7px 9px;
+  color: #fff;
+  background: rgba(5, 28, 35, .92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .26);
+  line-height: 1.2;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.global-poi-marker > strong b,
+.global-poi-marker > strong small {
+  display: block;
+}
+
+.global-poi-marker > strong b {
+  font-size: .62rem;
+}
+
+.global-poi-marker > strong small {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, .76);
+  font-size: .52rem;
+  font-weight: 750;
+}
+
+.global-poi-marker:hover,
+.global-poi-marker:focus-visible {
+  z-index: 18;
+  outline: 0;
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--poi-color, #259db9) 44%, rgba(3, 20, 26, .5));
+  transform: translate(-50%, -50%) scale(calc(var(--map-inverse-scale, 1) * 1.16));
+}
+
+.global-poi-marker:hover > strong,
+.global-poi-marker:focus-visible > strong {
+  display: block;
+}
+
+.global-poi-legend {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(37, 157, 185, .16);
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: linear-gradient(135deg, rgba(239, 250, 246, .94), rgba(255, 255, 255, .9));
+}
+
+.global-poi-legend > strong {
+  color: #176d70;
+  font-size: .72rem;
+}
+
+.global-poi-legend span {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: .62rem;
+  font-weight: 850;
+}
+
+.global-poi-legend i {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--poi-color);
+  font-style: normal;
+  font-weight: 950;
+}
+
+.global-poi-legend small {
+  color: color-mix(in srgb, var(--poi-color) 74%, #132642);
+  font-weight: 950;
+}
+
+.daily-metric,
+.daily-tangible-card,
+.daily-player-card,
+.daily-highlight {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.daily-metric:hover,
+.daily-tangible-card:hover,
+.daily-player-card:hover,
+.daily-highlight:hover {
+  transform: translateY(-2px);
+}
+
+.daily-tangible-card {
+  cursor: pointer;
+}
+
+.daily-tangible-card.is-active {
+  border-color: color-mix(in srgb, var(--tangible-color, #259db9) 46%, rgba(22, 88, 82, .08));
+  background:
+    radial-gradient(circle at 96% 0, color-mix(in srgb, var(--tangible-color, #259db9) 16%, transparent), transparent 36%),
+    linear-gradient(145deg, color-mix(in srgb, var(--tangible-color, #259db9) 14%, #fff), rgba(255, 255, 255, .9));
+  box-shadow: 0 18px 36px color-mix(in srgb, var(--tangible-color, #259db9) 18%, rgba(25, 67, 69, .08));
+}
+
+.daily-filter-reset {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  margin-left: 8px;
+  border: 1px solid rgba(23, 109, 112, .18);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #176d70;
+  background: rgba(255, 255, 255, .82);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+@media (max-width: 760px) {
+  .archipelago-map__toolbar--layers {
+    grid-template-columns: repeat(2, minmax(0, auto));
+    max-width: min(360px, calc(100% - 20px));
+  }
+
+  .archipelago-map__toolbar--layers button b {
+    max-width: 74px;
+  }
+}
+
 @media (max-width: 430px) {
   .site-header__updated {
     display: none;
@@ -13868,7 +14109,12 @@ body.terminal-view .event-line__meta .event-line__window {
   .dashboard-hero__route,
   .dashboard-hero__route-icon,
   .dashboard-hero__route em,
-  .source-freshness__panel {
+  .source-freshness__panel,
+  .global-poi-marker,
+  .daily-metric,
+  .daily-tangible-card,
+  .daily-player-card,
+  .daily-highlight {
     animation: none !important;
     transition-duration: .01ms !important;
   }

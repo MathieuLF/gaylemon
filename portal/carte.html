@@ -19,8 +19,8 @@
     <meta name="twitter:title" content="Carte Gaylémon Palworld">
     <meta name="twitter:description" content="Positions, bases et légende des joueurs sur Palpagos.">
     <meta name="twitter:image" content="https://gaylemon.mathieu.pro/assets/social/gaylemon-social-card.png">
-    <link rel="stylesheet" href="/assets/styles.css?v=20260718.14">
-    <script src="/assets/app.js?v=20260718.23" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260719.1">
+    <script src="/assets/app.js?v=20260719.1" defer></script>
   </head>
   <body class="map-view">
     <div class="world-glow" aria-hidden="true"></div>
@@ -108,8 +108,20 @@
                 <button class="map-layer-toggle is-active" id="map-player-toggle" type="button" aria-pressed="true" data-tooltip="Masquer les joueurs">
                   <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg></span><b>Joueurs</b>
                 </button>
-                <button class="map-base-toggle" id="map-base-toggle" type="button" aria-pressed="false" data-tooltip="Afficher les bases sur la carte">
-                  <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10.4 12 4l8 6.4v9.1h-5.4v-5.7H9.4v5.7H4z"/></svg></span><b>Afficher les bases</b><small id="map-base-count">0</small>
+                <button class="map-base-toggle is-active" id="map-base-toggle" type="button" aria-pressed="true" data-tooltip="Masquer les bases de la carte">
+                  <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10.4 12 4l8 6.4v9.1h-5.4v-5.7H9.4v5.7H4z"/></svg></span><b>Bases</b><small id="map-base-count">0</small>
+                </button>
+                <button class="map-layer-toggle is-active" id="map-activity-toggle" type="button" aria-pressed="true" data-tooltip="Masquer les productions et ateliers">
+                  <span aria-hidden="true">⚙</span><b>Activité</b><small id="map-activity-count">0</small>
+                </button>
+                <button class="map-layer-toggle" id="map-storage-toggle" type="button" aria-pressed="false" data-tooltip="Afficher les stocks des bases">
+                  <span aria-hidden="true">▣</span><b>Stockage</b><small id="map-storage-count">0</small>
+                </button>
+                <button class="map-layer-toggle is-active" id="map-alert-toggle" type="button" aria-pressed="true" data-tooltip="Masquer les points à surveiller">
+                  <span aria-hidden="true">!</span><b>Attention</b><small id="map-alert-count">0</small>
+                </button>
+                <button class="map-layer-toggle" id="map-companion-toggle" type="button" aria-pressed="false" data-tooltip="Afficher les compagnons positionnés">
+                  <span aria-hidden="true">P</span><b>Compagnons</b><small id="map-companion-count">0</small>
                 </button>
                 <button class="map-layer-toggle is-active" id="map-legend-toggle" type="button" aria-pressed="true" data-tooltip="Masquer la légende">
                   <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 6h3v3H5V6Zm5 .4h9v2.2h-9V6.4ZM5 11h3v3H5v-3Zm5 .4h9v2.2h-9v-2.2ZM5 16h3v3H5v-3Zm5 .4h9v2.2h-9v-2.2Z"/></svg></span><b>Légende</b>
