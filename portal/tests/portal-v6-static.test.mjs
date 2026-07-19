@@ -329,10 +329,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(terminal, /id="event-unseen"/);
   assert.match(terminal, /aria-live="off"/);
   assert.match(resume, /id="daily-today"/);
-  assert.match(carte, /id="map-activity-toggle"/);
-  assert.match(carte, /id="map-storage-toggle"/);
-  assert.match(carte, /id="map-alert-toggle"/);
-  assert.match(carte, /id="map-companion-toggle"/);
+  assert.doesNotMatch(carte, /id="map-activity-toggle"/);
+  assert.doesNotMatch(carte, /id="map-storage-toggle"/);
+  assert.doesNotMatch(carte, /id="map-alert-toggle"/);
+  assert.doesNotMatch(carte, /id="map-companion-toggle"/);
   assert.match(app, /data-update-announcer/);
   assert.match(app, /source-freshness/);
   assert.match(app, /assets\/icons\/clock-3\.svg/);
@@ -356,8 +356,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /schemaVersion: 2/);
   assert.match(app, /objectKeys: "sorted-recursively"/);
   assert.match(app, /rawPublicFields/);
-  assert.match(app, /globalMapPoiMeta/);
+  assert.doesNotMatch(app, /globalMapPoiMeta/);
   assert.match(app, /dailyConsolidatedPalFinds/);
+  assert.match(app, /loadPortalFreshnessSources/);
+  assert.match(app, /Get-V6PalRowsFromEvent|dailyCaptureEntries/);
   assert.match(app, /data: \{/);
   assert.match(app, /player: cloneExportValue\(player\)/);
   assert.match(app, /activity: cloneExportValue\(activity\)/);
@@ -371,8 +373,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /terminalHead: true/);
   assert.match(app, /async function loadFullTerminalEventsV6/);
   assert.match(app, /async function renderPagedTerminalEventsV6/);
-  assert.match(app, /nouveaux échos depuis ta dernière visite/);
+  assert.doesNotMatch(app, /nouveaux échos depuis ta dernière visite/);
+  assert.doesNotMatch(terminal, /depuis ta dernière visite/);
   assert.match(terminal, /event-pagination--top/);
+  assert.match(app, /event-pagination__page-input/);
   assert.match(styles, /site-header__players-tooltip[\s\S]*?max-height:\s*none;[\s\S]*?overflow:\s*visible;/);
   assert.match(styles, /site-header__players-tooltip ul[\s\S]*?grid-template-columns:\s*repeat\(2,/);
   assert.match(styles, /home-echoes__list[\s\S]*?gap:\s*10px;/);
@@ -396,7 +400,7 @@ test("l'accueil affiche les cinq échos réellement les plus récents", async ()
   assert.match(renderer, /mis à jour/);
 });
 
-test("les événements compilés rendent explicitement leur fenêtre de cinq minutes", async () => {
+test("les événements compilés rendent leur tranche sans répétition", async () => {
   const app = await portalFile("assets/app.js");
   const minutes = extractFunction(app, "eventAggregationWindowMinutes");
   globalThis.eventAggregationWindowMinutes = minutes;
@@ -407,14 +411,17 @@ test("les événements compilés rendent explicitement leur fenêtre de cinq min
     const groupedProduction = { type: "production", details: { windowMinutes: 5 } };
     assert.equal(minutes(groupedCraft), 5);
     assert.equal(label(groupedCraft), "5 min");
-    assert.equal(headline(groupedCraft, "Fabrications compilées"), "Fabrications regroupées sur 5 min");
-    assert.equal(headline(groupedProduction, "Stocks compilés"), "Productions regroupées sur 5 min");
+    assert.equal(headline(groupedCraft, "Fabrications compilées"), "Fabrications terminées");
+    assert.equal(headline(groupedProduction, "Stocks compilés"), "Ressources produites relevées");
     assert.equal(headline({ type: "boss", details: {} }, "Boss vaincu"), "Boss vaincu");
   } finally {
     delete globalThis.eventAggregationWindowMinutes;
   }
   assert.match(app, /event-line__window/);
-  assert.match(app, /Activité regroupée sur \$\{windowMinutes\} min/);
+  assert.match(app, /Tranche de \$\{windowMinutes\} min/);
+  assert.doesNotMatch(app, /Activité regroupée sur \$\{windowMinutes\} min/);
+  assert.doesNotMatch(app, /regroupées sur \$\{minutes\} min/);
+  assert.doesNotMatch(app, /Pendant \$\{prefix\}/);
   assert.match(app, /<time datetime="\$\{escapeHtml\(event\.occurredAt\)\}"><strong>\$\{escapeHtml\(timestamp\.time\)\}<\/strong><span>\$\{escapeHtml\(timestamp\.date\)\}<\/span><\/time>/);
 });
 
@@ -430,6 +437,8 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   assert.doesNotMatch(statsRenderer, /statsSnapshot = null/);
   assert.match(statsRenderer, /provenance\.sourceStatus/);
   assert.match(app, /source-freshness__value/);
+  assert.match(app, /registerDataUpdate\(\s*"bases"/);
+  assert.match(app, /"base indexée", "bases indexées"/);
 });
 
 test("les snapshots publics refusent les mélanges de générations", async () => {
@@ -504,11 +513,21 @@ test("la voie PowerShell conserve les mêmes états game-data que le collecteur 
   assert.match(script, /gameDataStatus = "transient-error"/);
 });
 
+test("le digest quotidien v6 extrait les Pals même quand les détails sont vides", async () => {
+  const script = await readFile(new URL("../../scripts/sync-palworld-events.ps1", import.meta.url), "utf8");
+
+  assert.match(script, /function Get-V6PalRowsFromEvent/);
+  assert.match(script, /premi\[eè\]re\\s\+fois/);
+  assert.match(script, /dans\\s\+son\\s\+Paldex/);
+  assert.match(script, /Add-V6PalFind -Target \$palFinds/);
+  assert.match(script, /Add-V6PalFind -Target \$player\["palFinds"\]/);
+});
+
 test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260719\.3/);
-    assert.match(html, /app\.js\?v=20260719\.3/);
+    assert.match(html, /styles\.css\?v=20260719\.6/);
+    assert.match(html, /app\.js\?v=20260719\.6/);
   }
 });

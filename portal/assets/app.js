@@ -79,14 +79,6 @@ const globalMapZoom = document.querySelector("#global-map-zoom");
 const mapPlayerToggle = document.querySelector("#map-player-toggle");
 const mapBaseToggle = document.querySelector("#map-base-toggle");
 const mapBaseCount = document.querySelector("#map-base-count");
-const mapActivityToggle = document.querySelector("#map-activity-toggle");
-const mapActivityCount = document.querySelector("#map-activity-count");
-const mapStorageToggle = document.querySelector("#map-storage-toggle");
-const mapStorageCount = document.querySelector("#map-storage-count");
-const mapAlertToggle = document.querySelector("#map-alert-toggle");
-const mapAlertCount = document.querySelector("#map-alert-count");
-const mapCompanionToggle = document.querySelector("#map-companion-toggle");
-const mapCompanionCount = document.querySelector("#map-companion-count");
 const mapLegendToggle = document.querySelector("#map-legend-toggle");
 const mapFullscreenToggle = document.querySelector("#map-fullscreen-toggle");
 const mapDisclosure = document.querySelector("#carte");
@@ -162,10 +154,6 @@ const stockPageSize = 24;
 const mapRouteIsDedicated = document.body.classList.contains("map-view");
 let showMapPlayers = true;
 let showMapBases = mapRouteIsDedicated;
-let showMapActivity = mapRouteIsDedicated;
-let showMapStorage = false;
-let showMapAlerts = mapRouteIsDedicated;
-let showMapCompanions = false;
 let showMapLegend = true;
 let mapExpandedFallback = false;
 let selectedPlayer = null;
@@ -858,6 +846,10 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function escapeRegExp(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatTooltipText(value) {
@@ -1926,122 +1918,6 @@ function playerTeamPals(player) {
   return collection.filter((pal) => pal.container === "party");
 }
 
-const globalMapPoiMeta = {
-  activity: { label: "Activité", token: "⚙", color: "#40c875" },
-  storage: { label: "Stockage", token: "▣", color: "#259db9" },
-  alert: { label: "Attention", token: "!", color: "#ef7164" },
-  companion: { label: "Compagnons", token: "P", color: "#a06ad7" },
-};
-
-const globalMapPoiOffsets = {
-  activity: { x: 15, y: -14 },
-  storage: { x: -15, y: 14 },
-  alert: { x: 15, y: 14 },
-  companion: { x: -14, y: -14 },
-};
-
-function mapTopItemLabel(items, limit = 2) {
-  const names = (Array.isArray(items) ? items : [])
-    .map((item) => String(item?.name || "").trim())
-    .filter(Boolean)
-    .slice(0, limit);
-  return names.length ? names.join(", ") : "";
-}
-
-function globalMapBasePoiRows(positionedBases) {
-  return positionedBases.flatMap((base, baseIndex) => {
-    const rows = [];
-    const position = base.position;
-    const ownerLabel = basePlayerLabel(base, true);
-    const playerNames = basePlayerNames(base);
-    const player = (saveSnapshot?.players || []).find((row) => playerNames.includes(row.name));
-    const target = player ? playerRoute(player, "bases") : "#carte";
-    const productionUnits = Number(base?.production?.units || 0);
-    const productionItems = Number(base?.production?.itemTypes || 0);
-    const productionTop = mapTopItemLabel(base?.production?.topItems);
-    if (productionUnits || productionItems) {
-      rows.push({
-        type: "activity",
-        key: `activity:${baseIndex}:${base.name}`,
-        title: `${base.name} · activité`,
-        body: `${formatInteger(productionUnits)} poste${productionUnits > 1 ? "s" : ""} de production${productionTop ? ` · ${productionTop}` : ""}`,
-        count: productionUnits || productionItems,
-        position,
-        target,
-        ownerLabel,
-      });
-    }
-
-    const storageUnits = Number(base?.storage?.units || 0);
-    const storageFill = Number(base?.storage?.fillPercent || 0);
-    const storageTop = mapTopItemLabel(base?.storage?.topItems);
-    if (storageUnits || storageTop) {
-      rows.push({
-        type: "storage",
-        key: `storage:${baseIndex}:${base.name}`,
-        title: `${base.name} · stockage`,
-        body: `${formatInteger(storageUnits)} coffre${storageUnits > 1 ? "s" : ""}${Number.isFinite(storageFill) && storageFill > 0 ? ` · ${formatProgressPercent(storageFill)} rempli` : ""}${storageTop ? ` · ${storageTop}` : ""}`,
-        count: storageUnits,
-        position,
-        target,
-        ownerLabel,
-      });
-    }
-
-    const damaged = Number(base?.structures?.damaged || 0);
-    const unfinished = Number(base?.structures?.unfinished || 0);
-    const unwell = Number(base?.workers?.unwell || 0);
-    const alertCount = damaged + unfinished + unwell;
-    if (alertCount > 0) {
-      rows.push({
-        type: "alert",
-        key: `alert:${baseIndex}:${base.name}`,
-        title: `${base.name} · à surveiller`,
-        body: [
-          damaged ? `${dailyPlural(damaged, "structure abîmée", "structures abîmées")}` : "",
-          unfinished ? `${dailyPlural(unfinished, "construction incomplète", "constructions incomplètes")}` : "",
-          unwell ? `${dailyPlural(unwell, "Pal à ménager", "Pals à ménager")}` : "",
-        ].filter(Boolean).join(" · "),
-        count: alertCount,
-        position,
-        target,
-        ownerLabel,
-      });
-    }
-    return rows;
-  });
-}
-
-function globalMapCompanionPoiRows(players) {
-  return (Array.isArray(players) ? players : []).flatMap((player) => playerTeamPals(player)
-    .filter((pal) => isWorldMapPosition(pal?.position)
-      && Number.isFinite(Number(pal.position.leftPercent))
-      && Number.isFinite(Number(pal.position.topPercent)))
-    .map((pal) => ({
-      type: "companion",
-      key: `companion:${playerSlug(player.name)}:${pal.name || pal.species}:${pal.position.leftPercent}:${pal.position.topPercent}`,
-      title: `${pal.name || pal.species || "Pal"} · ${player.name}`,
-      body: `${pal.species || "Compagnon"}${pal.level != null ? ` · niveau ${formatInteger(pal.level)}` : ""}${pal.favorite ? " · favori" : ""}`,
-      count: Number(pal.level || 0),
-      position: pal.position,
-      target: playerRoute(player, "pals"),
-      ownerLabel: player.name,
-    })))
-    .sort((left, right) => Number(right.count || 0) - Number(left.count || 0)
-      || String(left.title).localeCompare(String(right.title), "fr-CA"))
-    .slice(0, 24);
-}
-
-function syncMapLayerButton(button, active, labelActive, labelInactive, tooltipActive, tooltipInactive, countNode, count) {
-  if (!button) return;
-  button.setAttribute("aria-pressed", String(active));
-  button.classList.toggle("is-active", active);
-  const label = button.querySelector("b");
-  if (label) label.textContent = active ? labelActive : labelInactive;
-  button.dataset.tooltip = active ? tooltipActive : tooltipInactive;
-  if (countNode) countNode.textContent = formatInteger(count || 0);
-}
-
 function syncGlobalMapControls() {
   globalMapLayout?.classList.toggle("is-legend-hidden", !showMapLegend);
   globalMapLayout?.classList.toggle("is-showing-bases", showMapBases);
@@ -2082,16 +1958,8 @@ function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases ||
     .filter(({ player }) => player?.position && !isWorldMapPosition(player.position));
   const positionedBases = (Array.isArray(bases) ? bases : [])
     .filter((base) => base?.position && Number.isFinite(Number(base.position.leftPercent)) && Number.isFinite(Number(base.position.topPercent)));
-  const basePoiRows = globalMapBasePoiRows(positionedBases);
-  const companionPoiRows = globalMapCompanionPoiRows(players);
-  const poiRows = [
-    ...(showMapActivity ? basePoiRows.filter((row) => row.type === "activity") : []),
-    ...(showMapStorage ? basePoiRows.filter((row) => row.type === "storage") : []),
-    ...(showMapAlerts ? basePoiRows.filter((row) => row.type === "alert") : []),
-    ...(showMapCompanions ? companionPoiRows : []),
-  ];
 
-  if (!positioned.length && !positionedBases.length && !uncharted.length && !companionPoiRows.length) {
+  if (!positioned.length && !positionedBases.length && !uncharted.length) {
     globalPlayerMarkers.innerHTML = "";
     globalPlayerLegend.innerHTML = '<p class="save-empty">Aucune position connue pour l\'instant.</p>';
     globalMapCaption.textContent = "Les positions apparaîtront après une sauvegarde du monde.";
@@ -2130,21 +1998,7 @@ function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases ||
       </a>
     `;
   }).join("") : "";
-  const poiMarkers = poiRows.map((poi, markerIndex) => {
-    const meta = globalMapPoiMeta[poi.type] || globalMapPoiMeta.activity;
-    const offset = globalMapPoiOffsets[poi.type] || { x: 0, y: 0 };
-    return `
-      <a class="global-poi-marker global-poi-marker--${escapeHtml(poi.type)}" href="${escapeHtml(poi.target || "#carte")}"
-        style="left:calc(${Number(poi.position.leftPercent)}% + ${offset.x}px);top:calc(${Number(poi.position.topPercent)}% + ${offset.y}px);--poi-color:${escapeHtml(meta.color)};--marker-order:${positioned.length + positionedBases.length + markerIndex}"
-        data-tooltip-title="${escapeHtml(poi.title)}"
-        data-tooltip="${escapeHtml(poi.body)}"
-        aria-label="${escapeHtml(`${meta.label}: ${poi.title}. ${poi.body}`)}">
-        <i aria-hidden="true">${escapeHtml(meta.token)}</i>
-        <strong><b>${escapeHtml(poi.title)}</b><small>${escapeHtml(poi.body)}</small></strong>
-      </a>
-    `;
-  }).join("");
-  globalPlayerMarkers.innerHTML = playerMarkers + baseMarkers + poiMarkers;
+  globalPlayerMarkers.innerHTML = playerMarkers + baseMarkers;
 
   const playerLegend = showMapPlayers ? positioned.map(({ player, index }) => {
     const activity = playerActivityByName.get(String(player.name || "").toLocaleLowerCase("fr-CA"));
@@ -2177,22 +2031,7 @@ function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases ||
       <span>Ouvre la fiche d'un aventurier pour explorer ses campements.</span>
     </div>
   ` : "";
-  const poiLegendRows = [
-    { type: "activity", active: showMapActivity, count: basePoiRows.filter((row) => row.type === "activity").length, label: "Bases en production" },
-    { type: "storage", active: showMapStorage, count: basePoiRows.filter((row) => row.type === "storage").length, label: "Stocks visibles" },
-    { type: "alert", active: showMapAlerts, count: basePoiRows.filter((row) => row.type === "alert").length, label: "Points à surveiller" },
-    { type: "companion", active: showMapCompanions, count: companionPoiRows.length, label: "Compagnons positionnés" },
-  ].filter((row) => row.active);
-  const poiLegend = poiLegendRows.length ? `
-    <div class="global-poi-legend">
-      <strong>Points d'intérêt affichés</strong>
-      ${poiLegendRows.map((row) => {
-        const meta = globalMapPoiMeta[row.type];
-        return `<span style="--poi-color:${escapeHtml(meta.color)}"><i>${escapeHtml(meta.token)}</i><b>${escapeHtml(row.label)}</b><small>${formatInteger(row.count)}</small></span>`;
-      }).join("")}
-    </div>
-  ` : "";
-  globalPlayerLegend.innerHTML = showMapLegend ? playerLegend + unchartedLegend + baseLegend + poiLegend : "";
+  globalPlayerLegend.innerHTML = showMapLegend ? playerLegend + unchartedLegend + baseLegend : "";
   const unchartedNote = uncharted.length
     ? ` · ${uncharted.length} en zone non cartographiée`
     : "";
@@ -2202,10 +2041,7 @@ function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases ||
   const basePart = showMapBases
     ? `${positionedBases.length} base${positionedBases.length > 1 ? "s" : ""}`
     : "bases masquées";
-  const poiPart = poiRows.length
-    ? `${poiRows.length} point${poiRows.length > 1 ? "s" : ""} d'intérêt`
-    : "points d'intérêt masqués";
-  globalMapCaption.textContent = `${playerPart} · ${basePart} · ${poiPart}` + (showMapPlayers ? unchartedNote : "");
+  globalMapCaption.textContent = `${playerPart} · ${basePart}` + (showMapPlayers ? unchartedNote : "");
   const visibleBaseCount = currentBasesSnapshot()
     ? positionedBases.length
     : Number(saveSnapshot?.summary?.bases || 0);
@@ -2217,10 +2053,6 @@ function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases ||
     if (label) label.textContent = "Bases";
     mapBaseToggle.dataset.tooltip = showMapBases ? "Masquer les bases de la carte" : "Afficher les bases sur la carte";
   }
-  syncMapLayerButton(mapActivityToggle, showMapActivity, "Activité", "Activité", "Masquer les productions et ateliers", "Afficher les productions et ateliers", mapActivityCount, basePoiRows.filter((row) => row.type === "activity").length);
-  syncMapLayerButton(mapStorageToggle, showMapStorage, "Stockage", "Stockage", "Masquer les stocks des bases", "Afficher les stocks des bases", mapStorageCount, basePoiRows.filter((row) => row.type === "storage").length);
-  syncMapLayerButton(mapAlertToggle, showMapAlerts, "Attention", "Attention", "Masquer les points à surveiller", "Afficher les points à surveiller", mapAlertCount, basePoiRows.filter((row) => row.type === "alert").length);
-  syncMapLayerButton(mapCompanionToggle, showMapCompanions, "Compagnons", "Compagnons", "Masquer les compagnons positionnés", "Afficher les compagnons positionnés", mapCompanionCount, companionPoiRows.length);
   syncGlobalMapControls();
 }
 
@@ -2269,6 +2101,13 @@ function renderSaveSnapshot(payload, syncRoute = true) {
   saveSnapshot = { ...payload, players };
   if (saveState) saveState.textContent = "Données synchronisées";
   registerPayloadDataUpdate("save", payload);
+  registerDataUpdate(
+    "bases",
+    payload?.provenance?.sourceUpdatedAt || payload?.updatedAt,
+    payload?.provenance?.sourceStatus || (payload?.ok ? "available" : "transient-error"),
+    payload?.provenance?.freshness || (payload?.ok ? "current" : "stale"),
+    `${dailyPlural(Number(summary.bases || 0), "base indexée", "bases indexées")} dans la dernière sauvegarde publique.`,
+  );
   renderWorldContractStatus();
   const summaryValues = {
     players: players.length,
@@ -3393,13 +3232,12 @@ function updateTerminalUnseen() {
     return;
   }
   eventUnseen.hidden = false;
-  if (eventUnseenCount) eventUnseenCount.textContent = unseen.displayCount;
+  if (eventUnseenCount) eventUnseenCount.textContent = `+${unseen.displayCount}`;
   const label = eventUnseen.querySelector("span");
   if (label) {
-    label.textContent = unseen.count === 1
-      ? "nouvel écho depuis ta dernière visite"
-      : "nouveaux échos depuis ta dernière visite";
+    label.textContent = unseen.count === 1 ? "écho" : "échos";
   }
+  eventUnseen.setAttribute("aria-label", unseen.count === 1 ? "1 ajout dans le journal" : `${unseen.displayCount} ajouts dans le journal`);
   terminalUnseenHideTimer = window.setTimeout(() => {
     eventUnseen.hidden = true;
     markTerminalEchoesSeen();
@@ -4339,7 +4177,7 @@ function renderEventLineHtml(event, index = 0) {
       : "";
     const windowMinutes = eventAggregationWindowMinutes(event);
     const windowBadge = windowMinutes
-      ? `<em class="event-line__window" aria-label="Activité regroupée sur ${windowMinutes} minutes">Activité regroupée sur ${windowMinutes} min</em>`
+      ? `<em class="event-line__window" aria-label="Tranche de ${windowMinutes} minutes">Tranche de ${windowMinutes} min</em>`
       : "";
     return `
       <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
@@ -4386,15 +4224,16 @@ function eventAggregationHeadline(event, fallbackHeadline) {
   const minutes = eventAggregationWindowMinutes(event);
   if (!minutes) return fallbackHeadline;
   const labels = {
-    craft: "Fabrications",
-    production: "Productions",
-    fishing: "Pêches",
-    build: "Constructions",
-    loot: "Butins",
-    collection: "Collections",
+    craft: "Fabrications terminées",
+    production: "Ressources produites relevées",
+    fishing: "Pêche ramenée",
+    build: "Base agrandie",
+    repair: "Réparations terminées",
+    base: "État de base relevé",
+    loot: "Butin récupéré",
+    collection: "Collection enrichie",
   };
-  const label = labels[event.type] || "Activité";
-  return minutes === 1 ? `${label} regroupées sur 1 min` : `${label} regroupées sur ${minutes} min`;
+  return labels[event.type] || fallbackHeadline || "Activité relevée";
 }
 
 function compactEventHeadline(event, fallbackHeadline) {
@@ -4416,27 +4255,44 @@ function compactProductionEventBody(event, fallbackBody, bullets) {
   const ready = isDerived
     ? added === 1 ? "1 ressource supplémentaire a été relevée." : `${added.toLocaleString("fr-CA")} ressources supplémentaires ont été relevées.`
     : added === 1 ? "1 ressource produite est prête." : `${added.toLocaleString("fr-CA")} ressources produites sont prêtes.`;
-  const prefix = eventAggregationWindowLabel(event);
   const body = total > 0
-    ? `${ready} ${isDerived ? "Stock observé" : "Stock de production actuel"} : ${total.toLocaleString("fr-CA")}.`
+    ? `${ready} ${isDerived ? "Stock observé" : "Stock de production"} : ${total.toLocaleString("fr-CA")}.`
     : ready;
-  return prefix ? `Pendant ${prefix}, ${body.charAt(0).toLocaleLowerCase("fr-CA")}${body.slice(1)}` : body;
+  return body;
 }
 
 function compactItemizedEventBody(event, fallbackBody, bullets) {
   if (event.type === "production") return compactProductionEventBody(event, fallbackBody, bullets);
-  if (!bullets.length || !["craft", "fishing"].includes(event.type)) return fallbackBody;
+  if (!bullets.length || !["craft", "fishing", "build", "repair", "base"].includes(event.type)) return fallbackBody;
   const added = eventBulletQuantityTotal(bullets);
   const total = Number(event.details?.total || 0);
   const player = String(event.player || "").trim();
-  if (!added || !total || !player) return fallbackBody;
-  const prefix = eventAggregationWindowLabel(event);
-  const lead = prefix ? `Pendant ${prefix}, ` : "";
+  const base = String(event.base || "").trim();
+  if (!added || (!player && !base)) return fallbackBody;
 
   if (event.type === "craft") {
-    return `${lead}${player} termine ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "fabrication", "fabrications")}. Total cumulé : ${total.toLocaleString("fr-CA")}.`;
+    const totalLabel = total > 0 ? ` Total cumulé : ${total.toLocaleString("fr-CA")}.` : "";
+    return `${player} termine ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "fabrication", "fabrications")}.${totalLabel}`;
   }
-  return `${lead}${player} ramène ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "prise de pêche", "prises de pêche")}. Total cumulé : ${total.toLocaleString("fr-CA")}.`;
+  if (event.type === "fishing") {
+    const totalLabel = total > 0 ? ` Total cumulé : ${total.toLocaleString("fr-CA")}.` : "";
+    return `${player} ramène ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "prise de pêche", "prises de pêche")}.${totalLabel}`;
+  }
+  const owner = player || base;
+  if (event.type === "build") {
+    const scope = base && !String(owner).includes(base) ? ` à ${base}` : "";
+    const totalLabel = total > 0 ? ` Total suivi : ${total.toLocaleString("fr-CA")}.` : "";
+    return `${owner} ajoute ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "structure", "structures")}${scope}.${totalLabel}`;
+  }
+  if (event.type === "repair") {
+    const scope = base && !String(owner).includes(base) ? ` à ${base}` : "";
+    return `${owner} remet ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "structure", "structures")} en état${scope}.`;
+  }
+  if (event.type === "base") {
+    const scope = base && !String(owner).includes(base) ? ` à ${base}` : "";
+    return `${owner} relève ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "structure endommagée", "structures endommagées")}${scope}.`;
+  }
+  return fallbackBody;
 }
 
 function renderEventPaginationControls(pageCount) {
@@ -4451,7 +4307,11 @@ function renderEventPaginationControls(pageCount) {
   if (isTerminalRoute()) {
     eventPagination.innerHTML = `
       <button type="button" data-event-page="${eventCurrentPage - 1}" aria-label="Page précédente" ${eventCurrentPage === 1 ? "disabled" : ""}>‹</button>
-      <span class="event-pagination__position">Page ${formatInteger(eventCurrentPage)} / ${formatInteger(pageCount)}</span>
+      <span class="event-pagination__position">
+        <span>Page</span>
+        <input class="event-pagination__page-input" type="number" inputmode="numeric" min="1" max="${pageCount}" value="${eventCurrentPage}" aria-label="Aller à la page">
+        <span>/ ${formatInteger(pageCount)}</span>
+      </span>
       <button type="button" data-event-page="${eventCurrentPage + 1}" aria-label="Page suivante" ${eventCurrentPage === pageCount ? "disabled" : ""}>›</button>`;
     return;
   }
@@ -4985,6 +4845,13 @@ function dailyCountedEntriesFromText(text) {
   }).filter((entry) => entry && entry.count > 0 && entry.name);
 }
 
+function dailyMessageWithoutPlayer(message, player) {
+  const text = String(message || "").trim();
+  const name = String(player || "").trim();
+  if (!name) return text;
+  return text.replace(new RegExp(`^${escapeRegExp(name)}\\s+`, "i"), "").trim();
+}
+
 function dailyCollectionEntries(event) {
   const message = `${event?.display?.body || ""} ${event?.message || ""}`;
   const match = message.match(/accueille\s+(.+?)\s+dans\s+sa\s+collection/i);
@@ -4992,7 +4859,7 @@ function dailyCollectionEntries(event) {
 }
 
 function dailyCaptureEntries(event) {
-  const message = `${event?.display?.body || ""} ${event?.message || ""}`;
+  const message = dailyMessageWithoutPlayer(`${event?.display?.body || ""} ${event?.message || ""}`, event?.player);
   if (event?.type === "capture") {
     const match = message.match(/capture\s+(\d[\d\s]*)\s+(.+?)\.\s+Total/i);
     if (match) {
@@ -5000,6 +4867,14 @@ function dailyCaptureEntries(event) {
         count: Math.max(0, dailyNumber(match[1])),
         name: match[2].trim(),
       }];
+    }
+    const firstCapture = message.match(/capture\s+(.+?)\s+pour\s+la\s+premi[eè]re\s+fois/i);
+    if (firstCapture) {
+      return [{ count: 1, name: firstCapture[1].trim().replace(/[.;:]$/, "") }];
+    }
+    const paldex = message.match(/inscrit\s+(.+?)\s+dans\s+son\s+Paldex(?:\s+avec\s+(\d[\d\s]*)\s+captures?)?/i);
+    if (paldex) {
+      return [{ count: Math.max(1, dailyNumber(paldex[2] || 1)), name: paldex[1].trim().replace(/[.;:]$/, "") }];
     }
   }
   if (event?.type === "collection") return dailyCollectionEntries(event);
@@ -5139,6 +5014,7 @@ function dailyPalEntriesFromEvent(event) {
     key: dailyPalKey(entry.name, type),
     type,
     name: entry.name,
+    icon: event.icon || entry.icon || null,
     quantity: Number(entry.count || 0),
     player: String(event.player || "Monde").trim() || "Monde",
   })).filter((entry) => entry.quantity > 0 && entry.name && entry.name.toLocaleLowerCase("fr-CA") !== "autres");
@@ -5152,7 +5028,9 @@ function dailyTopAggregates(map, limit = 5) {
 }
 
 function dailyConsolidatedPalFinds(summaryOrPlayer) {
-  const source = summaryOrPlayer?.palFinds;
+  const source = summaryOrPlayer?.palFinds instanceof Map
+    ? summaryOrPlayer.palFinds
+    : dailyV6Map(summaryOrPlayer?.palFinds);
   if (!(source instanceof Map)) return new Map();
   const consolidated = new Map();
   source.forEach((entry) => {
@@ -5627,27 +5505,35 @@ function renderDailyBrief(summary) {
   const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
   const topPal = dailyTopAggregates(dailyConsolidatedPalFinds(summary), 1)[0];
   const palSignals = dailyPalSignalTotal(summary);
-  const levelAgreement = summary.totals.levelUps === 1 ? "" : "s";
+  const factTotal = dailyFactTotal(summary.totals);
   const lead = summary.presenceAvailable === false
     ? (summary.totals.eventCount
-      ? `${dailyPlural(summary.totals.activePlayers, "joueur présent dans le journal", "joueurs présents dans le journal")} · moments de la journée`
+      ? `${dailyPlural(summary.totals.activePlayers, "joueur dans les échos", "joueurs dans les échos")} · ${dailyPlural(summary.totals.eventCount, "moment publié", "moments publiés")}`
       : "Aucun moment publié pour cette journée.")
     : (summary.totals.eventCount || summary.totals.presenceSessions
-      ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · faits et présences de la journée`
+      ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · ${dailyPlural(summary.totals.eventCount, "moment publié", "moments publiés")}`
       : "Aucun fait ni présence pour cette journée.");
+  const workshopLine = [
+    summary.totals.craft ? dailyPlural(summary.totals.craft, "objet fabriqué", "objets fabriqués") : "",
+    summary.totals.production ? dailyPlural(summary.totals.production, "ressource produite", "ressources produites") : "",
+  ].filter(Boolean).join(" · ");
+  const workshopDetail = [topCraft ? `fabrication: ${topCraft.name}` : "", topProduction ? `production: ${topProduction.name}` : ""]
+    .filter(Boolean).join(" · ");
+  const palLine = palSignals
+    ? `${dailyPlural(palSignals, "Pal repéré", "Pals repérés")}${topPal ? ` · ${topPal.name} ressort le plus` : " dans les captures et collections"}`
+    : "Aucune capture ou collection marquante.";
   return `
     <div class="daily-brief__lead">
       <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
       <span>${lead}</span>
     </div>
     <ul class="daily-brief__list">
-      <li><b>Joueur qui se démarque</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Aucune activité joueur détectée"}</span></li>
-      <li><b>Fabrications</b><span>${summary.totals.craft ? `${dailyPlural(summary.totals.craft, "objet fabriqué", "objets fabriqués")} · ${dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true })}` : "Aucune fabrication détectée"}</span></li>
-      <li><b>Production</b><span>${summary.totals.production ? `${dailyPlural(summary.totals.production, "ressource produite", "ressources produites")} · ${dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true })}` : "Aucune production détectée"}</span></li>
-      <li><b>Pals</b><span>${palSignals ? `${dailyPlural(palSignals, "Pal repéré", "Pals repérés")} · ${dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true })}` : "Aucun Pal ne ressort dans les captures ou la collection"}</span></li>
-      <li><b>Fait dominant</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler"}</span></li>
-      <li><b>Niveaux gagnés</b><span>${dailyPlural(summary.totals.levelUps, "montée de niveau", "montées de niveau")} détectée${levelAgreement} pendant la journée.</span></li>
-      <li><b>Rythme</b><span>${busiestHour?.count ? `${String(busiestHour.hour).padStart(2, "0")} h ressort comme période la plus dense` : "Pas assez de données pour dégager un pic"}</span></li>
+      <li><b>Joueur qui ressort</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement."}</span></li>
+      <li><b>Ateliers et bases</b><span>${workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Peu de fabrication ou production visible."}</span></li>
+      <li><b>Pals</b><span>${palLine}</span></li>
+      <li><b>Progression</b><span>${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "fait marquant", "faits marquants")}</span></li>
+      <li><b>Moment fort</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler."}</span></li>
+      <li><b>Rythme</b><span>${busiestHour?.count ? `${String(busiestHour.hour).padStart(2, "0")} h est la période la plus animée` : "Pas assez de données pour dégager un pic."}</span></li>
     </ul>
     <div class="daily-type-strip">
       ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : ["capture", "collection", "pal"].includes(entry.type) ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b>${escapeHtml(dailyAggregateQuantityLabel(entry))}</span>`).join("")}
@@ -5687,7 +5573,7 @@ function renderDailyTypes(summary) {
     },
     {
       title: "Pals repérés",
-      empty: "Aucun Pal ressort dans les captures ou la collection.",
+      empty: "Des captures et collections sont comptées, mais aucun Pal ne ressort encore par nom.",
       accent: "#40c875",
       total: dailyPalSignalTotal(summary),
       rows: dailyTopAggregates(dailyConsolidatedPalFinds(summary), 6),
@@ -5983,11 +5869,16 @@ function renderDailyDigest(summary) {
       || Number(right.score || 0) - Number(left.score || 0)
       || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
   const factTotal = dailyFactTotal(totals);
+  const palMetricDetail = topPal
+    ? dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true })
+    : palSignals
+      ? "Captures et collections repérées dans la journée"
+      : "Aucun Pal dominant";
   dailyMetrics.innerHTML = [
     renderDailyMetric("Joueur du jour", leader?.name || "--", leader ? dailyPlayerReasons(leader) : "Aucune activité joueur", "events", "Score pondéré par niveaux, captures, fabrications, productions, bases et faits non routiniers."),
     renderDailyMetric("Objets fabriqués", formatInteger(totals.craft), dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true }), "craft", "Somme des quantités ajoutées par les fabrications du jour."),
     renderDailyMetric("Ressources produites", formatInteger(totals.production), dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true }), "production", "Somme des ressources prêtes dans les productions du jour."),
-    renderDailyMetric("Pals repérés", formatInteger(palSignals), topPal ? dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true }) : "Aucun Pal dominant", "capture", "Captures et ajouts de collection regroupés par Pal."),
+    renderDailyMetric("Pals repérés", formatInteger(palSignals), palMetricDetail, "capture", "Captures et ajouts de collection regroupés par Pal."),
     renderDailyMetric("Niveaux gagnés", formatInteger(totals.levelUps), topLevelPlayer ? `dont ${topLevelPlayer.name} · ${dailyPlural(topLevelPlayer.metrics.levelUps, "niveau gagné", "niveaux gagnés")}` : "Aucune montée détectée", "level", "Montées de niveau détectées pendant la journée."),
     renderDailyMetric("Structures", formatInteger(totals.build), `dont ${dailyPlural(totals.repair, "structure réparée", "structures réparées")}`, "base", "Structures ajoutées et réparations détectées dans les bases."),
     renderDailyMetric("Faits divers", formatInteger(factTotal), `dont ${dailyPlural(totals.boss, "boss", "boss")} · ${dailyPlural(totals.discovery, "découverte")}`, "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres faits moins routiniers."),
@@ -6014,9 +5905,16 @@ function dailyV6Map(value) {
     const players = row?.players instanceof Map
       ? row.players
       : new Map(Object.entries(row?.players || {}));
-    const normalized = { ...row, players };
-    return [String(row?.key || row?.name || index), normalized];
-  }));
+    const key = String(row?.key || row?.name || index);
+    const normalized = {
+      ...row,
+      key,
+      name: String(row?.name || row?.label || row?.species || row?.key || "Pal").trim() || "Pal",
+      quantity: Math.max(0, dailyNumber(row?.quantity ?? row?.count ?? row?.total ?? row?.captures ?? row?.added ?? 0)),
+      players,
+    };
+    return [key, normalized];
+  }).filter(([, row]) => row.quantity > 0 || row.name));
 }
 
 function normalizeDailyV6Digest(payload) {
@@ -7560,6 +7458,44 @@ async function loadBases(silent = false) {
   }
 }
 
+async function loadEventsFreshness(silent = true, force = false) {
+  try {
+    const candidate = await fetchEventsV6Candidate(silent, force);
+    if (candidate.ok) return commitEventsV6Candidate(candidate);
+    registerSourceHealth("events", "transient-error", "stale");
+    return { ok: false, changed: false };
+  } catch {
+    registerSourceHealth("events", "transient-error", "stale");
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadCatalogFreshness() {
+  try {
+    await ensurePublicCatalogManifest();
+    return { ok: true, changed: false };
+  } catch {
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadPortalFreshnessSources(options = {}) {
+  const tasks = [
+    loadMetrics(true),
+    loadStats(true),
+    loadUptime(true),
+    loadSaveSnapshot(true, false),
+    loadSaveDiagnostics(true),
+    loadCatalogFreshness(),
+  ];
+  if (options.includeEvents !== false) tasks.push(loadEventsFreshness(true));
+  return Promise.all(tasks);
+}
+
+function flattenLoadResults(results) {
+  return results.flatMap((result) => Array.isArray(result) ? result : [result]);
+}
+
 function setupLazyBaseData() {
   if (currentBasesSnapshot()) return;
   const targets = [document.querySelector("#carte")].filter(Boolean);
@@ -7693,22 +7629,24 @@ async function refreshDataInBackground() {
   refreshPending = true;
   renderNextUpdate();
   if (isHeaderOnlyRoute()) {
-    const result = await loadMetrics(true);
+    const results = flattenLoadResults(await loadPortalFreshnessSources());
+    const synchronizedSources = results.filter((result) => result.ok).length;
+    const changedSources = results.filter((result) => result.changed).length;
     nextRefreshAt = Date.now() + refreshEveryMs;
     refreshPending = false;
-    refreshMessageState = result.ok ? "updated" : "error";
+    refreshMessageState = synchronizedSources ? "updated" : "error";
     const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
-    refreshMessage = result.ok ? `À jour · ${refreshTime}` : "Nouvel essai bientôt";
-    if (result.changed) announceDataUpdate("Les données du serveur ont été actualisées.");
+    refreshMessage = synchronizedSources ? `À jour · ${refreshTime}` : "Nouvel essai bientôt";
+    if (changedSources) announceDataUpdate("Les données du portail ont été actualisées.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
   }
   if (isDailyDigestRoute()) {
-    const results = await Promise.all([
-      loadMetrics(true),
+    const results = flattenLoadResults(await Promise.all([
+      loadPortalFreshnessSources({ includeEvents: false }),
       loadDailyDigest(true),
-    ]);
+    ]));
     const synchronizedSources = results.filter((result) => result.ok).length;
     const changedSources = results.filter((result) => result.changed).length;
     nextRefreshAt = Date.now() + refreshEveryMs;
@@ -7725,10 +7663,10 @@ async function refreshDataInBackground() {
   }
   if (isTerminalRoute()) {
     const eventRefresh = loadTerminalEventsPreferred(true);
-    const results = await Promise.all([
-      loadMetrics(true),
+    const results = flattenLoadResults(await Promise.all([
+      loadPortalFreshnessSources({ includeEvents: false }),
       eventRefresh,
-    ]);
+    ]));
     const synchronizedSources = results.filter((result) => result.ok).length;
     const changedSources = results.filter((result) => result.changed).length;
     nextRefreshAt = Date.now() + refreshEveryMs;
@@ -7743,15 +7681,11 @@ async function refreshDataInBackground() {
     renderNextUpdate();
     return;
   }
-  const results = await Promise.all([
-    loadMetrics(true),
-    loadStats(true),
-    loadUptime(true),
-    loadSaveSnapshot(true, false),
+  const results = flattenLoadResults(await Promise.all([
+    loadPortalFreshnessSources({ includeEvents: false }),
     basesGenerationRequested ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
-    loadSaveDiagnostics(true),
     loadHomeEchoes(true),
-  ]);
+  ]));
   const synchronizedSources = results.filter((result) => result.ok).length;
   const changedSources = results.filter((result) => result.changed).length;
 
@@ -7773,7 +7707,7 @@ if (isTerminalRoute()) {
   if (eventsDisclosure) eventsDisclosure.open = true;
   const terminalEventsLoad = loadTerminalEventsPreferred();
   Promise.all([
-    loadMetrics(),
+    loadPortalFreshnessSources({ includeEvents: false }),
     terminalEventsLoad,
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
@@ -7796,24 +7730,18 @@ if (isTerminalRoute()) {
   });
 } else if (isDailyDigestRoute()) {
   Promise.all([
-    loadMetrics(),
+    loadPortalFreshnessSources({ includeEvents: false }),
     loadDailyDigest(),
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
   });
 } else if (isLeaderboardRoute()) {
-  Promise.all([
-    loadMetrics(),
-    loadStats(),
-    loadSaveSnapshot(false, false),
-  ]).then(() => {
+  loadPortalFreshnessSources().then(() => {
     document.documentElement.classList.add("data-loaded");
   });
 } else if (isMapRoute()) {
   Promise.all([
-    loadMetrics(),
-    loadStats(),
-    loadSaveSnapshot(false, false),
+    loadPortalFreshnessSources(),
     loadBases(true),
   ]).then(() => {
     loadDeferredImage(globalMapImage);
@@ -7821,7 +7749,7 @@ if (isTerminalRoute()) {
     document.documentElement.classList.add("data-loaded");
   });
 } else if (isHeaderOnlyRoute()) {
-  loadMetrics().then(() => {
+  loadPortalFreshnessSources().then(() => {
     document.documentElement.classList.add("data-loaded");
   });
 } else {
@@ -7834,7 +7762,7 @@ if (isTerminalRoute()) {
     : Promise.resolve({ ok: true, changed: false });
   const initialEventsLoad = loadHomeEchoes(true);
 
-  Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), initialEventsLoad]).then(() => {
+  Promise.all([loadPortalFreshnessSources({ includeEvents: false }), initialBaseLoad, initialEventsLoad]).then(() => {
     document.documentElement.classList.add("data-loaded");
     setupLazyBaseData();
     const initialSection = ["chroniques", "classements", "carte", "evenements"]
@@ -8172,28 +8100,6 @@ if (isMapRoute()) {
     showMapBases = shouldShow;
     renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
-  mapActivityToggle?.addEventListener("click", async () => {
-    const shouldShow = !showMapActivity;
-    if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
-    showMapActivity = shouldShow;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
-  });
-  mapStorageToggle?.addEventListener("click", async () => {
-    const shouldShow = !showMapStorage;
-    if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
-    showMapStorage = shouldShow;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
-  });
-  mapAlertToggle?.addEventListener("click", async () => {
-    const shouldShow = !showMapAlerts;
-    if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
-    showMapAlerts = shouldShow;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
-  });
-  mapCompanionToggle?.addEventListener("click", () => {
-    showMapCompanions = !showMapCompanions;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
-  });
   mapLegendToggle?.addEventListener("click", () => {
     showMapLegend = !showMapLegend;
     renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
@@ -8220,6 +8126,25 @@ eventPagination?.addEventListener("click", (event) => {
   void updateTerminalEvents().then(() => {
     document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
   });
+});
+eventPagination?.addEventListener("change", (event) => {
+  const input = event.target.closest(".event-pagination__page-input");
+  if (!input) return;
+  const max = Math.max(1, Number(input.max || 1));
+  const nextPage = clamp(Number(input.value || 1), 1, max);
+  input.value = String(nextPage);
+  if (nextPage === eventCurrentPage) return;
+  eventCurrentPage = nextPage;
+  eventCursor = "";
+  void updateTerminalEvents().then(() => {
+    document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
+  });
+});
+eventPagination?.addEventListener("keydown", (event) => {
+  const input = event.target.closest(".event-pagination__page-input");
+  if (!input || event.key !== "Enter") return;
+  event.preventDefault();
+  input.blur();
 });
 eventDateInput?.addEventListener("change", () => {
   void selectEventDate(eventDateInput.value);

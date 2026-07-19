@@ -324,8 +324,8 @@ try {
     $tailRecent = Copy-JsonValue -Value $tailFull
     $tailRecent.events = [object[]]@([pscustomobject]@{
         key = "public-group:craft:joueuse:2026-07-18T10:00:00-04:00"; id = 402; occurredAt = "2026-07-18T10:02:00-04:00"; type = "craft"
-        player = "Joueuse"; guild = $null; base = "Atelier"; title = "Fabrications compilées"; message = "Joueuse termine 5 fabrications sur 5 min."
-        display = [pscustomobject]@{ headline = "Fabrications compilées"; body = "Joueuse termine 5 fabrications sur 5 min."; bullets = @("+5 Bois") }
+        player = "Joueuse"; guild = $null; base = "Atelier"; title = "Fabrications terminées"; message = "Joueuse termine 5 fabrications."
+        display = [pscustomobject]@{ headline = "Fabrications terminées"; body = "Joueuse termine 5 fabrications."; bullets = @("+5 Bois") }
         details = [pscustomobject]@{ aggregatedEvents = 2; items = @([pscustomobject]@{ name = "Bois"; added = 5; count = 5 }) }
         confidence = "confirmed"; icon = $null; source = "save"
     })

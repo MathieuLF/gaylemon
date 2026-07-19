@@ -983,13 +983,13 @@ def normalize_public_research_event(
     total = research_total_from_fingerprint(fingerprint)
     title = "Recherche de guilde terminée"
     if total is None:
-        message = f"{guild_subject} confirme une nouvelle progression de recherche."
+        message = f"{guild_subject} avance dans ses recherches."
         bullets = []
     else:
         label = "recherche terminée" if total == 1 else "recherches terminées"
         message = f"{guild_subject} compte désormais {total} {label}."
         bullets = [f"Total de la guilde: {total} {label}"]
-    body = "La progression du laboratoire est confirmée pour l'ensemble de la guilde."
+    body = "Le laboratoire progresse pour l'ensemble de la guilde."
     details = {
         "headline": title,
         "body": body,
@@ -998,7 +998,7 @@ def normalize_public_research_event(
     if total is not None:
         details["total"] = total
     if event.get("player"):
-        details["attribution"] = "déduite"
+        details["attribution"] = "rattachée à la guilde"
 
     normalized = dict(event)
     normalized.update({
@@ -1249,31 +1249,31 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         return ""
 
     if event_type == "craft":
-        title = "Fabrications compilées"
+        title = "Fabrications terminées"
         total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
         message = (
-            f"{owner} termine {added_total} {plural(added_total, 'fabrication')} sur 5 min. "
+            f"{owner} termine {added_total} {plural(added_total, 'fabrication')}. "
             f"Total cumulé: {total}."
-        ) if total > 0 else f"{owner} termine {added_total} {plural(added_total, 'fabrication')} sur 5 min."
+        ) if total > 0 else f"{owner} termine {added_total} {plural(added_total, 'fabrication')}."
         body = message
         if total > 0:
             details["total"] = total
     elif event_type == "fishing":
-        title = "Prises de pêche compilées"
+        title = "Pêche ramenée"
         total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
         message = (
             f"{owner} ramène {added_total} "
-            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} sur 5 min. "
+            f"{plural(added_total, 'prise de pêche', 'prises de pêche')}. "
             f"Total cumulé: {total}."
         ) if total > 0 else (
             f"{owner} ramène {added_total} "
-            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} sur 5 min."
+            f"{plural(added_total, 'prise de pêche', 'prises de pêche')}."
         )
         body = message
         if total > 0:
             details["total"] = total
     elif event_type == "production":
-        title = "Stocks de production compilés"
+        title = "Ressources produites relevées"
         base_label = ""
         if len(bases) == 1:
             base_label = f" à {bases[0]}"
@@ -1293,42 +1293,42 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
             if total > 0:
                 details["total"] = total
         message = (
-            f"{owner} présente {batches} {plural(batches, 'variation de stock', 'variations de stock')} sur 5 min. "
-            f"{added_total} {plural(added_total, 'ressource supplémentaire est observée', 'ressources supplémentaires sont observées')}"
+            f"{owner} relève {added_total} "
+            f"{plural(added_total, 'ressource produite', 'ressources produites')}"
             f"{base_label}.{stock}"
         )
         body = message
     elif event_type == "build":
-        title = "Constructions compilées"
+        title = "Base agrandie"
         total = total_observed_by_base()
         if total > 0:
             details["total"] = total
         message = (
-            f"{owner} confirme {added_total} "
-            f"{plural(added_total, 'nouvelle structure confirmée', 'nouvelles structures confirmées')} "
-            f"sur 5 min{base_scope_label()}."
+            f"{owner} ajoute {added_total} "
+            f"{plural(added_total, 'structure', 'structures')}"
+            f"{base_scope_label()}{f'. Total suivi: {total}.' if total > 0 else '.'}"
         )
         body = message
     elif event_type == "repair":
-        title = "Réparations compilées"
+        title = "Réparations terminées"
         message = (
-            f"{owner} répare {added_total} {plural(added_total, 'structure')} "
-            f"sur 5 min{base_scope_label()}."
+            f"{owner} remet {added_total} {plural(added_total, 'structure')} "
+            f"en état{base_scope_label()}."
         )
         body = message
     elif event_type == "research":
-        title = "Recherches compilées"
+        title = "Recherches avancées"
         message = (
-            f"{owner} confirme {added_total} {plural(added_total, 'recherche')} "
-            f"sur 5 min{base_scope_label()}."
+            f"{owner} avance {added_total} {plural(added_total, 'recherche')}"
+            f"{base_scope_label()}."
         )
         body = message
     else:
-        title = "Dégâts de base compilés"
+        title = "État de base relevé"
         message = (
-            f"{owner} compte {added_total} "
-            f"{plural(added_total, 'structure endommagée', 'structures endommagées')} "
-            f"en plus sur 5 min{base_scope_label()}."
+            f"{owner} relève {added_total} "
+            f"{plural(added_total, 'structure endommagée', 'structures endommagées')}"
+            f"{base_scope_label()}."
         )
         body = message
 
@@ -2450,10 +2450,10 @@ def compare_enriched_progress(
         record_key="mutations",
         old_records=old_records,
         records=records,
-        title="Mutation confirmée",
-        title_plural="Mutations confirmées",
+        title="Mutation relevée",
+        title_plural="Mutations relevées",
         singular="mutation",
-        verb="confirme",
+        verb="relève",
     )
     delta_event(
         connection,
@@ -2487,7 +2487,7 @@ def base_event_player(base: dict, active_players: set[str] | None = None) -> str
 def death_drop_event_details(row: dict, status: str) -> dict:
     return {
         "headline": str(row.get("label") or "Sac de récupération"),
-        "body": "Signal confirmé dans la sauvegarde du monde.",
+        "body": "Signal relevé dans la sauvegarde du monde.",
         "dropType": str(row.get("type") or "death-drop"),
         "status": status,
     }
@@ -2645,16 +2645,16 @@ def compare_guild_research_events(
         guild = str(guild_state.get("guild") or "Guilde")
         message = (
             f"La recherche de la guilde {guild} progresse: {delta} "
-            f"{plural(delta, 'recherche confirmée', 'recherches confirmées')}."
+            f"{plural(delta, 'recherche terminée', 'recherches terminées')}."
         )
         details = {
             "headline": "Recherche de guilde terminée",
-            "body": "La progression du laboratoire est confirmée au niveau de la guilde.",
+            "body": "Le laboratoire progresse au niveau de la guilde.",
             "bullets": [f"+{delta} {plural(delta, 'recherche') }"],
             "total": completed,
         }
         if player:
-            details["attribution"] = "seul membre actif observé"
+            details["attribution"] = "membre actif observé"
         add_event(
             connection,
             fingerprint=f"save:research:{key}:{completed}",
@@ -2748,7 +2748,7 @@ def compare_base_events(
             )
             message = (
                 f"{headline}. "
-                f"{total_delta} {plural(total_delta, 'nouvelle structure confirmée', 'nouvelles structures confirmées')}."
+                f"{total_delta} {plural(total_delta, 'nouvelle structure ajoutée', 'nouvelles structures ajoutées')}."
             )
             add_event(
                 connection,
@@ -2764,7 +2764,7 @@ def compare_base_events(
                 confidence=base_attribution_confidence(player),
                 details=base_label_details({
                     "headline": headline,
-                    "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+                    "body": f"{total_delta} {plural(total_delta, 'structure ajoutée', 'structures ajoutées')}.",
                     "bullets": bullets,
                     "structures": structure_changes,
                     "total": base.get("structuresTotal"),
@@ -2848,13 +2848,13 @@ def compare_base_events(
                 player=player,
                 guild=guild,
                 base=display_name,
-                title="Réparations confirmées",
+                title="Réparations terminées",
                 message=f"{headline}: {repaired} structure{'' if repaired == 1 else 's'} réparée{'' if repaired == 1 else 's'}.",
                 source="save",
                 confidence=base_attribution_confidence(player),
                 details=base_label_details({
                     "headline": headline,
-                    "body": "La sauvegarde confirme moins de structures endommagées.",
+                    "body": "La base retrouve un meilleur état.",
                     "bullets": [f"-{repaired} structure{'' if repaired == 1 else 's'} endommagée{'' if repaired == 1 else 's'}"],
                     "structureKeys": repaired_keys,
                 }, name, display_name, player),
@@ -2893,7 +2893,7 @@ def compare_base_events(
                 confidence=base_attribution_confidence(player),
                 details=base_label_details({
                     "headline": headline,
-                    "body": "La sauvegarde confirme davantage de structures endommagées.",
+                    "body": "La base encaisse de nouveaux dégâts.",
                     "bullets": [
                         f"+{damaged_delta} "
                         f"{plural(damaged_delta, 'structure endommagée', 'structures endommagées')}"
@@ -3935,10 +3935,10 @@ def normalize_world_drop_build_events(connection: sqlite3.Connection) -> tuple[i
             message = str(row["message"] or "")
             headline = message.split(". ", 1)[0].strip() or str(row["title"] or "Base agrandie")
         normalized["headline"] = headline
-        normalized["body"] = "De nouvelles structures sont confirmées dans la sauvegarde."
+        normalized["body"] = f"{kept_total} {plural(kept_total, 'structure ajoutée', 'structures ajoutées')}."
         message = (
             f"{headline}. {kept_total} "
-            f"{plural(kept_total, 'nouvelle structure confirmée', 'nouvelles structures confirmées')}."
+            f"{plural(kept_total, 'nouvelle structure ajoutée', 'nouvelles structures ajoutées')}."
         )
         connection.execute(
             """
@@ -3956,10 +3956,85 @@ def normalize_world_drop_build_events(connection: sqlite3.Connection) -> tuple[i
     return updated, len(deleted_ids), deleted_ids[:25]
 
 
+def normalized_public_language_event(row: sqlite3.Row, details: dict) -> tuple[str, str, str | None] | None:
+    event_type = str(row["type"] or "")
+    title = str(row["title"] or "")
+    message = str(row["message"] or "")
+    normalized = dict(details or {})
+    changed = False
+
+    def replace(value: str | None, replacements: tuple[tuple[str, str], ...]) -> str | None:
+        nonlocal changed
+        if value is None:
+            return value
+        text = str(value)
+        updated = text
+        for old, new in replacements:
+            updated = updated.replace(old, new)
+        if updated != text:
+            changed = True
+        return updated
+
+    if event_type == "repair":
+        title = replace(title, (("Réparations confirmées", "Réparations terminées"),)) or title
+        normalized["body"] = replace(
+            normalized.get("body"),
+            (("La sauvegarde confirme moins de structures endommagées.", "La base retrouve un meilleur état."),),
+        )
+    elif event_type == "build":
+        replacements = (
+            ("nouvelle structure confirmée", "nouvelle structure ajoutée"),
+            ("nouvelles structures confirmées", "nouvelles structures ajoutées"),
+            ("De nouvelles structures sont confirmées dans la sauvegarde.", "La base s'agrandit."),
+        )
+        message = replace(message, replacements) or message
+        normalized["body"] = replace(normalized.get("body"), replacements)
+    elif event_type == "research":
+        replacements = (
+            ("confirme une nouvelle progression de recherche", "avance dans ses recherches"),
+            ("recherche confirmée", "recherche terminée"),
+            ("recherches confirmées", "recherches terminées"),
+            ("La progression du laboratoire est confirmée pour l'ensemble de la guilde.", "Le laboratoire progresse pour l'ensemble de la guilde."),
+            ("La progression du laboratoire est confirmée au niveau de la guilde.", "Le laboratoire progresse au niveau de la guilde."),
+            ("déduite", "rattachée à la guilde"),
+            ("seul membre actif observé", "membre actif observé"),
+        )
+        message = replace(message, replacements) or message
+        normalized["body"] = replace(normalized.get("body"), replacements)
+        normalized["attribution"] = replace(normalized.get("attribution"), replacements)
+    elif event_type == "base":
+        normalized["body"] = replace(
+            normalized.get("body"),
+            (("La sauvegarde confirme davantage de structures endommagées.", "La base encaisse de nouveaux dégâts."),),
+        )
+    elif event_type == "mutation":
+        title = replace(
+            title,
+            (
+                ("Mutation confirmée", "Mutation relevée"),
+                ("Mutations confirmées", "Mutations relevées"),
+            ),
+        ) or title
+        message = replace(message, ((" confirme ", " relève "),)) or message
+        normalized["body"] = replace(normalized.get("body"), ((" confirme ", " relève "),))
+    elif event_type == "recovery":
+        normalized["body"] = replace(
+            normalized.get("body"),
+            (("Signal confirmé dans la sauvegarde du monde.", "Signal relevé dans la sauvegarde du monde."),),
+        )
+
+    if not changed:
+        return None
+    if normalized.get("headline") == row["title"]:
+        normalized["headline"] = title
+    return title, message, details_json_payload(normalized)
+
+
 def empty_history_normalization_report(status: str = "current") -> dict:
     return {
         "status": status,
         "itemizedUpdated": 0,
+        "publicLanguageUpdated": 0,
         "duplicatesRemoved": 0,
         "duplicateIds": [],
         "captureDuplicatesRemoved": 0,
@@ -3988,7 +4063,7 @@ def normalize_event_history(
     state = metadata_get(connection, "event_history_normalization_state", {})
     if (
         isinstance(state, dict)
-        and int(state.get("schemaVersion") or 0) == 4
+        and int(state.get("schemaVersion") or 0) == 5
         and int(state.get("lastEventId") or 0) == max_event_id
         and int(state.get("projectionRevision") or 0) == projection_revision
     ):
@@ -4027,6 +4102,34 @@ def normalize_event_history(
         itemized_updated += 1
 
     world_drop_updated, world_drop_removed, world_drop_removed_ids = normalize_world_drop_build_events(connection)
+
+    public_language_updated = 0
+    rows = connection.execute(
+        """
+        SELECT id, type, title, message, details_json
+        FROM events
+        WHERE type IN ('base', 'build', 'mutation', 'recovery', 'repair', 'research')
+          AND NOT EXISTS (
+              SELECT 1 FROM event_suppressions
+              WHERE event_suppressions.event_id = events.id
+          )
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+    for row in rows:
+        normalized = normalized_public_language_event(row, details_from_row(row))
+        if normalized is None:
+            continue
+        title, message, details_json = normalized
+        connection.execute(
+            """
+            UPDATE events
+            SET title = ?, message = ?, details_json = ?
+            WHERE id = ?
+            """,
+            (title, message, details_json, row["id"]),
+        )
+        public_language_updated += 1
 
     rows = connection.execute(
         """
@@ -4113,7 +4216,7 @@ def normalize_event_history(
 
     business_normalization = normalize_business_events(connection, bases_payload)
     metadata_set(connection, "event_history_normalization_state", {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "lastEventId": max_event_id,
         "projectionRevision": int(metadata_get(connection, "events_projection_revision", 0) or 0),
     })
@@ -4125,6 +4228,7 @@ def normalize_event_history(
         "captureDuplicatesRemoved": len(capture_duplicate_ids),
         "captureDuplicateIds": capture_duplicate_ids[:25],
         "captureMessagesUpdated": capture_messages_updated,
+        "publicLanguageUpdated": public_language_updated,
         "worldDropBuildUpdated": world_drop_updated,
         "worldDropBuildRemoved": world_drop_removed,
         "worldDropBuildRemovedIds": world_drop_removed_ids,
@@ -5150,8 +5254,8 @@ def public_reprojection_requested(explicit: bool, request_path: Path) -> bool:
     return bool(explicit or request_path.is_file())
 
 
-def consume_public_reprojection_request(request_path: Path, report: dict) -> bool:
-    if not request_path.is_file() or report.get("status") == "reprojection-required":
+def consume_public_reprojection_request(request_path: Path, report: dict, requested: bool = False) -> bool:
+    if not requested or not request_path.is_file() or report.get("status") == "reprojection-required":
         return False
     request_path.unlink(missing_ok=True)
     return True
@@ -5270,6 +5374,7 @@ def main() -> None:
             consume_public_reprojection_request(
                 args.public_reprojection_request,
                 recovery_report["canonicalExport"],
+                requested=reproject_public,
             )
         )
         write_recovery_report(args.recovery_report, recovery_report)

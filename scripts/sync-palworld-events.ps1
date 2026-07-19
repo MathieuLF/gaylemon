@@ -219,8 +219,9 @@ print(json.dumps({
 }, ensure_ascii=False, separators=(",", ":")))
 '@
     $encodedProbeScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($probeScript))
+    $quotedProbeScript = ConvertTo-ShellSingleQuoted -Value $encodedProbeScript
     $quotedPath = ConvertTo-ShellSingleQuoted -Value $Path
-    $probeCommand = "python3 -c 'import base64; exec(base64.b64decode(""$encodedProbeScript"").decode(""utf-8""))' $quotedPath"
+    $probeCommand = "python3 -c 'import base64,sys; c=sys.argv[1]; p=sys.argv[2]; sys.argv=[sys.argv[0],p]; exec(base64.b64decode(c).decode(chr(117)+chr(116)+chr(102)+chr(45)+chr(56)))' $quotedProbeScript $quotedPath"
     $rawProbe = & ssh.exe -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias $probeCommand 2>$null
     if ($LASTEXITCODE -ne 0) {
         throw "L'historique public distant n'est pas encore disponible: $Path"
@@ -748,32 +749,32 @@ function New-AggregatedItemizedPublicEvent {
     if ($bases.Count -gt 0) { $details["bases"] = $bases }
 
     if ($eventType -eq "craft") {
-        $title = "Fabrications compilées"
+        $title = "Fabrications terminées"
         $total = Get-EventMaxDetailTotal -Events $Events
         $label = Get-FrenchPlural -Value $addedTotal -Singular "fabrication"
         if ($total -gt 0) {
-            $message = "$owner termine $addedTotal $label sur 5 min. Total cumulé: $total."
+            $message = "$owner termine $addedTotal $label. Total cumulé: $total."
             $details["total"] = $total
         }
         else {
-            $message = "$owner termine $addedTotal $label sur 5 min."
+            $message = "$owner termine $addedTotal $label."
         }
     }
     elseif ($eventType -eq "fishing") {
-        $title = "Prises de pêche compilées"
+        $title = "Pêche ramenée"
         $total = Get-EventMaxDetailTotal -Events $Events
         $label = Get-FrenchPlural -Value $addedTotal -Singular "prise de pêche" -Plural "prises de pêche"
         if ($total -gt 0) {
-            $message = "$owner ramène $addedTotal $label sur 5 min. Total cumulé: $total."
+            $message = "$owner ramène $addedTotal $label. Total cumulé: $total."
             $details["total"] = $total
         }
         else {
-            $message = "$owner ramène $addedTotal $label sur 5 min."
+            $message = "$owner ramène $addedTotal $label."
         }
     }
     elseif ($eventType -eq "production") {
-        $title = "Productions compilées"
-        $resourceLabel = Get-FrenchPlural -Value $addedTotal -Singular "ressource produite est prête" -Plural "ressources produites sont prêtes"
+        $title = "Ressources produites relevées"
+        $resourceLabel = Get-FrenchPlural -Value $addedTotal -Singular "ressource produite" -Plural "ressources produites"
         if ($bases.Count -eq 1) {
             $baseLabel = " à $($bases[0])"
             $total = Get-EventMaxDetailTotal -Events $Events
@@ -798,34 +799,34 @@ function New-AggregatedItemizedPublicEvent {
             $stock = if ($total -gt 0) { " Stock de production observé: $total." } else { "" }
             if ($total -gt 0) { $details["total"] = $total }
         }
-        $productionLabel = Get-FrenchPlural -Value $batches -Singular "production"
-        $message = "$owner boucle $batches $productionLabel sur 5 min. $addedTotal $resourceLabel$baseLabel.$stock"
+        $message = "$owner relève $addedTotal $resourceLabel$baseLabel.$stock"
     }
     elseif ($eventType -eq "build") {
-        $title = "Constructions compilées"
+        $title = "Base agrandie"
         $total = Get-ObservedDetailTotalByBase -Events $Events -Bases $bases
         if ($total -gt 0) { $details["total"] = $total }
-        $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "nouvelle structure confirmée" -Plural "nouvelles structures confirmées"
+        $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure" -Plural "structures"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner confirme $addedTotal $structureLabel sur 5 min$baseLabel."
+        $totalLabel = if ($total -gt 0) { " Total suivi: $total." } else { "" }
+        $message = "$owner ajoute $addedTotal $structureLabel$baseLabel.$totalLabel"
     }
     elseif ($eventType -eq "repair") {
-        $title = "Réparations compilées"
+        $title = "Réparations terminées"
         $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner répare $addedTotal $structureLabel sur 5 min$baseLabel."
+        $message = "$owner remet $addedTotal $structureLabel en état$baseLabel."
     }
     elseif ($eventType -eq "research") {
-        $title = "Recherches compilées"
+        $title = "Recherches avancées"
         $researchLabel = Get-FrenchPlural -Value $addedTotal -Singular "recherche"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner confirme $addedTotal $researchLabel sur 5 min$baseLabel."
+        $message = "$owner avance $addedTotal $researchLabel$baseLabel."
     }
     else {
-        $title = "Dégâts de base compilés"
+        $title = "État de base relevé"
         $damageLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure endommagée" -Plural "structures endommagées"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner compte $addedTotal $damageLabel en plus sur 5 min$baseLabel."
+        $message = "$owner relève $addedTotal $damageLabel$baseLabel."
     }
 
     $details["headline"] = $title
@@ -953,9 +954,10 @@ function Repair-WorldDropBuildEvent {
     }
     if (-not $headline) { $headline = [string](Get-OptionalProperty $Event "title") }
     Set-OptionalProperty -Value $details -Name "headline" -PropertyValue $headline
-    Set-OptionalProperty -Value $details -Name "body" -PropertyValue "De nouvelles structures sont confirmées dans la sauvegarde."
+    $bodyStructureLabel = Get-FrenchPlural -Value $keptTotal -Singular "structure ajoutée" -Plural "structures ajoutées"
+    Set-OptionalProperty -Value $details -Name "body" -PropertyValue "$keptTotal $bodyStructureLabel."
 
-    $structureLabel = Get-FrenchPlural -Value $keptTotal -Singular "nouvelle structure confirmée" -Plural "nouvelles structures confirmées"
+    $structureLabel = Get-FrenchPlural -Value $keptTotal -Singular "nouvelle structure ajoutée" -Plural "nouvelles structures ajoutées"
     $message = "$headline. $keptTotal $structureLabel."
     Set-OptionalProperty -Value $Event -Name "message" -PropertyValue $message
     Set-OptionalProperty -Value $Event -Name "details" -PropertyValue $details
@@ -974,6 +976,112 @@ function Remove-WorldDropBuildEvents {
         foreach ($event in $Events) {
             $clean = Repair-WorldDropBuildEvent -Event $event
             if ($null -ne $clean) { $clean }
+        }
+    )
+}
+
+function Update-LogbookPublicEvent {
+    param($Event)
+
+    $eventType = [string](Get-OptionalProperty $Event "type")
+    if ($eventType -notin $ItemizedPublicGroupTypes) { return $Event }
+
+    $details = Get-ItemizedEventDetails -Event $Event
+    if ($null -eq $details) { return $Event }
+
+    $windowMinutes = Convert-ToPositiveInt (Get-OptionalProperty $details "windowMinutes")
+    $aggregatedEvents = Convert-ToPositiveInt (Get-OptionalProperty $details "aggregatedEvents")
+    $currentTitle = ([string](Get-OptionalProperty $Event "title")).Trim()
+    $currentMessage = ([string](Get-OptionalProperty $Event "message")).Trim()
+    $currentBody = ([string](Get-OptionalProperty $details "body")).Trim()
+    $display = Get-OptionalProperty $Event "display"
+    $currentDisplayHeadline = ([string](Get-OptionalProperty $display "headline")).Trim()
+    $currentDisplayBody = ([string](Get-OptionalProperty $display "body")).Trim()
+    $legacyText = (@($currentTitle, $currentMessage, $currentBody, $currentDisplayHeadline, $currentDisplayBody) -join " ")
+    $genericBuildBody = $eventType -eq "build" -and $legacyText -match "(De nouvelles structures sont confirmées dans la sauvegarde\.|nouvelles structures confirmées?)"
+    $genericRepairBody = $eventType -eq "repair" -and $legacyText -match "Réparations confirmées"
+    $genericResearchBody = $eventType -eq "research" -and $legacyText -match "(recherches? confirmées?|confirme \d+ recherches?)"
+    $legacyAggregationText = $legacyText -match "(?i)(compil|regroup|sur\s+5\s+min|Pendant\s+\d+\s+min|Stocks compilés|Fabrications compilées|Pêches compilées|Constructions compilées|Réparations compilées)"
+    $hasAggregationWindow = $windowMinutes -gt 0 -or $aggregatedEvents -gt 0
+    if (-not $genericBuildBody -and -not $genericRepairBody -and -not $genericResearchBody -and -not ($hasAggregationWindow -and $legacyAggregationText)) { return $Event }
+
+    $addedTotal = Get-ItemizedEventAddedTotal -Event $Event
+    if ($addedTotal -le 0) { return $Event }
+
+    $bases = @()
+    foreach ($base in @((Get-OptionalProperty $details "bases"))) {
+        $text = ([string]$base).Trim()
+        if ($text) { $bases += $text }
+    }
+    if ($bases.Count -lt 1) {
+        $base = ([string](Get-OptionalProperty $Event "base")).Trim()
+        if ($base) { $bases += $base }
+    }
+    $bases = @($bases | Sort-Object -Unique)
+
+    $owner = Get-ItemizedGroupOwner -Event $Event
+    $baseLabel = Get-BaseScopeLabel -Bases $bases
+    $total = Convert-ToPositiveInt (Get-OptionalProperty $details "total")
+
+    if ($eventType -eq "craft") {
+        $title = "Fabrications terminées"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "fabrication"
+        $totalLabel = if ($total -gt 0) { " Total cumulé: $total." } else { "" }
+        $message = "$owner termine $addedTotal $label.$totalLabel"
+    }
+    elseif ($eventType -eq "fishing") {
+        $title = "Pêche ramenée"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "prise de pêche" -Plural "prises de pêche"
+        $totalLabel = if ($total -gt 0) { " Total cumulé: $total." } else { "" }
+        $message = "$owner ramène $addedTotal $label.$totalLabel"
+    }
+    elseif ($eventType -eq "production") {
+        $title = "Ressources produites relevées"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "ressource produite" -Plural "ressources produites"
+        $stock = if ($total -gt 0) { " Stock observé: $total." } else { "" }
+        $message = "$owner relève $addedTotal $label$baseLabel.$stock"
+    }
+    elseif ($eventType -eq "build") {
+        $title = "Base agrandie"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "structure" -Plural "structures"
+        $totalLabel = if ($total -gt 0) { " Total suivi: $total." } else { "" }
+        $message = "$owner ajoute $addedTotal $label$baseLabel.$totalLabel"
+    }
+    elseif ($eventType -eq "repair") {
+        $title = "Réparations terminées"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "structure"
+        $message = "$owner remet $addedTotal $label en état$baseLabel."
+    }
+    elseif ($eventType -eq "research") {
+        $title = "Recherches avancées"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "recherche"
+        $message = "$owner avance $addedTotal $label$baseLabel."
+    }
+    else {
+        $title = "État de base relevé"
+        $label = Get-FrenchPlural -Value $addedTotal -Singular "structure endommagée" -Plural "structures endommagées"
+        $message = "$owner relève $addedTotal $label$baseLabel."
+    }
+
+    Set-OptionalProperty -Value $details -Name "headline" -PropertyValue $title
+    Set-OptionalProperty -Value $details -Name "body" -PropertyValue $message
+    Set-OptionalProperty -Value $Event -Name "title" -PropertyValue $title
+    Set-OptionalProperty -Value $Event -Name "message" -PropertyValue $message
+    Set-OptionalProperty -Value $Event -Name "details" -PropertyValue $details
+    Set-OptionalProperty -Value $Event -Name "display" -PropertyValue ([ordered]@{
+        headline = $title
+        body = $message
+        bullets = @((Get-OptionalProperty $details "bullets") | Select-Object -First 8)
+    })
+    return $Event
+}
+
+function Update-LogbookPublicEvents {
+    param([array]$Events)
+
+    return @(
+        foreach ($event in $Events) {
+            Update-LogbookPublicEvent -Event $event
         }
     )
 }
@@ -1507,6 +1615,104 @@ function Get-EventAddedQuantity {
     return 1
 }
 
+function Add-V6PalFind {
+    param(
+        [Parameter(Mandatory)] [hashtable]$Target,
+        [Parameter(Mandatory)] [string]$Type,
+        [Parameter(Mandatory)] [string]$Name,
+        [Parameter(Mandatory)] [int]$Quantity,
+        [Parameter(Mandatory)] [string]$PlayerName,
+        [string]$Icon = ""
+    )
+
+    $cleanName = $Name.Trim()
+    if (-not $cleanName -or $cleanName.ToLowerInvariant() -eq "autres") { return }
+    $palKey = "$Type|$cleanName".ToLowerInvariant()
+    $safeQuantity = [Math]::Max(1, $Quantity)
+    if (-not $Target.ContainsKey($palKey)) {
+        $Target[$palKey] = [ordered]@{
+            key = $palKey
+            type = $Type
+            name = $cleanName
+            icon = if ($Icon) { $Icon } else { $null }
+            quantity = 0
+            players = [ordered]@{}
+        }
+    }
+    $entry = $Target[$palKey]
+    $entry["quantity"] = [int]$entry["quantity"] + $safeQuantity
+    if (-not $entry["icon"] -and $Icon) { $entry["icon"] = $Icon }
+    $players = $entry["players"]
+    $players[$PlayerName] = (Convert-ToPositiveInt (Get-OptionalProperty $players $PlayerName)) + $safeQuantity
+}
+
+function Get-V6CountedEntriesFromText {
+    param([string]$Text)
+
+    $normalized = ([string]$Text) -replace '(?i)\s+et\s+', ', '
+    return @($normalized -split '\s*,\s*' | ForEach-Object {
+        $part = ([string]$_).Trim()
+        if ($part -match '^\s*(\d[\d\s]*)\s+(.+?)\s*$') {
+            [ordered]@{
+                count = Convert-ToPositiveInt ($Matches[1] -replace '\s', '')
+                name = ([string]$Matches[2]).Trim().TrimEnd('.', ';', ':')
+            }
+        }
+    } | Where-Object { (Convert-ToPositiveInt (Get-OptionalProperty $_ "count")) -gt 0 -and ([string](Get-OptionalProperty $_ "name")).Trim() })
+}
+
+function Get-V6PalRowsFromEvent {
+    param([Parameter(Mandatory)] $Event)
+
+    $type = ([string](Get-OptionalProperty $Event "type")).Trim()
+    if ($type -notin @("capture", "collection")) { return @() }
+    $details = Get-OptionalProperty $Event "details"
+    $icon = [string](Get-OptionalProperty $Event "icon")
+    $detailRows = @(
+        @(Get-DetailRows -Details $details -Name "pals") +
+        @(Get-DetailRows -Details $details -Name "captures")
+    )
+    $rows = [Collections.Generic.List[object]]::new()
+    foreach ($pal in $detailRows) {
+        $name = ([string](Get-OptionalProperty $pal "name")).Trim()
+        if (-not $name) { continue }
+        $quantity = Convert-ToPositiveInt (Get-OptionalProperty $pal "count")
+        if ($quantity -le 0) { $quantity = Convert-ToPositiveInt (Get-OptionalProperty $pal "added") }
+        $rows.Add([ordered]@{
+            name = $name
+            count = [Math]::Max(1, $quantity)
+            icon = if (Get-OptionalProperty $pal "icon") { [string](Get-OptionalProperty $pal "icon") } else { $icon }
+        })
+    }
+    if ($rows.Count -gt 0) { return @($rows) }
+
+    $display = Get-OptionalProperty $Event "display"
+    $message = "$([string](Get-OptionalProperty $display 'body')) $([string](Get-OptionalProperty $Event 'message'))".Trim()
+    $playerName = ([string](Get-OptionalProperty $Event "player")).Trim()
+    if ($playerName) {
+        $message = [regex]::Replace($message, ('^' + [regex]::Escape($playerName) + '\s+'), "", "IgnoreCase").Trim()
+    }
+
+    if ($type -eq "capture") {
+        if ($message -match '(?i)\bcapture\s+(\d[\d\s]*)\s+(.+?)\.\s+Total') {
+            return @([ordered]@{ name = ([string]$Matches[2]).Trim().TrimEnd('.', ';', ':'); count = Convert-ToPositiveInt ($Matches[1] -replace '\s', ''); icon = $icon })
+        }
+        if ($message -match '(?i)\bcapture\s+(.+?)\s+pour\s+la\s+premi[eè]re\s+fois') {
+            return @([ordered]@{ name = ([string]$Matches[1]).Trim().TrimEnd('.', ';', ':'); count = 1; icon = $icon })
+        }
+        if ($message -match '(?i)\binscrit\s+(.+?)\s+dans\s+son\s+Paldex(?:\s+avec\s+(\d[\d\s]*)\s+captures?)?') {
+            $quantity = Convert-ToPositiveInt ($Matches[2] -replace '\s', '')
+            return @([ordered]@{ name = ([string]$Matches[1]).Trim().TrimEnd('.', ';', ':'); count = [Math]::Max(1, $quantity); icon = $icon })
+        }
+    }
+    if ($type -eq "collection" -and $message -match '(?i)\baccueille\s+(.+?)\s+dans\s+sa\s+collection') {
+        return @(Get-V6CountedEntriesFromText -Text $Matches[1] | ForEach-Object {
+            [ordered]@{ name = [string](Get-OptionalProperty $_ "name"); count = Convert-ToPositiveInt (Get-OptionalProperty $_ "count"); icon = $icon }
+        })
+    }
+    return @()
+}
+
 function Get-V6DailyDigest {
     param([Parameter(Mandatory)] [array]$Events)
 
@@ -1556,6 +1762,7 @@ function Get-V6DailyDigest {
                 lastAt = $null
                 metrics = $playerMetrics
                 typeCounts = [ordered]@{}
+                palFinds = @{}
                 highlights = @()
             }
         }
@@ -1610,20 +1817,12 @@ function Get-V6DailyDigest {
         }
 
         if ($type -in @("capture", "collection")) {
-            $details = Get-OptionalProperty $event "details"
-            $palRows = @(
-                @(Get-DetailRows -Details $details -Name "pals") +
-                @(Get-DetailRows -Details $details -Name "captures")
-            )
-            foreach ($pal in $palRows) {
+            foreach ($pal in (Get-V6PalRowsFromEvent -Event $event)) {
                 $name = ([string](Get-OptionalProperty $pal "name")).Trim()
-                if (-not $name) { continue }
-                $palKey = "$type|$name".ToLowerInvariant()
-                if (-not $palFinds.ContainsKey($palKey)) {
-                    $palFinds[$palKey] = [ordered]@{ key = $palKey; type = $type; name = $name; quantity = 0 }
-                }
                 $quantity = Convert-ToPositiveInt (Get-OptionalProperty $pal "count")
-                $palFinds[$palKey]["quantity"] = [int]$palFinds[$palKey]["quantity"] + [Math]::Max(1, $quantity)
+                $icon = [string](Get-OptionalProperty $pal "icon")
+                Add-V6PalFind -Target $palFinds -Type $type -Name $name -Quantity $quantity -PlayerName $playerName -Icon $icon
+                Add-V6PalFind -Target $player["palFinds"] -Type $type -Name $name -Quantity $quantity -PlayerName $playerName -Icon $icon
             }
         }
 
@@ -1643,6 +1842,12 @@ function Get-V6DailyDigest {
             confidence = if (Get-OptionalProperty $event "confidence") { [string](Get-OptionalProperty $event "confidence") } else { "confirmed" }
             score = $score
         })
+    }
+
+    foreach ($playerRow in $players.Values) {
+        if ((Get-OptionalProperty $playerRow "palFinds") -is [hashtable]) {
+            $playerRow["palFinds"] = @($playerRow["palFinds"].Values | Sort-Object @{ Expression = { [int]$_["quantity"] }; Descending = $true }, @{ Expression = { [string]$_["name"] }; Descending = $false })
+        }
     }
 
     $activePlayers = @($players.Values | Where-Object { $_["name"] -ne "Monde" -and [int]$_["eventCount"] -gt 0 }).Count
@@ -2507,6 +2712,7 @@ function Write-FastEventOutputs {
         $events = @(Group-ItemizedPublicEvents -Events $events)
         $events = @($events | Select-Object -First $RecentEventLimit)
     }
+    $events = @(Update-LogbookPublicEvents -Events $events)
     $events = @($events | Select-Object -First $RecentEventLimit)
     $existingIndex = Read-JsonFile -Path $IndexOutputPath
     $existingTotalEvents = 0
@@ -2790,9 +2996,11 @@ else {
         Convert-PublicEvent $_
     } | Where-Object { $null -ne $_ })
     $events = @(Remove-WorldDropBuildEvents -Events $events)
+    $events = @(Update-LogbookPublicEvents -Events $events)
     $events = @(Remove-DuplicateSessionFallbacks -Events $events)
     $events = @(Group-ItemizedPublicEvents -Events $events)
 }
+$events = @(Update-LogbookPublicEvents -Events $events)
 
 $recentEvents = @($events | Select-Object -First $RecentEventLimit)
 
