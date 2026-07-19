@@ -50,8 +50,6 @@ const eventDateInput = document.querySelector("#event-date");
 const eventDatePrevious = document.querySelector("#event-date-previous");
 const eventDateNext = document.querySelector("#event-date-next");
 const eventDateToday = document.querySelector("#event-date-today");
-const eventUnseen = document.querySelector("#event-unseen");
-const eventUnseenCount = document.querySelector("#event-unseen-count");
 const homeLatestEchoes = document.querySelector("#home-latest-echoes");
 const homeEchoesStatus = document.querySelector("#home-echoes-status");
 const playerVisibilityToggle = document.querySelector("#player-visibility-toggle");
@@ -191,8 +189,6 @@ let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
 const terminalV6EchoLimit = 6;
 let terminalEventPageSize = 8;
-let terminalUnseenHideTimer = 0;
-const terminalUnseenToastMs = 5200;
 let dailySelectedDateKey = "";
 let dailyAvailableDateKeys = [];
 let dailyRosterPlayers = [];
@@ -3188,65 +3184,9 @@ function currentV6MaxCursor() {
   return Number(eventsManifestV6?.cursor?.maxId || eventsHeadV6?.cursor?.maxId || 0);
 }
 
-function terminalUnseenSummary(head, visitCursor, visitTotalEchoes) {
-  const events = Array.isArray(head?.events) ? head.events : [];
-  const cursor = Number(visitCursor || 0);
-  const visibleCount = events.filter((event) => Number(event?.id || 0) > cursor).length;
-  const currentTotal = Number(head?.counts?.totalEchoes);
-  const previousTotal = Number(visitTotalEchoes);
-  const hasVisitTotal = visitTotalEchoes !== null && visitTotalEchoes !== undefined && visitTotalEchoes !== "";
-  const hasExactTotal = hasVisitTotal && Number.isFinite(currentTotal) && currentTotal >= 0
-    && Number.isFinite(previousTotal) && previousTotal >= 0
-    && currentTotal >= previousTotal;
-  const exactCount = hasExactTotal ? currentTotal - previousTotal : null;
-  const usableExactCount = exactCount != null && (exactCount > 0 || visibleCount === 0) ? exactCount : null;
-  const count = usableExactCount ?? visibleCount;
-  const minId = Number(head?.windowCursor?.minId || head?.cursor?.minId || 0);
-  const saturated = usableExactCount == null && Boolean(head?.hasMore) && cursor > 0 && minId > 0 && cursor < minId;
-  return {
-    count,
-    displayCount: `${Number(count || 0).toLocaleString("fr-CA")}${saturated && count > 0 ? "+" : ""}`,
-    saturated,
-  };
-}
-
 function updateTerminalUnseen() {
-  if (!eventUnseen || eventsContractMode !== "v6") return;
-  window.clearTimeout(terminalUnseenHideTimer);
-  const maxCursor = currentV6MaxCursor();
-  if (terminalVisitStartCursor == null) {
-    let stored = 0;
-    let storedTotal = NaN;
-    try {
-      stored = Number(localStorage.getItem(terminalVisitCursorStorageKey));
-      const rawTotal = localStorage.getItem(terminalVisitTotalStorageKey);
-      storedTotal = rawTotal == null ? NaN : Number(rawTotal);
-    } catch {
-      // Une visite privée peut refuser l’accès au stockage local.
-    }
-    const hasStoredCursor = Number.isFinite(stored) && stored > 0;
-    terminalVisitStartCursor = hasStoredCursor ? stored : maxCursor;
-    const currentTotal = Number(eventsHeadV6?.counts?.totalEchoes);
-    terminalVisitStartTotalEchoes = Number.isFinite(storedTotal) && storedTotal >= 0
-      ? storedTotal
-      : !hasStoredCursor && Number.isFinite(currentTotal) && currentTotal >= 0 ? currentTotal : null;
-  }
-  const unseen = terminalUnseenSummary(eventsHeadV6, terminalVisitStartCursor, terminalVisitStartTotalEchoes);
-  if (unseen.count === 0) {
-    eventUnseen.hidden = true;
-    return;
-  }
-  eventUnseen.hidden = false;
-  if (eventUnseenCount) eventUnseenCount.textContent = `+${unseen.displayCount}`;
-  const label = eventUnseen.querySelector("span");
-  if (label) {
-    label.textContent = unseen.count === 1 ? "écho" : "échos";
-  }
-  eventUnseen.setAttribute("aria-label", unseen.count === 1 ? "1 ajout dans le journal" : `${unseen.displayCount} ajouts dans le journal`);
-  terminalUnseenHideTimer = window.setTimeout(() => {
-    eventUnseen.hidden = true;
-    markTerminalEchoesSeen();
-  }, terminalUnseenToastMs);
+  if (eventsContractMode !== "v6") return;
+  markTerminalEchoesSeen();
 }
 
 function markTerminalEchoesSeen() {
@@ -3263,7 +3203,6 @@ function markTerminalEchoesSeen() {
   } catch {
     // Le terminal reste fonctionnel lorsque le stockage local est bloqué.
   }
-  updateTerminalUnseen();
 }
 
 async function fetchEventsV6Candidate(silent = false, force = false) {
@@ -4457,13 +4396,17 @@ function renderEventPaginationControls(pageCount) {
   eventPagination.hidden = false;
   if (isTerminalRoute()) {
     eventPagination.innerHTML = `
-      <button type="button" data-event-page="${eventCurrentPage - 1}" aria-label="Page précédente" ${eventCurrentPage === 1 ? "disabled" : ""}>‹</button>
-      <span class="event-pagination__position">
-        <span>Page</span>
+      <button class="event-pagination__step" type="button" data-event-page="${eventCurrentPage - 1}" aria-label="Page précédente" ${eventCurrentPage === 1 ? "disabled" : ""}>
+        <span aria-hidden="true">‹</span>
+      </button>
+      <label class="event-pagination__position">
+        <span class="event-pagination__label">Page</span>
         <input class="event-pagination__page-input" type="number" inputmode="numeric" min="1" max="${pageCount}" value="${eventCurrentPage}" aria-label="Aller à la page">
-        <span>/ ${formatInteger(pageCount)}</span>
-      </span>
-      <button type="button" data-event-page="${eventCurrentPage + 1}" aria-label="Page suivante" ${eventCurrentPage === pageCount ? "disabled" : ""}>›</button>`;
+        <span class="event-pagination__total">sur ${formatInteger(pageCount)}</span>
+      </label>
+      <button class="event-pagination__step" type="button" data-event-page="${eventCurrentPage + 1}" aria-label="Page suivante" ${eventCurrentPage === pageCount ? "disabled" : ""}>
+        <span aria-hidden="true">›</span>
+      </button>`;
     return;
   }
 
@@ -8306,18 +8249,6 @@ eventDateNext?.addEventListener("click", () => {
 eventDateToday?.addEventListener("click", () => {
   const today = dailyDateKeyFromDate(new Date());
   if (today) void selectEventDate(today);
-});
-eventUnseen?.addEventListener("click", () => {
-  window.clearTimeout(terminalUnseenHideTimer);
-  eventUnseen.hidden = true;
-  markTerminalEchoesSeen();
-  eventCursor = "";
-  eventCurrentPage = 1;
-  if (eventsContractMode === "v6") {
-    renderEvents(false);
-    writeTerminalState();
-    document.querySelector("#event-stream")?.scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
-  }
 });
 dailyDateInput?.addEventListener("change", () => {
   void selectDailyDate(dailyDateInput.value);

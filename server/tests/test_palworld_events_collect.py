@@ -1493,6 +1493,49 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertIn("+7 Bois", craft["details"]["bullets"])
         self.assertIn("+4 Pierre", craft["details"]["bullets"])
 
+    def test_public_export_hides_derived_production_when_craft_reports_same_items(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:craft:flour",
+            occurred_at="2026-07-13T10:00:00-04:00",
+            event_type="craft",
+            player="Brian",
+            title="Fabrications terminées",
+            message="Brian termine 5 fabrications. Total cumulé: 25.",
+            icon="flour.webp",
+            source="save",
+            details={
+                "bullets": ["+5 Flour"],
+                "items": [{"name": "Flour", "asset": "flour", "added": 5, "count": 25, "icon": "flour.webp"}],
+                "total": 25,
+            },
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:production:flour",
+            occurred_at="2026-07-13T10:00:00-04:00",
+            event_type="production",
+            player="Brian",
+            guild="PalaPaly",
+            base="Base 1",
+            title="Stock de production observé",
+            message="Brian relève 5 ressources produites à Base 1. Stock observé: 80.",
+            icon="flour.webp",
+            source="save",
+            confidence="derived",
+            details={
+                "bullets": ["+5 Flour"],
+                "items": [{"name": "Flour", "asset": "flour", "added": 5, "count": 80, "icon": "flour.webp"}],
+                "total": 80,
+            },
+        )
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual([event["type"] for event in events], ["craft"])
+        self.assertEqual(events[0]["message"], "Brian termine 5 fabrications. Total cumulé: 25.")
+
     def test_public_export_groups_fishing_into_five_minute_windows(self):
         EVENTS.add_event(
             self.connection,
