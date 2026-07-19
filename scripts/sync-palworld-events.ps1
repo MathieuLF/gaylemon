@@ -27,7 +27,7 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 $PublicEventVersion = 5
 $PublicEventContractVersion = 6
-$PublicEventHeadLimit = 5
+$PublicEventHeadLimit = 7
 $ItemizedEventGroupWindowSeconds = 5 * 60
 $allowedTypes = @(
     "join", "leave", "reconnect", "server", "maintenance", "discovery", "collection",
@@ -752,11 +752,11 @@ function New-AggregatedItemizedPublicEvent {
         $total = Get-EventMaxDetailTotal -Events $Events
         $label = Get-FrenchPlural -Value $addedTotal -Singular "fabrication"
         if ($total -gt 0) {
-            $message = "$owner termine $addedTotal $label en 5 min. Total cumulé: $total."
+            $message = "$owner termine $addedTotal $label sur 5 min. Total cumulé: $total."
             $details["total"] = $total
         }
         else {
-            $message = "$owner termine $addedTotal $label en 5 min."
+            $message = "$owner termine $addedTotal $label sur 5 min."
         }
     }
     elseif ($eventType -eq "fishing") {
@@ -764,11 +764,11 @@ function New-AggregatedItemizedPublicEvent {
         $total = Get-EventMaxDetailTotal -Events $Events
         $label = Get-FrenchPlural -Value $addedTotal -Singular "prise de pêche" -Plural "prises de pêche"
         if ($total -gt 0) {
-            $message = "$owner ramène $addedTotal $label en 5 min. Total cumulé: $total."
+            $message = "$owner ramène $addedTotal $label sur 5 min. Total cumulé: $total."
             $details["total"] = $total
         }
         else {
-            $message = "$owner ramène $addedTotal $label en 5 min."
+            $message = "$owner ramène $addedTotal $label sur 5 min."
         }
     }
     elseif ($eventType -eq "production") {
@@ -799,7 +799,7 @@ function New-AggregatedItemizedPublicEvent {
             if ($total -gt 0) { $details["total"] = $total }
         }
         $productionLabel = Get-FrenchPlural -Value $batches -Singular "production"
-        $message = "$owner boucle $batches $productionLabel en 5 min. $addedTotal $resourceLabel$baseLabel.$stock"
+        $message = "$owner boucle $batches $productionLabel sur 5 min. $addedTotal $resourceLabel$baseLabel.$stock"
     }
     elseif ($eventType -eq "build") {
         $title = "Constructions compilées"
@@ -807,25 +807,25 @@ function New-AggregatedItemizedPublicEvent {
         if ($total -gt 0) { $details["total"] = $total }
         $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "nouvelle structure confirmée" -Plural "nouvelles structures confirmées"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner confirme $addedTotal $structureLabel en 5 min$baseLabel."
+        $message = "$owner confirme $addedTotal $structureLabel sur 5 min$baseLabel."
     }
     elseif ($eventType -eq "repair") {
         $title = "Réparations compilées"
         $structureLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner répare $addedTotal $structureLabel en 5 min$baseLabel."
+        $message = "$owner répare $addedTotal $structureLabel sur 5 min$baseLabel."
     }
     elseif ($eventType -eq "research") {
         $title = "Recherches compilées"
         $researchLabel = Get-FrenchPlural -Value $addedTotal -Singular "recherche"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner confirme $addedTotal $researchLabel en 5 min$baseLabel."
+        $message = "$owner confirme $addedTotal $researchLabel sur 5 min$baseLabel."
     }
     else {
         $title = "Dégâts de base compilés"
         $damageLabel = Get-FrenchPlural -Value $addedTotal -Singular "structure endommagée" -Plural "structures endommagées"
         $baseLabel = Get-BaseScopeLabel -Bases $bases
-        $message = "$owner compte $addedTotal $damageLabel en plus en 5 min$baseLabel."
+        $message = "$owner compte $addedTotal $damageLabel en plus sur 5 min$baseLabel."
     }
 
     $details["headline"] = $title

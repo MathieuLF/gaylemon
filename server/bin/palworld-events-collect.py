@@ -1252,9 +1252,9 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         title = "Fabrications compilées"
         total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
         message = (
-            f"{owner} termine {added_total} {plural(added_total, 'fabrication')} en 5 min. "
+            f"{owner} termine {added_total} {plural(added_total, 'fabrication')} sur 5 min. "
             f"Total cumulé: {total}."
-        ) if total > 0 else f"{owner} termine {added_total} {plural(added_total, 'fabrication')} en 5 min."
+        ) if total > 0 else f"{owner} termine {added_total} {plural(added_total, 'fabrication')} sur 5 min."
         body = message
         if total > 0:
             details["total"] = total
@@ -1263,11 +1263,11 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
         message = (
             f"{owner} ramène {added_total} "
-            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} en 5 min. "
+            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} sur 5 min. "
             f"Total cumulé: {total}."
         ) if total > 0 else (
             f"{owner} ramène {added_total} "
-            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} en 5 min."
+            f"{plural(added_total, 'prise de pêche', 'prises de pêche')} sur 5 min."
         )
         body = message
         if total > 0:
@@ -1293,7 +1293,7 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
             if total > 0:
                 details["total"] = total
         message = (
-            f"{owner} présente {batches} {plural(batches, 'variation de stock', 'variations de stock')} en 5 min. "
+            f"{owner} présente {batches} {plural(batches, 'variation de stock', 'variations de stock')} sur 5 min. "
             f"{added_total} {plural(added_total, 'ressource supplémentaire est observée', 'ressources supplémentaires sont observées')}"
             f"{base_label}.{stock}"
         )
@@ -1306,21 +1306,21 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         message = (
             f"{owner} confirme {added_total} "
             f"{plural(added_total, 'nouvelle structure confirmée', 'nouvelles structures confirmées')} "
-            f"en 5 min{base_scope_label()}."
+            f"sur 5 min{base_scope_label()}."
         )
         body = message
     elif event_type == "repair":
         title = "Réparations compilées"
         message = (
             f"{owner} répare {added_total} {plural(added_total, 'structure')} "
-            f"en 5 min{base_scope_label()}."
+            f"sur 5 min{base_scope_label()}."
         )
         body = message
     elif event_type == "research":
         title = "Recherches compilées"
         message = (
             f"{owner} confirme {added_total} {plural(added_total, 'recherche')} "
-            f"en 5 min{base_scope_label()}."
+            f"sur 5 min{base_scope_label()}."
         )
         body = message
     else:
@@ -1328,7 +1328,7 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         message = (
             f"{owner} compte {added_total} "
             f"{plural(added_total, 'structure endommagée', 'structures endommagées')} "
-            f"en plus en 5 min{base_scope_label()}."
+            f"en plus sur 5 min{base_scope_label()}."
         )
         body = message
 

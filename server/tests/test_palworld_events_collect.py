@@ -1479,7 +1479,7 @@ class SessionReconciliationTests(unittest.TestCase):
         production = events[1]
         craft = events[2]
         self.assertEqual(production["title"], "Stocks de production compilés")
-        self.assertIn("Alyross présente 2 variations de stock en 5 min", production["message"])
+        self.assertIn("Alyross présente 2 variations de stock sur 5 min", production["message"])
         self.assertIn("12 ressources supplémentaires sont observées dans 2 bases", production["message"])
         self.assertEqual(production["details"]["aggregatedEvents"], 2)
         self.assertEqual(production["details"]["total"], 23)
@@ -1487,7 +1487,7 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertIn("+7 Salade", production["details"]["bullets"])
         self.assertIn("+5 Lingot", production["details"]["bullets"])
         self.assertEqual(craft["title"], "Fabrications compilées")
-        self.assertIn("Alyross termine 11 fabrications en 5 min", craft["message"])
+        self.assertIn("Alyross termine 11 fabrications sur 5 min", craft["message"])
         self.assertEqual(craft["details"]["aggregatedEvents"], 2)
         self.assertEqual(craft["details"]["total"], 17)
         self.assertIn("+7 Bois", craft["details"]["bullets"])
@@ -1548,7 +1548,7 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertEqual(reconnects, 0)
         self.assertEqual([event["title"] for event in events], ["Pêche fructueuse", "Prises de pêche compilées"])
         grouped = events[1]
-        self.assertIn("Alyross ramène 3 prises de pêche en 5 min", grouped["message"])
+        self.assertIn("Alyross ramène 3 prises de pêche sur 5 min", grouped["message"])
         self.assertIn("Total cumulé: 8", grouped["message"])
         self.assertEqual(grouped["details"]["aggregatedEvents"], 2)
         self.assertEqual(grouped["details"]["total"], 8)
@@ -1650,14 +1650,14 @@ class SessionReconciliationTests(unittest.TestCase):
         by_type = {event["type"]: event for event in events}
         self.assertEqual(set(by_type), {"build", "repair", "base", "research"})
         self.assertEqual(by_type["build"]["title"], "Constructions compilées")
-        self.assertIn("Alyross confirme 5 nouvelles structures confirmées en 5 min à Base 1", by_type["build"]["message"])
+        self.assertIn("Alyross confirme 5 nouvelles structures confirmées sur 5 min à Base 1", by_type["build"]["message"])
         self.assertEqual(by_type["build"]["details"]["aggregatedEvents"], 2)
         self.assertEqual(by_type["build"]["details"]["total"], 15)
         self.assertIn("+3 Fondation", by_type["build"]["details"]["bullets"])
         self.assertEqual(by_type["repair"]["title"], "Réparations compilées")
-        self.assertIn("Alyross répare 3 structures en 5 min à Base 1", by_type["repair"]["message"])
+        self.assertIn("Alyross répare 3 structures sur 5 min à Base 1", by_type["repair"]["message"])
         self.assertEqual(by_type["base"]["title"], "Dégâts de base compilés")
-        self.assertIn("Alyross compte 3 structures endommagées en plus en 5 min à Base 1", by_type["base"]["message"])
+        self.assertIn("Alyross compte 3 structures endommagées en plus sur 5 min à Base 1", by_type["base"]["message"])
         research_events = [event for event in events if event["type"] == "research"]
         self.assertEqual(len(research_events), 2)
         self.assertEqual(

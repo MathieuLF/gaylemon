@@ -9,7 +9,7 @@ Le canal public active v6. Les contrats v5 restent publiés temporairement comme
 - `public-events-head-v6.json`: pointeur actif compact, revalidé par ETag, vers le manifeste et la tête immuables d'une même génération;
 - `public-events-manifest-v6.json`: copie de compatibilité du manifeste courant, avec comptes, curseurs, provenance, hachages et journées disponibles;
 - `public-events-v6/{generationId}/manifest.json`: manifeste immuable réellement suivi par le pointeur actif;
-- `public-events-v6/{generationId}/head.json`: cinq échos les plus récents et sous-ensemble de compatibilité `verifiedEchoes`, avec curseur global et plage de la fenêtre chaude;
+- `public-events-v6/{generationId}/head.json`: sept échos les plus récents et sous-ensemble de compatibilité `verifiedEchoes`, avec curseur global et plage de la fenêtre chaude;
 - `public-events-v6/{fragmentGenerationId}/{jour}.json`: échos canoniques d'une journée;
 - `public-daily/{dailyGenerationId}/{jour}.json`: résumé quotidien précalculé, sans copie du tableau complet des événements;
 - `public-events-manifest-v6.previous.json`: dernier manifeste cohérent conservé localement pour le repli d'exploitation.
@@ -42,7 +42,7 @@ Les événements bruts restent privés dans SQLite. La projection canonique et s
 
 L'export récent décrit aussi une `projectionWindow` de type `replace-tail`: borne temporelle, révisions couvertes et preuve que la fenêtre reçue est complète. La synchronisation Windows remplace cette queue à l'identique dans les fragments concernés. Elle peut ainsi absorber la transformation d'un écho isolé en écho compilé, ou le retrait d'un doublon de session, sans refaire elle-même le regroupement. Si la révision locale précède la couverture annoncée ou si la fenêtre est tronquée, la génération active reste inchangée et une réconciliation complète est demandée.
 
-Une réparation exige l'observation de la même structure endommagée puis saine. Une disparition ne produit pas de réparation. Les objets transitoires du monde sont exclus des structures. Une attribution de recherche déduite porte `confidence=derived`; elle ne devient pas une confirmation individuelle.
+Une réparation exige l'observation de la même structure endommagée puis saine. Une disparition ne produit pas de réparation. Les objets transitoires du monde sont exclus des structures. Une attribution de recherche estimée porte `confidence=derived`; l'interface l'affiche comme un joueur estimé, jamais comme une confirmation individuelle.
 
 La normalisation peut masquer un événement de la projection publique, mais ne supprime jamais l'observation privée qui permet l'audit ou une reprojection ultérieure. Une mutation déjà matérialisée ou un backfill ancien place la projection en `reprojection-required`: les fichiers publics précédents restent intacts jusqu'à la demande ponctuelle explicite décrite dans [les opérations](OPERATIONS.md#reprojection-publique-contrôlée). Cette demande est consommée uniquement après la reconstruction et l'export complet réussis.
 

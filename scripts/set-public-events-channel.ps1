@@ -291,14 +291,22 @@ $payload = [ordered]@{
 }
 $json = $payload | ConvertTo-Json -Depth 4
 $tempPath = "$channelPath.$PID.tmp"
+$backupPath = "$channelPath.$PID.bak"
 $utf8WithoutBom = [Text.UTF8Encoding]::new($false)
 
 try {
     [IO.File]::WriteAllText($tempPath, "$json`n", $utf8WithoutBom)
-    [IO.File]::Move($tempPath, $channelPath, $true)
+    if (Test-Path -LiteralPath $channelPath -PathType Leaf) {
+        [IO.File]::Replace($tempPath, $channelPath, $backupPath, $true)
+        Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        [IO.File]::Move($tempPath, $channelPath)
+    }
 }
 finally {
     Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "Canal des échos publics activé sur $ActiveContract."
