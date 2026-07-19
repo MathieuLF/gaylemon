@@ -374,6 +374,9 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(styles, /grid-auto-rows:\s*var\(--terminal-row-height\)/);
   assert.match(styles, /block-size:\s*calc\(\(var\(--terminal-row-height\) \* var\(--terminal-visible-echoes\)\)/);
   assert.match(styles, /-webkit-line-clamp:\s*1/);
+  assert.match(styles, /event-line__content[\s\S]*?padding-inline-end:\s*78px/);
+  assert.match(styles, /event-line__more[\s\S]*?min-inline-size:\s*62px/);
+  assert.match(styles, /event-line__content[\s\S]*?padding-inline-end:\s*56px/);
   assert.match(styles, /event-line__tooltip[\s\S]*?max-block-size:\s*min\(440px,/);
   assert.match(styles, /event-line:nth-last-child\(-n\+2\) \.event-line__tooltip/);
   assert.match(styles, /site-header__players-tooltip[\s\S]*?max-height:\s*none;[\s\S]*?overflow:\s*visible;/);
@@ -587,7 +590,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260719\.13/);
+    assert.match(html, /styles\.css\?v=20260719\.14/);
     assert.match(html, /app\.js\?v=20260719\.10/);
   }
 });
