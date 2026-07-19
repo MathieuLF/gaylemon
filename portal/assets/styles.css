@@ -14571,3 +14571,122 @@ body.terminal-view .event-console > .event-unseen span {
     gap: 4px;
   }
 }
+
+/* Terminal stable: six échos restent constants; le contenu se coupe à l’intérieur des lignes. */
+body.terminal-view {
+  --terminal-visible-echoes: 6;
+  --terminal-row-height: clamp(74px, 8.8svh, 88px);
+  --terminal-stream-padding-y: 6px;
+}
+
+body.terminal-view .event-stream {
+  display: grid;
+  grid-auto-rows: var(--terminal-row-height);
+  align-content: start;
+  block-size: calc((var(--terminal-row-height) * var(--terminal-visible-echoes)) + (var(--terminal-stream-padding-y) * 2));
+  min-block-size: calc((var(--terminal-row-height) * var(--terminal-visible-echoes)) + (var(--terminal-stream-padding-y) * 2));
+  max-block-size: calc((var(--terminal-row-height) * var(--terminal-visible-echoes)) + (var(--terminal-stream-padding-y) * 2));
+  overflow: hidden;
+  padding-block: var(--terminal-stream-padding-y);
+}
+
+body.terminal-view .event-line {
+  box-sizing: border-box;
+  block-size: var(--terminal-row-height);
+  min-block-size: 0;
+  max-block-size: var(--terminal-row-height);
+  align-content: center;
+  overflow: hidden;
+}
+
+body.terminal-view .event-line__rail,
+body.terminal-view .event-line__content {
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+body.terminal-view .event-line__meta {
+  flex-wrap: nowrap;
+  max-inline-size: 100%;
+  overflow: hidden;
+}
+
+body.terminal-view .event-line__meta b,
+body.terminal-view .event-line__meta em {
+  flex: 0 1 auto;
+  max-inline-size: min(190px, 28vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.terminal-view .event-line__content > strong {
+  display: block;
+  overflow: hidden;
+  line-height: 1.22;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.terminal-view .event-line__content > .event-line__body,
+body.terminal-view .event-line__content > span:not(.event-line__meta) {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+body.terminal-view .event-line__bullets {
+  flex-wrap: nowrap;
+  max-block-size: 24px;
+  overflow: hidden;
+}
+
+body.terminal-view .event-line__bullets li {
+  flex: 0 1 auto;
+  max-inline-size: min(220px, 34vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  body.terminal-view {
+    --terminal-row-height: clamp(86px, 12svh, 104px);
+    --terminal-stream-padding-y: 4px;
+  }
+
+  body.terminal-view .event-line {
+    padding-block: 7px;
+  }
+
+  body.terminal-view .event-line__meta {
+    gap: 4px;
+  }
+
+  body.terminal-view .event-line__meta b,
+  body.terminal-view .event-line__meta em {
+    max-inline-size: min(42vw, 150px);
+  }
+
+  body.terminal-view .event-line__content > strong {
+    font-size: .76rem;
+  }
+
+  body.terminal-view .event-line__content > .event-line__body,
+  body.terminal-view .event-line__content > span:not(.event-line__meta) {
+    font-size: .64rem;
+  }
+
+  body.terminal-view .event-line__bullets {
+    max-block-size: 21px;
+  }
+
+  body.terminal-view .event-line__bullets li {
+    max-inline-size: min(44vw, 160px);
+    font-size: .58rem;
+  }
+}
