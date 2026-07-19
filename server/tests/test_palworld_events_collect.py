@@ -1478,16 +1478,16 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertEqual(events[0]["title"], "Fabrications terminées")
         production = events[1]
         craft = events[2]
-        self.assertEqual(production["title"], "Stocks de production compilés")
-        self.assertIn("Alyross présente 2 variations de stock sur 5 min", production["message"])
-        self.assertIn("12 ressources supplémentaires sont observées dans 2 bases", production["message"])
+        self.assertEqual(production["title"], "Ressources produites relevées")
+        self.assertIn("Alyross relève 12 ressources produites dans 2 bases", production["message"])
         self.assertEqual(production["details"]["aggregatedEvents"], 2)
         self.assertEqual(production["details"]["total"], 23)
         self.assertEqual(production["details"]["bases"], ["Base 1", "Base 2"])
         self.assertIn("+7 Salade", production["details"]["bullets"])
         self.assertIn("+5 Lingot", production["details"]["bullets"])
-        self.assertEqual(craft["title"], "Fabrications compilées")
-        self.assertIn("Alyross termine 11 fabrications sur 5 min", craft["message"])
+        self.assertEqual(craft["title"], "Fabrications terminées")
+        self.assertIn("Alyross termine 11 fabrications", craft["message"])
+        self.assertNotIn("sur 5 min", craft["message"])
         self.assertEqual(craft["details"]["aggregatedEvents"], 2)
         self.assertEqual(craft["details"]["total"], 17)
         self.assertIn("+7 Bois", craft["details"]["bullets"])
@@ -1546,9 +1546,10 @@ class SessionReconciliationTests(unittest.TestCase):
         events, reconnects = self.public_events()
 
         self.assertEqual(reconnects, 0)
-        self.assertEqual([event["title"] for event in events], ["Pêche fructueuse", "Prises de pêche compilées"])
+        self.assertEqual([event["title"] for event in events], ["Pêche fructueuse", "Pêche ramenée"])
         grouped = events[1]
-        self.assertIn("Alyross ramène 3 prises de pêche sur 5 min", grouped["message"])
+        self.assertIn("Alyross ramène 3 prises de pêche", grouped["message"])
+        self.assertNotIn("sur 5 min", grouped["message"])
         self.assertIn("Total cumulé: 8", grouped["message"])
         self.assertEqual(grouped["details"]["aggregatedEvents"], 2)
         self.assertEqual(grouped["details"]["total"], 8)
@@ -1649,15 +1650,16 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertEqual(reconnects, 0)
         by_type = {event["type"]: event for event in events}
         self.assertEqual(set(by_type), {"build", "repair", "base", "research"})
-        self.assertEqual(by_type["build"]["title"], "Constructions compilées")
-        self.assertIn("Alyross confirme 5 nouvelles structures confirmées sur 5 min à Base 1", by_type["build"]["message"])
+        self.assertEqual(by_type["build"]["title"], "Base agrandie")
+        self.assertIn("Alyross ajoute 5 structures à Base 1", by_type["build"]["message"])
+        self.assertNotIn("sur 5 min", by_type["build"]["message"])
         self.assertEqual(by_type["build"]["details"]["aggregatedEvents"], 2)
         self.assertEqual(by_type["build"]["details"]["total"], 15)
         self.assertIn("+3 Fondation", by_type["build"]["details"]["bullets"])
-        self.assertEqual(by_type["repair"]["title"], "Réparations compilées")
-        self.assertIn("Alyross répare 3 structures sur 5 min à Base 1", by_type["repair"]["message"])
-        self.assertEqual(by_type["base"]["title"], "Dégâts de base compilés")
-        self.assertIn("Alyross compte 3 structures endommagées en plus sur 5 min à Base 1", by_type["base"]["message"])
+        self.assertEqual(by_type["repair"]["title"], "Réparations terminées")
+        self.assertIn("Alyross remet 3 structures en état à Base 1", by_type["repair"]["message"])
+        self.assertEqual(by_type["base"]["title"], "État de base relevé")
+        self.assertIn("Alyross relève 3 structures endommagées à Base 1", by_type["base"]["message"])
         research_events = [event for event in events if event["type"] == "research"]
         self.assertEqual(len(research_events), 2)
         self.assertEqual(
@@ -2619,7 +2621,7 @@ class PublicExportTests(unittest.TestCase):
             EVENTS.public_event_key("public:research:guild_spartans:7"),
         )
         self.assertEqual(event["details"]["total"], 7)
-        self.assertEqual(event["details"]["attribution"], "déduite")
+        self.assertEqual(event["details"]["attribution"], "rattachée à la guilde")
         self.assertNotIn("Base 3", json.dumps(event["display"], ensure_ascii=False))
 
     def test_unattributed_canonical_research_stays_confirmed(self):
@@ -2874,7 +2876,11 @@ class PublicExportTests(unittest.TestCase):
             recent,
             reproject_public=EVENTS.public_reprojection_requested(False, request),
         )
-        self.assertTrue(EVENTS.consume_public_reprojection_request(request, rebuilt))
+        late_request = self.root / "late-public-reprojection.request"
+        late_request.touch()
+        self.assertFalse(EVENTS.consume_public_reprojection_request(late_request, rebuilt, requested=False))
+        self.assertTrue(late_request.exists())
+        self.assertTrue(EVENTS.consume_public_reprojection_request(request, rebuilt, requested=True))
         self.assertFalse(request.exists())
         materialized = json.loads(self.connection.execute(
             "SELECT payload_json FROM public_event_projection"
@@ -3083,7 +3089,7 @@ class PublicExportTests(unittest.TestCase):
             source="save",
             details={
                 "headline": "Mathieu agrandit Base 1",
-                "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+                "body": "3 structures ajoutées.",
                 "bullets": ["+3 CommonItemDrop3D"],
                 "structures": [{"name": "CommonItemDrop3D", "asset": "CommonItemDrop3D", "added": 3, "count": 3}],
             },
@@ -3101,7 +3107,7 @@ class PublicExportTests(unittest.TestCase):
             source="save",
             details={
                 "headline": "Mathieu agrandit Base 1",
-                "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+                "body": "4 structures ajoutées.",
                 "bullets": ["+2 Mur", "+2 CommonDropItem3D"],
                 "structures": [
                     {"name": "Mur", "asset": "Wall", "added": 2, "count": 12},
@@ -3125,7 +3131,7 @@ class PublicExportTests(unittest.TestCase):
             """
         ).fetchall()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["message"], "Mathieu agrandit Base 1. 2 nouvelles structures confirmées.")
+        self.assertEqual(rows[0]["message"], "Mathieu agrandit Base 1. 2 nouvelles structures ajoutées.")
         self.assertNotIn("CommonDropItem3D", rows[0]["details_json"])
         self.assertNotIn("CommonItemDrop3D", rows[0]["details_json"])
         details = json.loads(rows[0]["details_json"])
@@ -3145,7 +3151,7 @@ class PublicExportTests(unittest.TestCase):
             source="save",
             details={
                 "headline": "Mathieu agrandit Base 6 · Spartans",
-                "body": "De nouvelles structures sont confirmées dans la sauvegarde.",
+                "body": "2 structures ajoutées.",
             },
         )
         bases_payload = {
