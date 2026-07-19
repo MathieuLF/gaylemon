@@ -367,9 +367,12 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /function v6NavigableDates/);
   assert.match(app, /contentHash: `empty:\$\{dateKey\}`/);
   assert.match(app, /v6DateCanBeOpened/);
-  assert.match(app, /const terminalV6EchoLimit = 7/);
+  assert.match(app, /const terminalV6EchoLimit = 6/);
   assert.match(app, /terminalHead: true/);
-  assert.match(app, /eventPagination\.hidden = true/);
+  assert.match(app, /async function loadFullTerminalEventsV6/);
+  assert.match(app, /async function renderPagedTerminalEventsV6/);
+  assert.match(app, /nouveaux échos depuis ta dernière visite/);
+  assert.match(terminal, /event-pagination--top/);
   assert.match(styles, /site-header__players-tooltip[\s\S]*?max-height:\s*none;[\s\S]*?overflow:\s*visible;/);
   assert.match(styles, /site-header__players-tooltip ul[\s\S]*?grid-template-columns:\s*repeat\(2,/);
   assert.match(styles, /home-echoes__list[\s\S]*?gap:\s*10px;/);
@@ -505,7 +508,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260719\.1/);
-    assert.match(html, /app\.js\?v=20260719\.1/);
+    assert.match(html, /styles\.css\?v=20260719\.2/);
+    assert.match(html, /app\.js\?v=20260719\.2/);
   }
 });
