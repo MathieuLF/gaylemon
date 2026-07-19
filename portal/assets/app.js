@@ -4328,8 +4328,18 @@ function renderEventLineHtml(event, index = 0) {
     const windowBadge = windowMinutes
       ? `<em class="event-line__window" aria-label="Tranche de ${windowMinutes} minutes">Tranche de ${windowMinutes} min</em>`
       : "";
+    const tooltip = renderTerminalEventTooltip(event, {
+      body,
+      bullets,
+      headline,
+      index,
+      key,
+      meta,
+      timestamp,
+      windowMinutes,
+    });
     return `
-      <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
+      <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}"${tooltip.attributes} style="--event-accent:${accent};--event-type-accent:${meta.color}">
         <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.time)}</strong><span>${escapeHtml(timestamp.date)}</span></time>
         <span class="event-line__rail" aria-hidden="true"><i></i></span>
         <span class="event-line__visual">${visual}</span>
@@ -4339,7 +4349,38 @@ function renderEventLineHtml(event, index = 0) {
           <span class="event-line__body">${escapeHtml(body)}</span>
           ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
         </span>
+        ${tooltip.html}
       </li>`;
+}
+
+function renderTerminalEventTooltip(event, context) {
+  if (!isTerminalRoute()) return { attributes: "", html: "" };
+  const tooltipId = `event-tooltip-${context.index}-${playerSlug(context.key)}`;
+  const metaItems = [
+    context.meta.label,
+    context.windowMinutes ? `Tranche de ${context.windowMinutes} min` : "",
+    event.player || "",
+    event.base || "",
+    event.confidence === "derived" ? "Rattaché à la guilde" : "",
+  ].filter(Boolean);
+  const bullets = Array.isArray(context.bullets) ? context.bullets : [];
+  const body = String(context.body || "").trim();
+  const headline = String(context.headline || "Écho").trim();
+  const timestamp = `${context.timestamp.time} · ${context.timestamp.date}`;
+  const ariaLabel = [timestamp, headline, body, ...bullets].filter(Boolean).join(". ");
+  const html = `
+        <span class="event-line__more" aria-hidden="true">Voir tout</span>
+        <span class="event-line__tooltip" id="${escapeHtml(tooltipId)}" role="tooltip">
+          <span class="event-line__tooltip-kicker">${escapeHtml(timestamp)}</span>
+          <span class="event-line__tooltip-meta">${metaItems.map((item) => `<em>${escapeHtml(item)}</em>`).join("")}</span>
+          <strong>${escapeHtml(headline)}</strong>
+          ${body ? `<span class="event-line__tooltip-body">${escapeHtml(body)}</span>` : ""}
+          ${bullets.length ? `<ul class="event-line__tooltip-items">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
+        </span>`;
+  return {
+    attributes: ` tabindex="0" aria-label="${escapeHtml(ariaLabel)}" aria-describedby="${escapeHtml(tooltipId)}"`,
+    html,
+  };
 }
 
 function eventBulletQuantityTotal(bullets) {
