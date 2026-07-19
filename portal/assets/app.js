@@ -156,6 +156,7 @@ let showMapBases = false;
 let showMapLegend = true;
 let mapExpandedFallback = false;
 let selectedPlayer = null;
+let selectedPlayerSnapshotPayload = null;
 let palVisibleLimit = 24;
 let paldexCurrentPage = 1;
 let paldexStatusFilter = "all";
@@ -2421,8 +2422,19 @@ function baseBelongsToPlayer(base, player) {
   return base?.guild && base.guild !== "Guilde anonyme" && base.guild === player.guild;
 }
 
+function normalizeExportValue(value) {
+  if (Array.isArray(value)) return value.map(normalizeExportValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value)
+    .sort((left, right) => left.localeCompare(right, "fr-CA"))
+    .reduce((output, key) => {
+      output[key] = normalizeExportValue(value[key]);
+      return output;
+    }, {});
+}
+
 function cloneExportValue(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  return value == null ? value : normalizeExportValue(JSON.parse(JSON.stringify(value)));
 }
 
 function exportTimestampSlug(date = new Date()) {
@@ -2453,9 +2465,120 @@ function selectedPlayerGuildStorageRows(player = selectedPlayer) {
 async function ensurePlayerExportDataReady() {
   if (!currentBasesSnapshot()) await loadBases(true);
   if (selectedPlayer) {
+    if (!selectedPlayer.provisional) {
+      try {
+        await hydratePlayerFromPublicCatalogs(selectedPlayer);
+      } catch {
+        // Les catalogues enrichissent l'analyse, mais leur absence ne bloque pas l'export public.
+      }
+    }
     selectedPlayerBases = selectedPlayerBaseRows(selectedPlayer);
     selectedPlayerStock = buildSelectedPlayerStock();
   }
+}
+
+function playerExportPayloadMeta(payload, source, fallback = {}) {
+  const available = Boolean(payload);
+  return cloneExportValue({
+    source,
+    status: available ? (payload?.ok === false ? "unavailable" : "available") : "unavailable",
+    generationId: publicSaveGenerationId(payload) || fallback.generationId || null,
+    version: payload?.version ?? fallback.version ?? null,
+    updatedAt: payload?.updatedAt || fallback.updatedAt || null,
+    provenance: payload?.provenance || fallback.provenance || null,
+  });
+}
+
+function playerRawFields(player) {
+  return {
+    player: Object.keys(player || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    character: Object.keys(player?.character || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    progress: Object.keys(player?.progress || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    pals: Object.keys(player?.pals || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    inventorySections: (Array.isArray(player?.inventory) ? player.inventory : [])
+      .map((section) => String(section?.key || section?.label || "section"))
+      .sort((left, right) => left.localeCompare(right, "fr-CA")),
+  };
+}
+
+function currentPlayerIndexRow(player) {
+  const slug = playerSlug(player?.name);
+  return (Array.isArray(saveSnapshot?.players) ? saveSnapshot.players : [])
+    .find((row) => playerSlug(row?.name) === slug) || null;
+}
+
+function playerInventoryExportSummary(player) {
+  const sections = Array.isArray(player?.inventory) ? player.inventory : [];
+  const sectionSummaries = sections.map((section) => {
+    const items = Array.isArray(section?.items) ? section.items : [];
+    return {
+      key: section?.key || null,
+      label: section?.label || null,
+      itemTypes: items.length,
+      quantity: items.reduce((sum, item) => sum + Number(item?.count || 0), 0),
+      totalWeight: Math.round(items.reduce((sum, item) => sum + Number(item?.totalWeight || 0), 0) * 10) / 10,
+    };
+  });
+  return {
+    sections: sections.length,
+    itemTypes: sectionSummaries.reduce((sum, section) => sum + section.itemTypes, 0),
+    quantity: sectionSummaries.reduce((sum, section) => sum + section.quantity, 0),
+    totalWeight: Math.round(sectionSummaries.reduce((sum, section) => sum + section.totalWeight, 0) * 10) / 10,
+    bySection: sectionSummaries,
+  };
+}
+
+function playerPalExportSummary(player) {
+  const collection = Array.isArray(player?.pals?.collection) ? player.pals.collection : [];
+  const containers = collection.reduce((counts, pal) => {
+    const key = String(pal?.container || "other");
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  return {
+    total: player?.pals?.total ?? collection.length,
+    collection: collection.length,
+    party: containers.party || 0,
+    palbox: containers.palbox || 0,
+    other: collection.length - Number(containers.party || 0) - Number(containers.palbox || 0),
+    uniqueSpecies: player?.pals?.uniqueSpecies ?? null,
+    highestLevel: player?.pals?.highestLevel ?? null,
+    favorites: Array.isArray(player?.pals?.favorites) ? player.pals.favorites.length : 0,
+    containers,
+  };
+}
+
+function playerBaseExportSummary(bases, guildStorage, stock) {
+  return {
+    bases: bases.length,
+    structures: bases.reduce((total, base) => total + Number(base?.structures?.total || 0), 0),
+    damagedStructures: bases.reduce((total, base) => total + Number(base?.structures?.damaged || 0), 0),
+    unfinishedStructures: bases.reduce((total, base) => total + Number(base?.structures?.unfinished || 0), 0),
+    workersAssigned: bases.reduce((total, base) => total + Number(base?.workers?.assigned || 0), 0),
+    workersBusy: bases.reduce((total, base) => total + Number(base?.workers?.busy || 0), 0),
+    storageUnits: bases.reduce((total, base) => total + Number(base?.storage?.units || 0), 0),
+    productionUnits: bases.reduce((total, base) => total + Number(base?.production?.units || 0), 0),
+    guildStorageUnits: guildStorage.reduce((total, storage) => total + Number(storage?.units || 1), 0),
+    stockItemTypes: stock.length,
+    stockQuantity: stock.reduce((total, item) => total + Number(item?.count || 0), 0),
+  };
+}
+
+function playerActivityExport(player) {
+  const values = getPlayerActivityValues(player);
+  return {
+    status: values.activity ? "available" : "unavailable",
+    isOnline: values.isOnline,
+    labels: {
+      presence: values.presence,
+      sessions: values.sessions,
+      playtime: values.playtime,
+      lastSeen: values.lastSeen,
+      lastSeenNote: values.lastSeenNote,
+      ping: values.ping,
+    },
+    raw: cloneExportValue(values.activity),
+  };
 }
 
 function buildPlayerAnalysisExport(player) {
@@ -2466,68 +2589,149 @@ function buildPlayerAnalysisExport(player) {
   const bases = selectedPlayerBaseRows(player);
   const guildStorage = selectedPlayerGuildStorageRows(player);
   const baseSnapshot = currentBasesSnapshot();
+  const indexPlayer = currentPlayerIndexRow(player);
+  const activity = playerActivityExport(player);
+  const inventory = playerInventoryExportSummary(player);
+  const pals = playerPalExportSummary(player);
+  const baseSummary = playerBaseExportSummary(bases, guildStorage, selectedPlayerStock);
+  const playerPayload = selectedPlayerSnapshotPayload?.player === player ? selectedPlayerSnapshotPayload : null;
 
-  return {
+  const payload = {
     export: {
-      schema: "gaylemon-player-analysis.v1",
+      schema: "gaylemon-player-analysis",
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       source: "Gaylémon Palworld",
-      note: "Données publiques en vigueur au moment de l'export.",
+      locale: "fr-CA",
+      timeZone: siteTimeZone,
+      publicOnly: true,
+      deterministic: {
+        objectKeys: "sorted-recursively",
+        arrayOrder: "source-order-preserved",
+        missingValues: "null-or-empty-array",
+      },
+      note: "Données publiques en vigueur au moment de l'export. Les blocs complets sont sous data et relations.",
     },
-    snapshots: {
-      playerUpdatedAt: saveSnapshot?.updatedAt || null,
-      basesUpdatedAt: baseSnapshot?.updatedAt || null,
-      saveVersion: saveSnapshot?.version ?? null,
-      basesVersion: baseSnapshot?.version ?? null,
-    },
-    player: {
+    entity: {
+      type: "player",
       name: player?.name || null,
       slug: playerSlug(player?.name),
       guild: player?.guild || null,
       level: player?.level ?? null,
-      guildBases: player?.guildBases ?? null,
-      campLevel: player?.campLevel ?? null,
-      position: cloneExportValue(player?.position || null),
+    },
+    sources: {
+      player: playerExportPayloadMeta(playerPayload, "players/{slug}.json", {
+        generationId: activeSaveGenerationId(),
+        updatedAt: saveSnapshot?.updatedAt || null,
+        version: saveSnapshot?.version ?? null,
+        provenance: saveSnapshot?.provenance || null,
+      }),
+      index: playerExportPayloadMeta(saveSnapshot, "public-save-index.json"),
+      bases: playerExportPayloadMeta(baseSnapshot, "public-save-bases.json"),
+      stats: playerExportPayloadMeta(statsSnapshot, "public-stats.json"),
+      catalogs: publicCatalogManifest
+        ? playerExportPayloadMeta(publicCatalogManifest, "public-catalogs-manifest.json")
+        : { source: "public-catalogs-manifest.json", status: "unavailable", generationId: null, version: null, updatedAt: null, provenance: null },
+    },
+    summary: {
+      player: {
+        level: player?.level ?? null,
+        guild: player?.guild || null,
+        guildBases: player?.guildBases ?? null,
+        campLevel: player?.campLevel ?? null,
+        position: cloneExportValue(player?.position || null),
+      },
+      activity: cloneExportValue(activity.labels),
+      pals: cloneExportValue(pals),
+      inventory: cloneExportValue(inventory),
+      bases: cloneExportValue(baseSummary),
+      progress: cloneExportValue({
+        technologyPoints: player?.progress?.technologyPoints ?? null,
+        bossTechnologyPoints: player?.progress?.bossTechnologyPoints ?? null,
+        unlockedTechnologies: player?.progress?.unlockedTechnologies ?? null,
+        completedQuests: player?.progress?.completedQuests ?? null,
+        paldexCapturedSpecies: player?.progress?.paldex?.capturedSpecies ?? null,
+        explorationCompletionPercent: player?.progress?.exploration?.completionPercent ?? null,
+      }),
+    },
+    data: {
+      rawPublicFields: cloneExportValue(playerRawFields(player)),
+      player: cloneExportValue(player),
+      indexPlayer: cloneExportValue(indexPlayer),
+      activity: cloneExportValue(activity),
+      pals: {
+        summary: cloneExportValue(pals),
+        party: cloneExportValue(party),
+        palbox: cloneExportValue(palbox),
+        other: cloneExportValue(otherPals),
+      },
+      inventory: {
+        summary: cloneExportValue(inventory),
+        sections: cloneExportValue(player?.inventory || []),
+      },
+      progress: cloneExportValue(player?.progress || {}),
       character: cloneExportValue(player?.character || {}),
     },
-    pals: {
-      summary: cloneExportValue({
-        total: player?.pals?.total ?? collection.length,
-        party: party.length,
-        palbox: palbox.length,
-        other: otherPals.length,
-        uniqueSpecies: player?.pals?.uniqueSpecies ?? null,
-        highestLevel: player?.pals?.highestLevel ?? null,
-      }),
-      party: cloneExportValue(party),
-      palbox: cloneExportValue(palbox),
-      other: cloneExportValue(otherPals),
-    },
-    bases: {
-      summary: {
-        total: bases.length,
-        structures: bases.reduce((total, base) => total + Number(base.structures?.total || 0), 0),
-        damagedStructures: bases.reduce((total, base) => total + Number(base.structures?.damaged || 0), 0),
-        unfinishedStructures: bases.reduce((total, base) => total + Number(base.structures?.unfinished || 0), 0),
-        workersAssigned: bases.reduce((total, base) => total + Number(base.workers?.assigned || 0), 0),
-        storageUnits: bases.reduce((total, base) => total + Number(base.storage?.units || 0), 0),
-        guildStorageUnits: guildStorage.reduce((total, storage) => total + Number(storage.units || 1), 0),
+    relations: {
+      bases: {
+        summary: cloneExportValue(baseSummary),
+        items: cloneExportValue(bases),
+        constructions: cloneExportValue(bases.map((base) => ({
+          name: base.name || null,
+          guild: base.guild || null,
+          campLevel: base.campLevel ?? null,
+          position: base.position || null,
+          structures: base.structures || {},
+          workers: base.workers || {},
+          work: base.work || {},
+          research: base.research || {},
+        }))),
       },
-      items: cloneExportValue(bases),
-      constructions: cloneExportValue(bases.map((base) => ({
-        name: base.name || null,
-        guild: base.guild || null,
-        campLevel: base.campLevel ?? null,
-        position: base.position || null,
-        structures: base.structures || {},
-        workers: base.workers || {},
-        work: base.work || {},
-        research: base.research || {},
-      }))),
-      guildStorage: cloneExportValue(guildStorage),
-      stock: cloneExportValue(selectedPlayerStock),
+      guildStorage: {
+        summary: {
+          units: guildStorage.reduce((total, storage) => total + Number(storage?.units || 1), 0),
+          itemTypes: guildStorage.reduce((total, storage) => total + Number(storage?.itemTypes || 0), 0),
+          rows: guildStorage.length,
+        },
+        items: cloneExportValue(guildStorage),
+      },
+      stock: {
+        summary: {
+          itemTypes: selectedPlayerStock.length,
+          quantity: selectedPlayerStock.reduce((total, item) => total + Number(item?.count || 0), 0),
+          sources: selectedPlayerStock.reduce((counts, item) => {
+            const source = item?.source || "unknown";
+            counts[source] = (counts[source] || 0) + 1;
+            return counts;
+          }, {}),
+        },
+        items: cloneExportValue(selectedPlayerStock),
+      },
+    },
+    analysisGuide: {
+      audience: "lecture automatisée et audit humain",
+      entrypoints: [
+        { key: "summary", use: "Vue courte et déterministe pour décider quoi inspecter." },
+        { key: "data.player", use: "Profil public complet chargé par la fiche joueur." },
+        { key: "data.inventory.sections", use: "Inventaire complet, groupé selon les sections publiques." },
+        { key: "data.pals", use: "Collection complète, aussi découpée en équipe, Palbox et autres conteneurs publics." },
+        { key: "relations.bases.items", use: "Bases reliées au joueur ou à sa guilde." },
+        { key: "relations.stock.items", use: "Stock agrégé prêt à filtrer par source, ressource ou campement." },
+      ],
+      joins: [
+        { from: "entity.slug", to: "data.indexPlayer.name via playerSlug(name)" },
+        { from: "entity.guild", to: "relations.bases.items[].guild" },
+        { from: "entity.guild", to: "relations.guildStorage.items[].guild" },
+        { from: "relations.stock.items[].locations[]", to: "relations.bases.items[].name" },
+      ],
+      privacy: [
+        "Projection publique seulement.",
+        "Aucun GUID, Steam ID, chemin système, conteneur privé ou détail exact de coffre.",
+        "Le stock est agrégé par ressource et source publique.",
+      ],
     },
   };
+  return normalizeExportValue(payload);
 }
 
 function downloadJsonExport(payload, filename) {
@@ -6115,11 +6319,6 @@ function renderPlayerProfile(player) {
     .map((row) => gameImage(row.icon, row.species || row.name, className))
     .join("");
   expeditionShortcuts.innerHTML = `
-    <button class="profile-export-shortcut" type="button" data-player-export data-export-label="Exporter les données JSON">
-      <span class="shortcut-preview shortcut-preview--json" aria-hidden="true">JSON</span>
-      <span><small>Analyse personnelle</small><strong data-player-export-label>Exporter les données JSON</strong><small class="profile-export-shortcut__detail">Pals en équipe, Palbox, bases et constructions.</small></span>
-      <b>Télécharger →</b>
-    </button>
     <button type="button" data-shortcut-tab="paldex">
       <span class="shortcut-preview shortcut-preview--paldex" aria-hidden="true">PX</span>
       <span><small>Découvertes personnelles</small><strong>Ouvrir le Paldex</strong></span>
@@ -6536,7 +6735,14 @@ async function ensurePlayerSnapshot(indexedPlayer) {
       const payload = await ensureFullSaveSnapshot();
       const player = (payload?.players || []).find((row) => playerSlug(row.name) === slug);
       if (!player) throw new Error("Player profile unavailable");
-      const fallback = { ok: true, generationId: revision, updatedAt: payload.updatedAt, player };
+      const fallback = {
+        ok: true,
+        generationId: revision,
+        updatedAt: payload.updatedAt,
+        version: payload.version ?? null,
+        provenance: payload.provenance || null,
+        player,
+      };
       playerSnapshotCache.set(promiseKey, fallback);
       return fallback;
     })
@@ -6553,6 +6759,14 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
   let payload = null;
   if (indexedPlayer.provisional) {
     selectedPlayer = indexedPlayer;
+    selectedPlayerSnapshotPayload = {
+      ok: true,
+      generationId: activeSaveGenerationId(),
+      updatedAt: saveSnapshot?.updatedAt || statsSnapshot?.updatedAt || null,
+      version: saveSnapshot?.version ?? null,
+      provenance: saveSnapshot?.provenance || null,
+      player: indexedPlayer,
+    };
   } else {
     try {
       payload = await ensurePlayerSnapshot(indexedPlayer);
@@ -6561,6 +6775,7 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
       return;
     }
     selectedPlayer = payload.player;
+    selectedPlayerSnapshotPayload = payload;
     if (!selectedPlayer) return;
   }
   expeditionPlayerName.textContent = selectedPlayer.name || "Aventurier";
@@ -6663,6 +6878,7 @@ function openPlayerFromRoute() {
 function closePlayerDetails() {
   if (expeditionDialog?.open) expeditionDialog.close();
   selectedPlayer = null;
+  selectedPlayerSnapshotPayload = null;
   selectedPlayerBases = [];
   history.replaceState(null, "", playerReturnUrl || `${location.pathname}${location.search}`);
   trackVirtualPageView();
@@ -7385,10 +7601,6 @@ expeditionDialog.addEventListener("cancel", (event) => {
 expeditionClose.addEventListener("click", closePlayerDetails);
 expeditionBack.addEventListener("click", closePlayerDetails);
 expeditionShortcuts.addEventListener("click", (event) => {
-  if (event.target.closest("[data-player-export]")) {
-    void exportSelectedPlayerAnalysisJson();
-    return;
-  }
   const shortcut = event.target.closest("[data-shortcut-tab]");
   if (shortcut) switchDetailTab(shortcut.dataset.shortcutTab);
 });

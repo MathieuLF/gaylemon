@@ -5872,42 +5872,6 @@ body.player-view-open {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.profile-shortcuts .profile-export-shortcut {
-  grid-column: 1 / -1;
-  border-color: rgba(17, 107, 104, .2);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(226, 246, 237, .9)),
-    linear-gradient(90deg, rgba(39, 153, 126, .16), transparent 58%);
-}
-
-.profile-shortcuts .profile-export-shortcut:hover {
-  border-color: rgba(17, 107, 104, .34);
-  box-shadow: 0 14px 30px rgba(25, 103, 92, .14);
-}
-
-.profile-shortcuts .profile-export-shortcut:disabled {
-  cursor: wait;
-  opacity: .76;
-  transform: none;
-}
-
-.shortcut-preview--json {
-  display: grid;
-  width: 76px;
-  height: 46px;
-  place-items: center;
-  border: 1px solid rgba(18, 107, 109, .16);
-  border-radius: 14px;
-  color: #0f5f5d;
-  background: linear-gradient(145deg, #dcf7ea, #b9e6d5);
-  font: 900 .78rem/1 "Baloo 2", sans-serif;
-}
-
-.profile-export-shortcut__detail {
-  margin-top: 2px;
-  color: #43736d;
-}
-
 .expedition-dialog__header .dialog-export {
   border-color: rgba(159, 239, 200, .68);
   color: #06393c;
@@ -11376,16 +11340,6 @@ body.terminal-view .event-line--with-bullets {
   border-color: rgba(215, 255, 232, .9);
   color: #032b2e;
   background: linear-gradient(135deg, #f2fff7, #9de9c4);
-}
-
-.profile-shortcuts .profile-export-shortcut.is-success {
-  border-color: rgba(62, 177, 101, .36);
-  background: linear-gradient(145deg, rgba(229, 255, 237, .98), rgba(190, 241, 209, .9));
-}
-
-.profile-shortcuts .profile-export-shortcut.is-error {
-  border-color: rgba(204, 70, 58, .32);
-  background: linear-gradient(145deg, rgba(255, 240, 236, .98), rgba(250, 211, 202, .9));
 }
 
 @media (max-width: 900px) {

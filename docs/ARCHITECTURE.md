@@ -106,7 +106,7 @@ Ne pas publier:
 
 Les noms affichés publiquement doivent venir d'un nom de joueur prévu pour l'affichage. Un identifiant technique comme `accountName`, `playerId`, `userId`, Steam ID ou Unreal GUID ne doit jamais servir de nom de secours dans un export public.
 
-Le navigateur peut exporter un JSON d'analyse depuis une fiche joueur. Cet export ne crée pas une nouvelle source de données: il regroupe seulement les champs publics déjà chargés pour ce joueur, ses Pals, ses bases, ses constructions et son stockage.
+Le navigateur peut exporter un JSON d'analyse depuis le bouton d'en-tête d'une fiche joueur. Cet export ne crée pas une nouvelle source de données: il regroupe seulement les champs publics chargés pour ce joueur, son activité, sa progression, son inventaire, ses Pals, ses bases, ses constructions et son stockage. Les blocs exportés gardent des clés déterministes et des sommaires pour faciliter l'audit.
 
 ## Disponibilité
 

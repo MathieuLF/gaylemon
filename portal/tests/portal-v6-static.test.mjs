@@ -319,6 +319,7 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.doesNotMatch(index, /derniers échos vérifiés/i);
   assert.match(index, /id="player-visibility-toggle"/);
   assert.match(index, /aria-modal="true"/);
+  assert.match(index, /id="expedition-export"[^>]+data-player-export/);
   assert.doesNotMatch(terminal, /id="event-date"/);
   assert.doesNotMatch(terminal, /id="event-date-today"/);
   assert.doesNotMatch(terminal, /Journée/);
@@ -341,6 +342,18 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /data\/public-catalogs-manifest\.json/);
   assert.match(app, /mixed-catalog-generation/);
   assert.match(app, /data-load-breeding/);
+  assert.doesNotMatch(app, /profile-export-shortcut/);
+  assert.doesNotMatch(app, /expeditionShortcuts\.addEventListener\("click"[\s\S]{0,220}\[data-player-export\]/);
+  assert.match(app, /schema: "gaylemon-player-analysis"/);
+  assert.match(app, /schemaVersion: 2/);
+  assert.match(app, /objectKeys: "sorted-recursively"/);
+  assert.match(app, /rawPublicFields/);
+  assert.match(app, /data: \{/);
+  assert.match(app, /player: cloneExportValue\(player\)/);
+  assert.match(app, /activity: cloneExportValue\(activity\)/);
+  assert.match(app, /sections: cloneExportValue\(player\?\.inventory \|\| \[\]\)/);
+  assert.match(app, /relations: \{/);
+  assert.match(app, /analysisGuide: \{/);
   assert.match(app, /function v6NavigableDates/);
   assert.match(app, /contentHash: `empty:\$\{dateKey\}`/);
   assert.match(app, /v6DateCanBeOpened/);
@@ -477,7 +490,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260718\.13/);
-    assert.match(html, /app\.js\?v=20260718\.18/);
+    assert.match(html, /styles\.css\?v=20260718\.14/);
+    assert.match(html, /app\.js\?v=20260718\.21/);
   }
 });

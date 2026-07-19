@@ -282,7 +282,7 @@ Les métriques rapides, les échos et les fiches joueurs ont des cadences distin
 
 `public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
 
-Les fiches joueurs chargent `players/{slug}.json` à la demande. Le bouton d'export JSON regroupe les données publiques déjà disponibles: profil, apparence parsée quand elle existe, Pals en équipe, Pals en Palbox, autres Pals, bases, constructions, travailleurs, stockage et métadonnées des snapshots.
+Les fiches joueurs chargent `players/{slug}.json` à la demande. Le bouton d'export JSON de l'en-tête regroupe les données publiques déjà disponibles: profil complet, activité, progression, inventaire, apparence parsée quand elle existe, Pals en équipe, Pals en Palbox, autres Pals, bases, constructions, travailleurs, stockage et métadonnées des snapshots. Aucun bandeau d'export n'est affiché dans le bas de la fiche.
 
 Les projections publiques retirent les identifiants techniques, secrets, coordonnées brutes et détails de coffres. Un `accountName`, `playerId`, `userId`, Steam ID ou GUID Unreal ne doit pas être publié, même comme nom de secours.
 
