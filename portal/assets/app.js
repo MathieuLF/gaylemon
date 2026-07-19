@@ -3229,7 +3229,7 @@ async function loadEventDayV6(dateKey, manifest = eventsManifestV6, head = event
 }
 
 function renderEventDateControls() {
-  if (!eventDateNavigation) return;
+  if (!eventDateNavigation || !isDailyDigestRoute()) return;
   const dates = v6NavigableDates();
   const index = dates.indexOf(eventSelectedDateKey);
   eventDateNavigation.hidden = eventsContractMode !== "v6";
@@ -3250,8 +3250,7 @@ async function loadTerminalEventsV6(silent = false) {
     const candidate = await fetchEventsV6Candidate(silent, true);
     if (!candidate.ok) return candidate;
     const dates = v6NavigableDates(candidate.manifest);
-    const requested = eventSelectedDateKey || new URLSearchParams(location.search).get("jour") || "";
-    const selectedDate = dates.includes(requested) ? requested : dates[0];
+    const selectedDate = dates[0];
     const { payload, state } = await stageAndCommitV6Candidate(
       candidate,
       () => loadEventDayV6(selectedDate, candidate.manifest, candidate.head),
@@ -3590,7 +3589,6 @@ function readTerminalState() {
     type: params.get("type") ?? saved.type ?? "all",
     player: params.get("player") ?? saved.player ?? "all",
     page: Number(params.get("page") || saved.page || 1),
-    day: params.get("jour") ?? saved.day ?? "",
     cursor: params.get("cursor") ?? saved.cursor ?? "",
   };
   if (eventSearch) eventSearch.value = values.q;
@@ -3603,7 +3601,7 @@ function readTerminalState() {
     eventPlayerFilter.value = values.player;
   }
   eventCurrentPage = Math.max(1, values.page || 1);
-  eventSelectedDateKey = isDailyDateKey(values.day) ? values.day : "";
+  eventSelectedDateKey = "";
   eventCursor = values.cursor || "";
   syncEventControlsState();
   updateTerminalPageSize();
@@ -3630,7 +3628,6 @@ function writeTerminalState() {
     type: selectedEventTypeValue(),
     player: selectedEventPlayerValue(),
     page: eventCurrentPage,
-    day: eventSelectedDateKey,
     cursor: eventCursor,
   };
   localStorage.setItem("gaylemon-terminal-filters", JSON.stringify(state));
@@ -3640,7 +3637,6 @@ function writeTerminalState() {
     if (state[key] && state[key] !== "all") params.set(key, state[key]);
   }
   if (eventsContractMode === "v6") {
-    if (state.day) params.set("jour", state.day);
     if (state.cursor) params.set("cursor", state.cursor);
   } else if (state.page > 1) {
     params.set("page", String(state.page));
@@ -4133,9 +4129,7 @@ function renderEvents(refinePageSize = true, options = {}) {
       : `${events.length} écho${events.length > 1 ? "s" : ""}`)
     : `${filtered.length} résultat${filtered.length > 1 ? "s" : ""} sur ${events.length}`;
   if (eventResultCount) {
-    eventResultCount.textContent = terminal && eventsContractMode === "v6"
-      ? `${resultLabel} · ${dailyDisplayDate(eventSelectedDateKey, { short: true })}`
-      : pageCount > 1
+    eventResultCount.textContent = pageCount > 1
       ? `${resultLabel} · page ${eventCurrentPage} sur ${pageCount}`
       : resultLabel;
   }

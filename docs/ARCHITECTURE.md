@@ -82,7 +82,7 @@ Contrats principaux:
 - `public-save-diagnostics.json`: état public filtré de la dernière analyse de sauvegarde;
 - `public-events-manifest-v6.json`: génération active, curseurs, comptes, provenance et hachages;
 - `public-events-head-v6.json`: petit pointeur actif revalidé par ETag vers le manifeste et la tête immuables;
-- `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables du terminal;
+- `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables du journal public;
 - `public-daily/{génération}/{jour}.json`: résumés quotidiens précalculés;
 - `public-events.json`, `public-events-recent.json`, `public-events-index.json` et `public-events-page-*.json`: contrats v5 conservés durant la transition;
 - `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: état Uptime Kuma filtré.

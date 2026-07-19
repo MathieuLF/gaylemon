@@ -639,7 +639,8 @@ body.terminal-view .site-header__telemetry {
   font-weight: 900;
 }
 
-.event-date-navigation .event-unseen {
+.event-date-navigation .event-unseen,
+.event-console > .event-unseen {
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -649,6 +650,17 @@ body.terminal-view .site-header__telemetry {
   background: rgba(255, 210, 141, .13);
   color: #ffe8bf;
   font-size: .72rem;
+}
+
+.event-console > .event-unseen {
+  width: calc(100% - 32px);
+  justify-content: center;
+  min-height: 42px;
+  margin: 10px 16px 0;
+  border: 1px solid rgba(255, 210, 141, .5);
+  border-radius: 14px;
+  cursor: pointer;
+  font: inherit;
 }
 
 .event-unseen[hidden] {
@@ -785,6 +797,12 @@ a {
     width: 100%;
     justify-content: center;
     margin-left: 0;
+  }
+
+  .event-console > .event-unseen {
+    width: calc(100% - 24px);
+    justify-content: center;
+    margin: 8px 12px 0;
   }
 
   .event-pagination__position {
@@ -12880,6 +12898,7 @@ body.terminal-view .social-link {
   }
 
   body.terminal-view .event-console {
+    margin-inline: 0;
     border-radius: 18px;
   }
 

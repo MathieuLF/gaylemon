@@ -319,8 +319,9 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.doesNotMatch(index, /derniers échos vérifiés/i);
   assert.match(index, /id="player-visibility-toggle"/);
   assert.match(index, /aria-modal="true"/);
-  assert.match(terminal, /id="event-date"/);
-  assert.match(terminal, /id="event-date-today"/);
+  assert.doesNotMatch(terminal, /id="event-date"/);
+  assert.doesNotMatch(terminal, /id="event-date-today"/);
+  assert.doesNotMatch(terminal, /Journée/);
   assert.match(terminal, /id="event-unseen"/);
   assert.match(terminal, /aria-live="off"/);
   assert.match(resume, /id="daily-today"/);
@@ -334,6 +335,8 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /Attribution déduite/);
   assert.match(app, /settings: \{ label: "Règles du monde"/);
   assert.match(app, /presenceAvailable: false/);
+  assert.doesNotMatch(app, /params\.get\("jour"\) \?\? saved\.day/);
+  assert.doesNotMatch(app, /params\.set\("jour"/);
   assert.match(app, /CommonDropItem3D/);
   assert.match(app, /data\/public-catalogs-manifest\.json/);
   assert.match(app, /mixed-catalog-generation/);
@@ -474,7 +477,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260718\.12/);
-    assert.match(html, /app\.js\?v=20260718\.17/);
+    assert.match(html, /styles\.css\?v=20260718\.13/);
+    assert.match(html, /app\.js\?v=20260718\.18/);
   }
 });
