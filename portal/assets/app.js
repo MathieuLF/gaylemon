@@ -196,10 +196,13 @@ let terminalVisitStartCursor = null;
 let terminalVisitStartTotalEchoes = null;
 let eventCurrentPage = 1;
 let eventsFullLoaded = false;
+let eventsV6FullLoadPromise = null;
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
-const terminalV6EchoLimit = 7;
+const terminalV6EchoLimit = 6;
 let terminalEventPageSize = 8;
+let terminalUnseenHideTimer = 0;
+const terminalUnseenToastMs = 5200;
 let dailySelectedDateKey = "";
 let dailyAvailableDateKeys = [];
 let dailyRosterPlayers = [];
@@ -3283,6 +3286,8 @@ function v6ManifestAsIndex(manifest) {
 function clearV6GenerationCaches() {
   eventDayCache.clear();
   dailyV6Cache.clear();
+  eventsV6FullLoadPromise = null;
+  eventsFullLoaded = false;
   eventCursor = "";
   eventCurrentPage = 1;
 }
@@ -3356,13 +3361,14 @@ function terminalUnseenSummary(head, visitCursor, visitTotalEchoes) {
   const saturated = usableExactCount == null && Boolean(head?.hasMore) && cursor > 0 && minId > 0 && cursor < minId;
   return {
     count,
-    displayCount: `${count}${saturated && count > 0 ? "+" : ""}`,
+    displayCount: `${Number(count || 0).toLocaleString("fr-CA")}${saturated && count > 0 ? "+" : ""}`,
     saturated,
   };
 }
 
 function updateTerminalUnseen() {
   if (!eventUnseen || eventsContractMode !== "v6") return;
+  window.clearTimeout(terminalUnseenHideTimer);
   const maxCursor = currentV6MaxCursor();
   if (terminalVisitStartCursor == null) {
     let stored = 0;
@@ -3382,10 +3388,22 @@ function updateTerminalUnseen() {
       : !hasStoredCursor && Number.isFinite(currentTotal) && currentTotal >= 0 ? currentTotal : null;
   }
   const unseen = terminalUnseenSummary(eventsHeadV6, terminalVisitStartCursor, terminalVisitStartTotalEchoes);
-  eventUnseen.hidden = unseen.count === 0;
+  if (unseen.count === 0) {
+    eventUnseen.hidden = true;
+    return;
+  }
+  eventUnseen.hidden = false;
   if (eventUnseenCount) eventUnseenCount.textContent = unseen.displayCount;
   const label = eventUnseen.querySelector("span");
-  if (label) label.textContent = `nouvel${unseen.count > 1 ? "s" : ""} écho${unseen.count > 1 ? "s" : ""} depuis ta dernière visite`;
+  if (label) {
+    label.textContent = unseen.count === 1
+      ? "nouvel écho depuis ta dernière visite"
+      : "nouveaux échos depuis ta dernière visite";
+  }
+  terminalUnseenHideTimer = window.setTimeout(() => {
+    eventUnseen.hidden = true;
+    markTerminalEchoesSeen();
+  }, terminalUnseenToastMs);
 }
 
 function markTerminalEchoesSeen() {
@@ -3641,6 +3659,139 @@ async function loadEventDayV6(dateKey, manifest = eventsManifestV6, head = event
   return mergeV6DayWithHead(payload, dateKey, manifest, head);
 }
 
+function v6ManifestTotalEchoes(manifest = eventsManifestV6, head = eventsHeadV6) {
+  const total = Number(manifest?.counts?.echoes ?? head?.counts?.totalEchoes ?? 0);
+  return Number.isFinite(total) && total >= 0 ? total : 0;
+}
+
+function dedupeV6Events(events) {
+  const byKey = new Map();
+  (Array.isArray(events) ? events : []).filter(eventCanBePublished).forEach((event, index) => {
+    byKey.set(eventIdentity(event) || `v6:${index}`, event);
+  });
+  return sortEventsNewestFirst([...byKey.values()], { canonical: true });
+}
+
+function v6TerminalPayloadFromEvents(events, options = {}) {
+  const manifest = options.manifest || eventsManifestV6;
+  const head = options.head || eventsHeadV6;
+  const generationId = String(manifest?.generationId || head?.baseGenerationId || "");
+  const sortedEvents = dedupeV6Events(events);
+  const totalEchoes = v6ManifestTotalEchoes(manifest, head) || sortedEvents.length;
+  return {
+    schemaVersion: 6,
+    version: 6,
+    ok: true,
+    terminalFull: Boolean(options.full),
+    terminalHead: !options.full,
+    generationId,
+    activeGenerationId: generationId,
+    revision: `${generationId}:${head?.revision || manifest?.generatedAt || ""}:${options.full ? "terminal-full" : "terminal-window"}`,
+    generatedAt: manifest?.generatedAt || head?.generatedAt,
+    sourceUpdatedAt: head?.sourceUpdatedAt || manifest?.sourceUpdatedAt,
+    updatedAt: head?.sourceUpdatedAt || manifest?.sourceUpdatedAt || manifest?.generatedAt || head?.generatedAt,
+    freshness: manifest?.freshness || head?.freshness,
+    sourceStatus: manifest?.sourceStatus || head?.sourceStatus,
+    summary: {
+      events: sortedEvents.length,
+      totalEvents: totalEchoes,
+      firstAt: sortedEvents.at(-1)?.occurredAt || null,
+      lastAt: sortedEvents[0]?.occurredAt || null,
+    },
+    counts: {
+      ...(head?.counts || {}),
+      echoes: sortedEvents.length,
+      totalEchoes,
+    },
+    events: sortedEvents,
+  };
+}
+
+async function loadFullTerminalEventsV6(force = false) {
+  const generationId = String(eventsManifestV6?.generationId || eventsHeadV6?.baseGenerationId || "");
+  if (!generationId) throw new Error("v6-terminal-full-unavailable");
+  if (!force && eventsFullLoaded && eventsSnapshot?.schemaVersion === 6 && String(eventsSnapshot.activeGenerationId || "") === generationId) {
+    return eventsSnapshot;
+  }
+  if (eventsV6FullLoadPromise) return eventsV6FullLoadPromise;
+
+  eventsV6FullLoadPromise = (async () => {
+    const days = v6ManifestDays(eventsManifestV6);
+    const payloads = await Promise.all(days.map((entry) => loadEventDayV6(entry.date, eventsManifestV6, eventsHeadV6)));
+    const payload = v6TerminalPayloadFromEvents(payloads.flatMap((day) => day.events || []), {
+      manifest: eventsManifestV6,
+      head: eventsHeadV6,
+      full: true,
+    });
+    eventsSnapshot = payload;
+    eventsFullLoaded = true;
+    renderEventSummaryCards(payload);
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    return payload;
+  })().finally(() => {
+    eventsV6FullLoadPromise = null;
+  });
+
+  return eventsV6FullLoadPromise;
+}
+
+async function collectPagedTerminalEventsV6() {
+  const totalEvents = v6ManifestTotalEchoes();
+  const pageSize = terminalV6EchoLimit;
+  const pageCount = Math.max(1, Math.ceil(totalEvents / pageSize));
+  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+  const start = (eventCurrentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, totalEvents);
+  const rows = [];
+  let offset = 0;
+
+  for (const entry of v6ManifestDays(eventsManifestV6)) {
+    const dayCount = Math.max(0, Number(entry.events ?? entry.echoes ?? 0));
+    const nextOffset = offset + dayCount;
+    if (dayCount > 0 && nextOffset > start && offset < end) {
+      const payload = await loadEventDayV6(entry.date, eventsManifestV6, eventsHeadV6);
+      const localStart = Math.max(0, start - offset);
+      const localEnd = Math.min(payload.events.length, end - offset);
+      rows.push(...payload.events.slice(localStart, localEnd));
+    }
+    offset = nextOffset;
+    if (offset >= end) break;
+  }
+
+  return dedupeV6Events(rows).slice(0, pageSize);
+}
+
+async function renderPagedTerminalEventsV6(options = {}) {
+  if (!isTerminalRoute() || eventsContractMode !== "v6" || !eventsManifestV6 || !eventsHeadV6) return false;
+  const preserveViewport = Boolean(options.preserveViewport);
+  const streamTopBefore = preserveViewport ? eventStream?.getBoundingClientRect().top : null;
+  const totalEvents = v6ManifestTotalEchoes();
+  const pageCount = Math.max(1, Math.ceil(totalEvents / terminalV6EchoLimit));
+  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+
+  const canKeepCurrentRows = Boolean(options.preserveDom && eventStream?.querySelector(".event-line"));
+  if (!canKeepCurrentRows && eventStream) {
+    eventStream.innerHTML = '<li class="event-stream__empty">Chargement des échos...</li>';
+  }
+
+  const visible = await collectPagedTerminalEventsV6();
+  terminalEventWindowStart = (eventCurrentPage - 1) * terminalV6EchoLimit;
+  terminalVisibleEvents = visible;
+  if (eventResultCount) {
+    const label = `${dailyPlural(visible.length, "écho affiché", "échos affichés")} · ${formatInteger(totalEvents)} synchronisés`;
+    eventResultCount.textContent = pageCount > 1 ? `${label} · page ${eventCurrentPage} sur ${pageCount}` : label;
+  }
+  renderEventStreamItems(visible, true, false, { preserveDom: Boolean(options.preserveDom) });
+  renderEventPaginationControls(pageCount);
+  if (preserveViewport && Number.isFinite(streamTopBefore)) {
+    const streamTopAfter = eventStream?.getBoundingClientRect().top;
+    if (Number.isFinite(streamTopAfter)) {
+      window.scrollBy({ top: streamTopAfter - streamTopBefore, behavior: "auto" });
+    }
+  }
+  return true;
+}
+
 function v6HeadAsTerminalPayload(head, manifest = eventsManifestV6) {
   const generationId = String(manifest?.generationId || head?.baseGenerationId || "");
   if (!v6GenerationIsValid(head, generationId, true)) throw new Error("mixed-v6-terminal-head");
@@ -3691,6 +3842,8 @@ function renderEventDateControls() {
 async function loadTerminalEventsV6(silent = false) {
   const rollbackState = captureV6State();
   const previousRevision = eventsSnapshot?.revision || "";
+  const hadFullGeneration = eventsFullLoaded && String(eventsSnapshot?.activeGenerationId || "") === String(eventsManifestV6?.generationId || "");
+  const shouldPreserveView = Boolean(silent && (terminalFiltersAreActive() || eventCurrentPage > 1));
   try {
     const candidate = await fetchEventsV6Candidate(silent, true);
     if (!candidate.ok) return candidate;
@@ -3701,8 +3854,8 @@ async function loadTerminalEventsV6(silent = false) {
     );
     eventSelectedDateKey = "";
     eventCursor = "";
-    eventCurrentPage = 1;
     if (state.generationChanged) clearV6GenerationCaches();
+    if (!shouldPreserveView) eventCurrentPage = 1;
     eventsSnapshot = payload;
     eventsRecentSnapshot = payload;
     eventsFullLoaded = false;
@@ -3710,7 +3863,14 @@ async function loadTerminalEventsV6(silent = false) {
     renderEventSyncStatus(new Date(), payload.updatedAt);
     renderEventFiltersFromFacets(eventsIndexSnapshot);
     eventDateNavigation?.setAttribute("hidden", "");
-    renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    if (terminalFiltersAreActive() || hadFullGeneration) {
+      await loadFullTerminalEventsV6(state.generationChanged);
+      renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    } else if (eventCurrentPage > 1) {
+      await renderPagedTerminalEventsV6({ preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    } else {
+      renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    }
     updateTerminalUnseen();
     return { ok: true, changed: state.changed || previousRevision !== payload.revision, mode: "v6" };
   } catch (error) {
@@ -3723,7 +3883,7 @@ async function loadTerminalEventsV6(silent = false) {
       try {
         eventSelectedDateKey = "";
         eventCursor = "";
-        eventCurrentPage = 1;
+        if (!shouldPreserveView) eventCurrentPage = 1;
         const payload = v6HeadAsTerminalPayload(eventsHeadV6, eventsManifestV6);
         eventsSnapshot = payload;
         eventsRecentSnapshot = payload;
@@ -3732,7 +3892,14 @@ async function loadTerminalEventsV6(silent = false) {
         renderEventSyncStatus(new Date(), payload.updatedAt);
         renderEventFiltersFromFacets(eventsIndexSnapshot);
         eventDateNavigation?.setAttribute("hidden", "");
-        renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        if (terminalFiltersAreActive() || hadFullGeneration) {
+          await loadFullTerminalEventsV6(false);
+          renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        } else if (eventCurrentPage > 1) {
+          await renderPagedTerminalEventsV6({ preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        } else {
+          renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        }
         updateTerminalUnseen();
         return { ok: true, changed: false, stale: true, error, mode: "v6" };
       } catch {
@@ -3967,7 +4134,6 @@ function renderEventFiltersFromFacets(payload) {
 }
 
 function eventFiltersRequireFullHistory() {
-  if (eventsContractMode === "v6") return false;
   return Boolean(
     normalizeEventSearch(eventSearch?.value) ||
     selectedEventTypeValue() !== "all" ||
@@ -4082,7 +4248,7 @@ function writeTerminalState() {
   for (const key of ["type", "player"]) {
     if (state[key] && state[key] !== "all") params.set(key, state[key]);
   }
-  if (eventsContractMode !== "v6" && state.page > 1) {
+  if (state.page > 1) {
     params.set("page", String(state.page));
   }
   const query = params.toString();
@@ -4275,11 +4441,6 @@ function compactItemizedEventBody(event, fallbackBody, bullets) {
 
 function renderEventPaginationControls(pageCount) {
   if (!eventPagination) return;
-  if (isTerminalRoute() && eventsContractMode === "v6") {
-    eventPagination.innerHTML = "";
-    eventPagination.hidden = true;
-    return;
-  }
   if (pageCount <= 1) {
     eventPagination.innerHTML = "";
     eventPagination.hidden = true;
@@ -4287,6 +4448,14 @@ function renderEventPaginationControls(pageCount) {
   }
 
   eventPagination.hidden = false;
+  if (isTerminalRoute()) {
+    eventPagination.innerHTML = `
+      <button type="button" data-event-page="${eventCurrentPage - 1}" aria-label="Page précédente" ${eventCurrentPage === 1 ? "disabled" : ""}>‹</button>
+      <span class="event-pagination__position">Page ${formatInteger(eventCurrentPage)} / ${formatInteger(pageCount)}</span>
+      <button type="button" data-event-page="${eventCurrentPage + 1}" aria-label="Page suivante" ${eventCurrentPage === pageCount ? "disabled" : ""}>›</button>`;
+    return;
+  }
+
   const pages = eventPageNumbers(eventCurrentPage, pageCount);
   let previousPage = 0;
   const pageButtons = pages.map((page) => {
@@ -4491,7 +4660,15 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
 
 async function updateTerminalEvents(refinePageSize = true) {
   if (isTerminalRoute() && eventsContractMode === "v6") {
-    renderEvents(refinePageSize);
+    if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
+      if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
+      await loadFullTerminalEventsV6();
+    }
+    if (!eventFiltersRequireFullHistory() && !eventsFullLoaded && eventCurrentPage > 1) {
+      await renderPagedTerminalEventsV6({ preserveDom: true, preserveViewport: true });
+    } else {
+      renderEvents(refinePageSize);
+    }
     writeTerminalState();
     return;
   }
@@ -4537,25 +4714,27 @@ function renderEvents(refinePageSize = true, options = {}) {
   const terminalV6 = terminal && eventsContractMode === "v6";
   if (terminal && !terminalV6) updateTerminalPageSize();
   const pageSize = terminalV6 ? terminalV6EchoLimit : terminal ? terminalEventPageSize : dashboardEventPageSize;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
+  const v6HeadOnly = terminalV6 && !eventsFullLoaded && !eventFiltersRequireFullHistory();
+  const paginationTotal = v6HeadOnly ? Math.max(v6ManifestTotalEchoes(), filtered.length) : filtered.length;
+  const pageCount = Math.max(1, Math.ceil(paginationTotal / pageSize));
   if (terminalV6) {
     eventCursor = "";
-    terminalEventWindowStart = 0;
-    eventCurrentPage = 1;
-    terminalVisibleEvents = filtered.slice(0, terminalV6EchoLimit);
+    eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+    terminalEventWindowStart = eventsFullLoaded ? (eventCurrentPage - 1) * pageSize : 0;
+    terminalVisibleEvents = eventsFullLoaded ? filtered : filtered.slice(0, terminalV6EchoLimit);
   } else {
     eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
     terminalEventWindowStart = (eventCurrentPage - 1) * pageSize;
     terminalVisibleEvents = filtered;
   }
   const start = terminalEventWindowStart;
-  const visible = terminalV6 ? terminalVisibleEvents : filtered.slice(start, start + pageSize);
+  const visible = terminalV6 && !eventsFullLoaded ? terminalVisibleEvents : filtered.slice(start, start + pageSize);
 
-  const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
   const resultLabel = terminalV6
-    ? (filtered.length === events.length
-      ? `${dailyPlural(visible.length, "écho récent", "échos récents")} · ${formatInteger(totalEvents)} synchronisés`
-      : `${dailyPlural(visible.length, "résultat", "résultats")} dans les ${Math.min(events.length, terminalV6EchoLimit)} plus récents · ${formatInteger(totalEvents)} synchronisés`)
+    ? (filtered.length === events.length && !eventFiltersRequireFullHistory()
+      ? `${dailyPlural(visible.length, "écho affiché", "échos affichés")} · ${formatInteger(totalEvents)} synchronisés`
+      : `${dailyPlural(filtered.length, "résultat", "résultats")} · ${formatInteger(totalEvents)} synchronisés`)
     : filtered.length === events.length
     ? (eventsSnapshot?.recent && totalEvents > events.length
       ? `${events.length} échos récents affichés sur ${totalEvents.toLocaleString("fr-CA")}`
@@ -7600,8 +7779,12 @@ if (isTerminalRoute()) {
     document.documentElement.classList.add("data-loaded");
     if (eventsContractMode === "v6" && eventsSnapshot) {
       renderEventFiltersFromFacets(eventsIndexSnapshot);
-      renderEvents();
-      writeTerminalState();
+      if (!eventFiltersRequireFullHistory() && !eventsFullLoaded && eventCurrentPage > 1) {
+        void renderPagedTerminalEventsV6().then(() => writeTerminalState());
+      } else {
+        renderEvents();
+        writeTerminalState();
+      }
     } else if (eventsFullLoaded && eventsSnapshot) {
       renderEventFilters(eventsSnapshot.events || []);
       renderEvents();
@@ -7737,6 +7920,21 @@ eventsDisclosure?.addEventListener("toggle", () => {
     return;
   }
   if (!eventsDisclosure.open) return;
+  if (eventsContractMode === "v6") {
+    if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
+      if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
+      void loadFullTerminalEventsV6().then(() => {
+        if (!eventsDisclosure.open || !eventsSnapshot) return;
+        renderEventFiltersFromFacets(eventsIndexSnapshot);
+        renderEvents();
+      });
+      return;
+    }
+    if (!eventsSnapshot) return;
+    renderEventFiltersFromFacets(eventsIndexSnapshot);
+    void updateTerminalEvents(false);
+    return;
+  }
   if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
     if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
     void loadEventsWithRecentOverlay(true).then(() => {
@@ -8015,6 +8213,7 @@ eventPagination?.addEventListener("click", (event) => {
   if (!button || button.disabled) return;
   if (eventsContractMode === "v6") {
     eventCursor = button.dataset.eventCursor || "";
+    eventCurrentPage = Number(button.dataset.eventPage) || 1;
   } else {
     eventCurrentPage = Number(button.dataset.eventPage) || 1;
   }
@@ -8040,6 +8239,8 @@ eventDateToday?.addEventListener("click", () => {
   if (today) void selectEventDate(today);
 });
 eventUnseen?.addEventListener("click", () => {
+  window.clearTimeout(terminalUnseenHideTimer);
+  eventUnseen.hidden = true;
   markTerminalEchoesSeen();
   eventCursor = "";
   eventCurrentPage = 1;
