@@ -10,7 +10,7 @@ Le parse des sauvegardes publie maintenant un contrat public v3:
 - Pals détaillés, inventaires personnels et progression fiable;
 - bases, travailleurs, structures, stockages et productions;
 - diagnostics publics légers;
-- journal d'événements enrichi, matérialisé dans SQLite et publié par journées pour `/terminal`.
+- journal d'événements enrichi, matérialisé dans SQLite et publié en fragments immuables derrière le terminal.
 
 Le microsite charge un index léger au départ, puis les fichiers plus lourds seulement quand un joueur ouvre une fiche, une base ou le terminal. Les fiches joueurs peuvent exporter un JSON d'analyse à partir des données publiques déjà chargées.
 
