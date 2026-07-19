@@ -2918,6 +2918,7 @@ const eventTypeMeta = {
   pal: { label: "Pals", token: "PAL", color: "#55a9d6" },
   mutation: { label: "Mutations", token: "MUT", color: "#b682d8" },
   collection: { label: "Collections", token: "PAL", color: "#4da2dd" },
+  activity: { label: "Activité", token: "ACT", color: "#e0a34f" },
   craft: { label: "Fabrications", token: "CRA", color: "#f18b55" },
   build: { label: "Constructions", token: "BLD", color: "#68b35d" },
   production: { label: "Productions", token: "PRD", color: "#4cc3b2" },
@@ -3967,9 +3968,28 @@ function renderEventFilterOptions(types, players) {
   if (eventPlayerFilter) delete eventPlayerFilter.dataset.pendingValue;
 }
 
+function eventFacetTypes(event) {
+  const types = new Set();
+  if (event?.type) types.add(String(event.type));
+  const details = event?.details || {};
+  if (Array.isArray(details.types)) {
+    details.types.forEach((type) => {
+      const value = String(type || "").trim();
+      if (value) types.add(value);
+    });
+  }
+  if (Array.isArray(details.categories)) {
+    details.categories.forEach((category) => {
+      const value = String(category?.type || "").trim();
+      if (value) types.add(value);
+    });
+  }
+  return [...types];
+}
+
 function renderEventFilters(events) {
   events = dedupeSessionFallbackEvents(events);
-  const types = [...new Set(events.map((event) => event.type).filter(Boolean))];
+  const types = [...new Set(events.flatMap(eventFacetTypes).filter(Boolean))];
   const players = [...new Set(events.map((event) => event.player).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "fr-CA"));
 
@@ -3982,7 +4002,7 @@ function renderEventFiltersFromFacets(payload) {
     ...(payload?.facets?.types || [])
     .map((facet) => typeof facet === "string" ? facet : facet?.value)
     .filter(Boolean),
-    ...recentEvents.map((event) => event.type).filter(Boolean),
+    ...recentEvents.flatMap(eventFacetTypes).filter(Boolean),
   ])];
   const players = [...new Set([
     ...(payload?.facets?.players || [])
@@ -4020,7 +4040,7 @@ function terminalFilterSignature(filters = currentTerminalFilters()) {
 }
 
 function eventMatchesTerminalFilters(event, filters = currentTerminalFilters()) {
-  if (filters.type !== "all" && event.type !== filters.type) return false;
+  if (filters.type !== "all" && !eventFacetTypes(event).includes(filters.type)) return false;
   if (filters.player !== "all" && event.player !== filters.player) return false;
   if (!filters.query) return true;
   return normalizeEventSearch([
@@ -4033,6 +4053,7 @@ function eventMatchesTerminalFilters(event, filters = currentTerminalFilters()) 
     event.display?.body,
     ...(event.display?.bullets || []),
     event.type,
+    ...eventFacetTypes(event),
   ].filter(Boolean).join(" ")).includes(filters.query);
 }
 
@@ -4314,6 +4335,7 @@ function eventAggregationHeadline(event, fallbackHeadline) {
   const minutes = eventAggregationWindowMinutes(event);
   if (!minutes) return fallbackHeadline;
   const labels = {
+    activity: "Activité relevée",
     craft: "Fabrications terminées",
     production: "Ressources produites relevées",
     fishing: "Pêche ramenée",
@@ -4353,6 +4375,7 @@ function compactProductionEventBody(event, fallbackBody, bullets) {
 
 function compactItemizedEventBody(event, fallbackBody, bullets) {
   if (event.type === "production") return compactProductionEventBody(event, fallbackBody, bullets);
+  if (event.type === "activity") return fallbackBody;
   if (!bullets.length || !["craft", "fishing", "build", "repair", "base"].includes(event.type)) return fallbackBody;
   const added = eventBulletQuantityTotal(bullets);
   const total = Number(event.details?.total || 0);
@@ -4901,6 +4924,27 @@ function dailyAddedTotal(value) {
   }, 0);
 }
 
+function dailyActivityCategories(event) {
+  return dailyList(event?.details?.categories)
+    .filter((category) => category && typeof category === "object")
+    .map((category) => ({
+      type: String(category.type || "").trim(),
+      added: Math.max(0, dailyNumber(category.added ?? category.count ?? 0)),
+      events: Math.max(0, dailyNumber(category.events ?? 0)),
+    }))
+    .filter((category) => category.type);
+}
+
+function dailyItemTypes(item, fallbackType) {
+  const explicitTypes = [
+    ...dailyList(item?.types),
+    ...dailyList(item?.sourceTypes),
+    item?.sourceType,
+  ].map((type) => String(type || "").trim()).filter(Boolean);
+  const types = explicitTypes.length ? explicitTypes : [fallbackType].filter(Boolean);
+  return [...new Set(types)].filter((type) => ["craft", "production", "fishing"].includes(type));
+}
+
 function dailyRemovedTotal(value) {
   return dailyList(value).reduce((total, item) => {
     if (item && typeof item === "object") return total;
@@ -5012,6 +5056,13 @@ function dailyEventQuantities(event) {
   if (event?.type === "production") {
     quantities.production = dailyAddedTotal(items) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+ressources?\s+produites?/i) || 1;
   }
+  if (event?.type === "activity") {
+    dailyActivityCategories(event).forEach((category) => {
+      if (["craft", "production", "fishing"].includes(category.type)) {
+        quantities[category.type] += category.added || category.events || 1;
+      }
+    });
+  }
   if (event?.type === "build") {
     quantities.build = dailyAddedTotal(structures) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+nouvelles?\s+structures?/i) || 1;
   }
@@ -5051,16 +5102,24 @@ function dailyItemKey(item, type) {
 }
 
 function dailyItemsFromEvent(event) {
-  if (!["craft", "production", "fishing"].includes(event?.type)) return [];
-  return dailyList(event?.details?.items).filter((item) => item && typeof item === "object").map((item) => ({
-    key: dailyItemKey(item, event.type),
-    type: event.type,
-    name: String(item.name || "Objet").trim() || "Objet",
-    icon: item.icon || null,
-    quantity: dailyItemQuantity(item),
-    isNew: Boolean(item.isNew),
-    player: String(event.player || "Monde").trim() || "Monde",
-  })).filter((item) => item.quantity > 0);
+  if (!["activity", "craft", "production", "fishing"].includes(event?.type)) return [];
+  return dailyList(event?.details?.items)
+    .filter((item) => item && typeof item === "object")
+    .flatMap((item) => {
+      const types = dailyItemTypes(item, event.type === "activity" ? "" : event.type);
+      if (types.length !== 1) return [];
+      const type = types[0];
+      return [{
+        key: dailyItemKey(item, type),
+        type,
+        name: String(item.name || "Objet").trim() || "Objet",
+        icon: item.icon || null,
+        quantity: dailyItemQuantity(item),
+        isNew: Boolean(item.isNew),
+        player: String(event.player || "Monde").trim() || "Monde",
+      }];
+    })
+    .filter((item) => item.quantity > 0);
 }
 
 function dailyAddAggregate(map, entry) {

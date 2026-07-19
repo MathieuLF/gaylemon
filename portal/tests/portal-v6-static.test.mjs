@@ -396,10 +396,12 @@ test("les événements compilés rendent leur tranche sans répétition", async 
   try {
     const label = extractFunction(app, "eventAggregationWindowLabel");
     const headline = extractFunction(app, "eventAggregationHeadline");
+    const groupedActivity = { type: "activity", details: { windowMinutes: 5 } };
     const groupedCraft = { type: "craft", details: { windowMinutes: 5 } };
     const groupedProduction = { type: "production", details: { windowMinutes: 5 } };
     assert.equal(minutes(groupedCraft), 5);
     assert.equal(label(groupedCraft), "5 min");
+    assert.equal(headline(groupedActivity, "Activité compilée"), "Activité relevée");
     assert.equal(headline(groupedCraft, "Fabrications compilées"), "Fabrications terminées");
     assert.equal(headline(groupedProduction, "Stocks compilés"), "Ressources produites relevées");
     assert.equal(headline({ type: "boss", details: {} }, "Boss vaincu"), "Boss vaincu");
@@ -407,6 +409,8 @@ test("les événements compilés rendent leur tranche sans répétition", async 
     delete globalThis.eventAggregationWindowMinutes;
   }
   assert.match(app, /event-line__window/);
+  assert.match(app, /function eventFacetTypes/);
+  assert.match(app, /details\.categories/);
   assert.match(app, /Tranche de \$\{windowMinutes\} min/);
   assert.doesNotMatch(app, /Activité regroupée sur \$\{windowMinutes\} min/);
   assert.doesNotMatch(app, /regroupées sur \$\{minutes\} min/);

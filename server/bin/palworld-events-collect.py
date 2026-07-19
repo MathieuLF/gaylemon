@@ -51,7 +51,7 @@ PUBLIC_IPV6_CANDIDATE_RE = re.compile(
 )
 PUBLIC_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 PUBLIC_EVENT_VERSION = 6
-PUBLIC_PROJECTION_SCHEMA_VERSION = 2
+PUBLIC_PROJECTION_SCHEMA_VERSION = 3
 DEFAULT_BACKFILL_FROM = "2026-07-09T00:00:00-04:00"
 RECENT_EVENT_LIMIT = 2000
 DEFAULT_FULL_EXPORT_INTERVAL_SECONDS = 15 * 60
@@ -1062,6 +1062,8 @@ def public_event(
 
 
 ITEMIZED_PUBLIC_GROUP_TYPES = {"craft", "fishing", "production", "build", "repair", "base"}
+ITEMIZED_PUBLIC_ACTIVITY_TYPES = {"craft", "fishing", "production"}
+ITEMIZED_PUBLIC_ACTIVITY_TYPE_ORDER = ("craft", "production", "fishing")
 WORLD_DROP_STRUCTURE_NAMES = {"commondropitem3d", "commonitemdrop3d"}
 DERIVED_PRODUCTION_DUPLICATE_TOLERANCE_SECONDS = 2
 
@@ -1116,6 +1118,11 @@ def itemized_public_group_owner(event: dict) -> str:
     return str(event.get("player") or event.get("base") or event.get("guild") or "Monde").strip() or "Monde"
 
 
+def itemized_public_group_type(event: dict) -> str:
+    event_type = str(event.get("type") or "")
+    return "activity" if event_type in ITEMIZED_PUBLIC_ACTIVITY_TYPES else event_type
+
+
 def itemized_public_group_key(event: dict) -> tuple[str, str, str] | None:
     if event.get("type") not in ITEMIZED_PUBLIC_GROUP_TYPES or event.get("source") != "save":
         return None
@@ -1127,7 +1134,7 @@ def itemized_public_group_key(event: dict) -> tuple[str, str, str] | None:
     if bucket is None:
         return None
     owner = itemized_public_group_owner(event).casefold()
-    return event["type"], owner, bucket.isoformat()
+    return itemized_public_group_type(event), owner, bucket.isoformat()
 
 
 def itemized_public_item_signature(event: dict) -> tuple[tuple[str, int], ...]:
@@ -1200,9 +1207,13 @@ def aggregate_itemized_public_items(events: list[dict]) -> list[dict]:
                 "added": 0,
                 "count": 0,
                 "isNew": False,
+                "types": set(),
             })
             current["added"] += added
             current["isNew"] = bool(current["isNew"] or item.get("isNew"))
+            event_type = str(event.get("type") or "").strip()
+            if event_type:
+                current["types"].add(event_type)
             if not current.get("asset") and asset:
                 current["asset"] = asset
             if not current.get("icon") and item.get("icon"):
@@ -1212,8 +1223,16 @@ def aggregate_itemized_public_items(events: list[dict]) -> list[dict]:
                 current["name"] = name
                 current["count"] = int(item.get("count") or 0)
                 latest_keys[key] = (event_at, event_id)
+    rows = []
+    for item in grouped.values():
+        types = sorted(item.pop("types", set()))
+        if types:
+            item["types"] = types
+            if len(types) == 1:
+                item["sourceType"] = types[0]
+        rows.append(item)
     return sorted(
-        grouped.values(),
+        rows,
         key=lambda item: (-int(item.get("added") or 0), str(item.get("name") or "").casefold()),
     )
 
@@ -1240,15 +1259,62 @@ def latest_public_event(events: list[dict]) -> dict:
     )
 
 
+def itemized_activity_source_types(events: list[dict]) -> list[str]:
+    present = {str(event.get("type") or "") for event in events}
+    ordered = [event_type for event_type in ITEMIZED_PUBLIC_ACTIVITY_TYPE_ORDER if event_type in present]
+    ordered.extend(sorted(present.difference(ITEMIZED_PUBLIC_ACTIVITY_TYPES)))
+    return ordered
+
+
+def aggregate_itemized_public_categories(events: list[dict]) -> list[dict]:
+    categories = []
+    for event_type in itemized_activity_source_types(events):
+        matching = [event for event in events if event.get("type") == event_type]
+        if not matching:
+            continue
+        row = {
+            "type": event_type,
+            "events": len(matching),
+            "added": sum(itemized_public_event_added(event) for event in matching),
+        }
+        bases = sorted(
+            {str(event.get("base") or "").strip() for event in matching if str(event.get("base") or "").strip()},
+            key=str.casefold,
+        )
+        if bases:
+            row["bases"] = bases
+        total = 0
+        for event in matching:
+            total = max(total, int((event.get("details") or {}).get("total") or 0))
+        if total > 0:
+            row["total"] = total
+        categories.append(row)
+    return categories
+
+
+def itemized_activity_phrase(event_type: str, total: int) -> str:
+    if event_type == "craft":
+        agreement = "terminée" if total == 1 else "terminées"
+        return f"{total} {plural(total, 'fabrication')} {agreement}"
+    if event_type == "production":
+        return f"{total} {plural(total, 'ressource produite', 'ressources produites')}"
+    if event_type == "fishing":
+        return f"{total} {plural(total, 'prise de pêche', 'prises de pêche')}"
+    return f"{total} {plural(total, 'activité', 'activités')}"
+
+
 def aggregate_itemized_public_event(events: list[dict]) -> dict:
     latest = latest_public_event(events)
-    event_type = latest["type"]
+    source_types = itemized_activity_source_types(events)
+    activity_source_types = [event_type for event_type in source_types if event_type in ITEMIZED_PUBLIC_ACTIVITY_TYPES]
+    event_type = "activity" if len(activity_source_types) > 1 else latest["type"]
     player = latest.get("player")
     guild = latest.get("guild")
     owner = itemized_public_group_owner(latest)
     bucket = itemized_public_event_bucket(latest) or parse_timestamp(latest.get("occurredAt"))
     window_end = bucket + timedelta(seconds=ITEMIZED_EVENT_GROUP_WINDOW_SECONDS) if bucket else None
     items = aggregate_itemized_public_items(events)
+    categories = aggregate_itemized_public_categories(events)
     added_total = sum(int(item.get("added") or 0) for item in items) or sum(itemized_public_event_added(event) for event in events)
     batches = len(events)
     bases = sorted(
@@ -1263,6 +1329,10 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
         "aggregatedEvents": batches,
         "windowMinutes": ITEMIZED_EVENT_GROUP_WINDOW_SECONDS // 60,
     }
+    if source_types:
+        details["types"] = source_types
+    if categories:
+        details["categories"] = categories
     if items:
         if event_type == "build":
             details["structures"] = items
@@ -1293,7 +1363,20 @@ def aggregate_itemized_public_event(events: list[dict]) -> dict:
             return f" dans {len(bases)} bases"
         return ""
 
-    if event_type == "craft":
+    if event_type == "activity":
+        title = "Activité relevée"
+        phrases = [
+            itemized_activity_phrase(str(category.get("type") or ""), int(category.get("added") or 0))
+            for category in categories
+            if str(category.get("type") or "") in ITEMIZED_PUBLIC_ACTIVITY_TYPES
+            and int(category.get("added") or 0) > 0
+        ]
+        message = f"{owner} relève {french_list(phrases)}." if phrases else f"{owner} relève une activité d'atelier."
+        if bases:
+            base_label = plural(len(bases), "Base touchée", "Bases touchées")
+            message = f"{message} {base_label}: {french_list(bases, limit=3)}."
+        body = message
+    elif event_type == "craft":
         title = "Fabrications terminées"
         total = max(int((event.get("details") or {}).get("total") or 0) for event in events)
         message = (
