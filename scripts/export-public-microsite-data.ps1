@@ -326,8 +326,15 @@ if ($stats) {
     foreach ($sourceName in @("info", "metrics", "players", "settings", "game-data")) {
         $source = Get-ObjectPropertyValue -InputObject $statsSources -Name $sourceName
         if (-not $source) { continue }
+        $sourceStatus = Get-ObjectPropertyValue -InputObject $source -Name "status"
+        if ($sourceName -eq "game-data") {
+            $gameDataStatus = Get-ObjectPropertyValue -InputObject $statsCollection -Name "gameDataStatus"
+            if ($gameDataStatus) {
+                $sourceStatus = $gameDataStatus
+            }
+        }
         $publicSources[$sourceName] = [ordered]@{
-            status = Get-ObjectPropertyValue -InputObject $source -Name "status"
+            status = $sourceStatus
             lastObservedAt = Get-ObjectPropertyValue -InputObject $source -Name "lastObservedAt"
             lastSuccessAt = Get-ObjectPropertyValue -InputObject $source -Name "lastSuccessAt"
             latencyMs = Get-ObjectPropertyValue -InputObject $source -Name "latencyMs"

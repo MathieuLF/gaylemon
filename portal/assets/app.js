@@ -273,6 +273,13 @@ const sourceFreshnessLabels = {
   events: "Échos",
   catalog: "Catalogues",
 };
+const statsSourceLabels = {
+  info: "infos",
+  metrics: "métriques",
+  players: "joueurs",
+  settings: "réglages",
+  "game-data": "données avancées",
+};
 let sourceFreshnessDetails = null;
 
 function ensureSourceFreshnessDetails() {
@@ -346,13 +353,20 @@ function renderSourceFreshness() {
     ? rows.map((source) => {
       const date = sourceUpdatedAt.get(source);
       const health = sourceHealth.get(source) || { state: "delayed", label: "Retard", details: "" };
-      const time = date
-        ? `<time datetime="${escapeHtml(date.toISOString())}">${escapeHtml(formatRelativeAge(date))}</time>`
-        : "<time>--</time>";
+      const time = sourceFreshnessTimeMarkup(date, health);
       const detailsText = health.details ? ` title="${escapeHtml(health.details)}"` : "";
       return `<span${detailsText}><b>${escapeHtml(sourceFreshnessLabels[source])}</b><span class="source-freshness__value">${time}<em data-state="${escapeHtml(health.state)}">${escapeHtml(health.label)}</em></span></span>`;
     }).join("")
     : "<small>Aucune source reçue</small>";
+}
+
+function sourceFreshnessTimeMarkup(date, health) {
+  if (!date) return "<time>--</time>";
+  const datetime = escapeHtml(date.toISOString());
+  if (health?.state === "available" && health?.label === "Stable") {
+    return `<time datetime="${datetime}">prêt</time>`;
+  }
+  return `<time datetime="${datetime}">${escapeHtml(formatRelativeAge(date))}</time>`;
 }
 
 function sourceHealthState(status, freshness = "") {
@@ -366,13 +380,21 @@ function sourceHealthState(status, freshness = "") {
 
 function registerSourceHealth(source, status = "available", freshness = "current", details = "") {
   const state = sourceHealthState(status, freshness);
+  const normalizedStatus = String(status || "").trim().toLocaleLowerCase("fr-CA");
   const normalizedFreshness = String(freshness || "").trim().toLocaleLowerCase("fr-CA");
   sourceHealth.set(source, {
     state,
-    label: state === "available" ? (normalizedFreshness === "stable" ? "Stable" : "Disponible") : state === "error" ? "Erreur" : "Retard",
+    label: sourceHealthLabel(state, normalizedStatus, normalizedFreshness),
     details: String(details || ""),
   });
   renderSourceFreshness();
+}
+
+function sourceHealthLabel(state, normalizedStatus, normalizedFreshness) {
+  if (state === "available") return normalizedFreshness === "stable" ? "Stable" : "Disponible";
+  if (["documented-but-unavailable", "unsupported"].includes(normalizedStatus)) return "Non disponible";
+  if (normalizedStatus === "unknown") return "À confirmer";
+  return state === "error" ? "Erreur" : "Retard";
 }
 
 function registerPayloadDataUpdate(source, payload) {
@@ -1753,9 +1775,9 @@ function renderUptime(payload) {
 
   const monitor = Array.isArray(payload.monitors) ? payload.monitors[0] : null;
   const summary = payload.summary || {};
-  const status = monitor?.status || summary.status || "unknown";
-  const uptime = monitor?.uptime24h ?? summary.uptime24hAverage;
-  const ping = monitor?.ping;
+  const status = monitor?.status || summary.status || summary.monitorStatus || payload.status || "unknown";
+  const uptime = monitor?.uptime24h ?? summary.uptime24hAverage ?? summary.uptimeLast24h ?? summary.uptimeLast24hObserved;
+  const ping = monitor?.ping ?? summary.ping ?? summary.averagePing;
 
   registerPayloadDataUpdate("uptime", payload);
   const pingText = ping != null ? ` · réponse ${ping} ms` : "";
@@ -1786,12 +1808,28 @@ function createPlaceholderBars() {
   return Array.from({ length: 24 }, () => '<span class="uptime-segment uptime-segment--unknown"></span>').join("");
 }
 
+function normalizeStatsSourceStatus(payload, source, value) {
+  if (source === "game-data") {
+    const gameDataStatus = payload?.collection?.gameDataStatus;
+    if (gameDataStatus && gameDataStatus !== "available") return gameDataStatus;
+  }
+  return value?.status || "unknown";
+}
+
+function formatStatsSourceStatus(status) {
+  const normalizedStatus = String(status || "").trim().toLocaleLowerCase("fr-CA");
+  const state = sourceHealthState(normalizedStatus);
+  if (["documented-but-unavailable", "unsupported"].includes(normalizedStatus)) return "non disponible";
+  if (normalizedStatus === "unknown") return "à confirmer";
+  return state === "available" ? "disponible" : state === "error" ? "en erreur" : "à surveiller";
+}
+
 function renderStats(payload) {
   const provenance = payload?.provenance || {};
   const sourceSummary = Object.entries(payload?.sources || {})
     .map(([source, value]) => {
-      const state = sourceHealthState(value?.status);
-      return `${source}: ${state === "available" ? "disponible" : state === "error" ? "erreur" : "retard"}`;
+      const status = normalizeStatsSourceStatus(payload, source, value);
+      return `${statsSourceLabels[source] || source}: ${formatStatsSourceStatus(status)}`;
     })
     .join(" · ");
   registerDataUpdate(
@@ -7532,7 +7570,7 @@ async function loadStats(silent = false) {
 
 async function loadUptime(silent = false) {
   try {
-    const payload = await readJson("data/public-uptime.json");
+    const payload = await readUptimePayload();
     const changed = isNewDataRevision("uptime", payload);
     if (changed) renderUptime(payload);
     return { ok: true, changed };
@@ -7543,6 +7581,14 @@ async function loadUptime(silent = false) {
       uptimeBars.innerHTML = createPlaceholderBars();
     }
     return { ok: false, changed: false };
+  }
+}
+
+async function readUptimePayload() {
+  try {
+    return await readJson("data/public-uptime.json");
+  } catch {
+    return readJson("data/public-availability.json");
   }
 }
 
