@@ -15,7 +15,7 @@ Le canal public active v6. Les contrats v5 restent publiés temporairement comme
 - `public-events-manifest-v6.previous.json`: dernier manifeste cohérent conservé localement pour le repli d'exploitation.
 - `/public-events-channel.json`: canal actif `v5` ou `v6`, revalidé avec ETag et remplacé atomiquement lors d'une promotion ou d'un repli.
 
-Chaque entrée journalière du manifeste porte son propre `fragmentGenerationId` et `dailyGenerationId`. Une correction historique ne réécrit donc que la journée concernée. Les journées inchangées continuent de pointer vers leur fragment immuable existant.
+Chaque entrée journalière du manifeste porte son propre `fragmentGenerationId`, `dailyGenerationId` et un index public léger des types, joueurs, guildes et bases présents dans la journée. Une correction historique ne réécrit donc que la journée concernée. Les journées inchangées continuent de pointer vers leur fragment immuable existant, avec leur index recalculé au besoin depuis le fragment validé.
 
 ## Cohérence d'une génération
 
@@ -29,7 +29,7 @@ La publication suit cet ordre:
 6. remplacer atomiquement le pointeur actif en dernier;
 7. nettoyer uniquement les générations qui ne sont plus référencées par le nouveau manifeste ou le précédent.
 
-Le portail sonde d'abord le pointeur v6. S'il change, il charge le manifeste immuable puis sa tête, et vérifie leurs hachages avant d'utiliser un fragment. Si une lecture échoue, il conserve l'ensemble cohérent déjà affiché. Il ne mélange jamais deux `generationId`. Un repli explicite sur v5 n'arrête pas la production ni le contrôle des générations v6.
+Le portail sonde d'abord le pointeur v6. S'il change, il charge le manifeste immuable puis sa tête, et vérifie leurs hachages avant d'utiliser un fragment. Le terminal affiche d'abord la tête courte, puis charge les fragments nécessaires à la page ou au filtre demandé. Une recherche texte parcourt progressivement l'historique; un filtre par type ou joueur peut ignorer les journées dont l'index public prouve l'absence du filtre. Si une lecture échoue, il conserve l'ensemble cohérent déjà affiché. Il ne mélange jamais deux `generationId`. Un repli explicite sur v5 n'arrête pas la production ni le contrôle des générations v6.
 
 ## Identité et déduplication
 
@@ -44,7 +44,7 @@ L'export récent décrit aussi une `projectionWindow` de type `replace-tail`: bo
 
 Une réparation exige l'observation de la même structure endommagée puis saine. Une disparition ne produit pas de réparation. Les objets transitoires du monde sont exclus des structures. Une attribution de recherche estimée porte `confidence=derived`; l'interface l'affiche comme un joueur estimé, jamais comme une confirmation individuelle.
 
-La normalisation peut masquer un événement de la projection publique, mais ne supprime jamais l'observation privée qui permet l'audit ou une reprojection ultérieure. Une mutation déjà matérialisée ou un backfill ancien place la projection en `reprojection-required`: les fichiers publics précédents restent intacts jusqu'à la demande ponctuelle explicite décrite dans [les opérations](OPERATIONS.md#reprojection-publique-contrôlée). Cette demande est consommée uniquement après la reconstruction et l'export complet réussis.
+La normalisation peut masquer un événement de la projection publique, mais ne supprime jamais l'observation privée qui permet l'audit ou une reprojection ultérieure. Une mutation déjà matérialisée ou un backfill ancien place la projection en `reprojection-required`: les fichiers publics précédents restent intacts jusqu'à une demande de reprojection contrôlée. Le poste Windows peut déposer cette demande automatiquement quand il constate que la tête chaude est plus avancée que l'export complet froid; l'exploitant peut aussi la déposer manuellement comme décrit dans [les opérations](OPERATIONS.md#reprojection-publique-contrôlée). Cette demande est consommée uniquement après la reconstruction et l'export complet réussis.
 
 ## Cache et rafraîchissement
 

@@ -8,7 +8,7 @@
   "counts": { "totalEchoes": 2 },
   "manifest": {
     "path": "data/public-events-v6/example-20260718T120000Z/manifest.json",
-    "sha256": "sha256:8c282b55077cbda1b6217d787ed71295e5ee2283b9444bd19dafe40f26f46246"
+    "sha256": "sha256:d6e3886991737412e70a00e4cf351eb133213781f9ad9828fd2c2e92d970cc2d"
   },
   "head": {
     "path": "data/public-events-v6/example-20260718T120000Z/head.json",

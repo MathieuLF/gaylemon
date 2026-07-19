@@ -262,6 +262,7 @@ function Repair-RecoveryState {
 }
 
 function Refresh-AvailabilityState {
+    & (Join-Path $PSScriptRoot "update-microsite-metrics.ps1") -FastOnly -SkipEvents | Out-Null
     & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null
     return (Read-JsonFile -Path $LocalAvailabilityPath)
 }

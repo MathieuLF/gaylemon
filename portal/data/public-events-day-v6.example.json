@@ -14,6 +14,17 @@
   "sourceStatus": "available",
   "cursor": { "minId": 41, "maxId": 42 },
   "counts": { "echoes": 2, "representedEvents": 3 },
+  "facets": {
+    "types": [
+      { "value": "capture", "count": 1 },
+      { "value": "level", "count": 1 }
+    ],
+    "players": [
+      { "value": "Mathieu", "count": 2 }
+    ],
+    "guilds": [],
+    "bases": []
+  },
   "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "events": [
     {

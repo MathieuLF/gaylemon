@@ -612,6 +612,9 @@ function Get-ObjectPropertyValue {
     )
 
     if ($null -eq $Object) { return $null }
+    if ($Object -is [System.Collections.IDictionary] -and $Object.Contains($Name)) {
+        return $Object[$Name]
+    }
     $property = $Object.PSObject.Properties | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
     if ($property) { return $property.Value }
     return $null
@@ -692,6 +695,48 @@ function Get-PublicDataProbe {
         ok = $isOk
         error = if ($isOk) { $null } else { [string](Get-ObjectPropertyValue $payload "error") }
     }
+}
+
+function Get-RecentEventsDataProbe {
+    param(
+        [string]$Path,
+        [string]$SyncStatePath,
+        [int]$MaxAgeSeconds,
+        $NowUtc
+    )
+
+    $probe = Get-PublicDataProbe -Name "recentEvents" -Path $Path -MaxAgeSeconds $MaxAgeSeconds -NowUtc $NowUtc
+    $state = Read-JsonFileOrNull -Path $SyncStatePath
+    if (-not $state -or (Get-ObjectPropertyValue $state "__invalid")) {
+        return $probe
+    }
+
+    $fastSyncedAt = Convert-ToPublicDate (Get-ObjectPropertyValue $state "fastSyncedAt")
+    if (-not $fastSyncedAt) {
+        return $probe
+    }
+
+    $requiresReprojection = [bool](Get-ObjectPropertyValue $state "requiresReprojection")
+    $syncAgeSeconds = [int][Math]::Round(($NowUtc - $fastSyncedAt.ToUniversalTime()).TotalSeconds, 0)
+    if ($syncAgeSeconds -lt 0) { $syncAgeSeconds = 0 }
+    $payloadOk = [bool](Get-ObjectPropertyValue $probe "ok")
+    $status = if (-not $payloadOk -or $requiresReprojection) {
+        "degraded"
+    }
+    elseif ($syncAgeSeconds -gt $MaxAgeSeconds) {
+        "stale"
+    }
+    else {
+        "fresh"
+    }
+
+    $probe["status"] = $status
+    $probe["updatedAt"] = $fastSyncedAt.ToString("o")
+    $probe["ageSeconds"] = $syncAgeSeconds
+    $probe["syncUpdatedAt"] = $fastSyncedAt.ToString("o")
+    $probe["lastEchoAt"] = $probe["contentUpdatedAt"]
+    $probe["error"] = if ($requiresReprojection) { "reprojection-required" } else { $probe["error"] }
+    return $probe
 }
 
 function New-ErrorPayload {
@@ -850,7 +895,7 @@ order by time asc;
         Get-PublicDataProbe -Name "saveBases" -Path (Join-Path $DataDirectory "public-save-bases.json") -MaxAgeSeconds 900 -NowUtc $nowUtc -PreferFileTimestamp
         Get-PublicDataProbe -Name "saveDiagnostics" -Path (Join-Path $DataDirectory "public-save-diagnostics.json") -MaxAgeSeconds $publicDiagnosticsMaxAgeSeconds -NowUtc $nowUtc -PreferFileTimestamp
         Get-PublicDataProbe -Name "events" -Path (Join-Path $DataDirectory "public-events.json") -MaxAgeSeconds $publicFullEventsMaxAgeSeconds -NowUtc $nowUtc
-        Get-PublicDataProbe -Name "recentEvents" -Path (Join-Path $DataDirectory "public-events-recent.json") -MaxAgeSeconds $publicRecentEventsMaxAgeSeconds -NowUtc $nowUtc
+        Get-RecentEventsDataProbe -Path (Join-Path $DataDirectory "public-events-recent.json") -SyncStatePath (Join-Path $DataDirectory "public-events-sync-state.json") -MaxAgeSeconds $publicRecentEventsMaxAgeSeconds -NowUtc $nowUtc
     )
     $badChecks = @($dataChecks | Where-Object { $_.status -ne "fresh" })
     $currentAvailability = if ($latestHeartbeat -and $latestHeartbeat.statusClass -eq "nominal" -and $fresh -and $badChecks.Count -eq 0) {

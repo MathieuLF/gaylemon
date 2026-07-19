@@ -40,11 +40,22 @@
       "fragmentGenerationId": "example-20260718T120000Z",
       "dailyGenerationId": "example-20260718T120000Z",
       "path": "data/public-events-v6/example-20260718T120000Z/2026-07-18.json",
-      "sha256": "69544065ec35fb59aa990a3353a60fa85411d1934c3f2afd01456c279abd7cfb",
+      "sha256": "e5d21bba4f31d7c72f114d5f4b4e23389f571887f8f895aca96ee8ca36f9b0b5",
       "dailyPath": "data/public-daily/example-20260718T120000Z/2026-07-18.json",
       "dailySha256": "bc9b226b46d85831832278ffb159b8b027a6be6ecc4274423104279139db6a72",
       "events": 2,
       "representedEvents": 3,
+      "facets": {
+        "types": [
+          { "value": "capture", "count": 1 },
+          { "value": "level", "count": 1 }
+        ],
+        "players": [
+          { "value": "Mathieu", "count": 2 }
+        ],
+        "guilds": [],
+        "bases": []
+      },
       "firstAt": "2026-07-18T10:42:00-04:00",
       "lastAt": "2026-07-18T11:55:00-04:00"
     }
