@@ -298,7 +298,7 @@ Le collecteur `palworld-events.timer` alimente:
 
 Il publie les événements fiables: arrivées, départs, reconnexions, progression, captures déduites des compteurs, crafts, constructions regroupées, productions confirmées, recherches, bases, réparations, pêche et éclosions strictes.
 
-Les fabrications et productions de sauvegarde sont compilées dans l'export public par fenêtres de 5 minutes, par joueur et par type d'écho. Les événements bruts restent dans SQLite pour audit, mais le terminal reçoit un écho synthétique quand plusieurs lots tombent dans la même fenêtre, avec les quantités et objets fusionnés dans `details.items`.
+Les fabrications, productions et pêches de sauvegarde sont compilées dans l'export public par fenêtres de 5 minutes, par joueur ou propriétaire. Les événements bruts restent dans SQLite pour audit, mais le terminal reçoit un écho synthétique quand plusieurs lots tombent dans la même fenêtre, avec les quantités et objets fusionnés dans `details.items` et les catégories d'origine dans `details.categories`.
 
 Il ne publie pas les destructions, transferts, récoltes, coffres ouverts, butins aléatoires ou attributions ambiguës quand la sauvegarde ne permet pas de relier l'action à un joueur avec certitude.
 

@@ -34,7 +34,7 @@ $allowedTypes = @(
     "join", "leave", "reconnect", "server", "maintenance", "discovery", "collection",
     "capture", "challenge", "quest", "loot", "adventure", "raid", "boss", "arena",
     "death", "recovery", "note", "pal", "mutation", "level", "progress", "camp",
-    "craft", "build", "production", "hatch", "fishing", "research", "base", "repair",
+    "activity", "craft", "build", "production", "hatch", "fishing", "research", "base", "repair",
     "settings"
 )
 $allowedSources = @("journal", "players", "save", "update", "server")
@@ -423,7 +423,8 @@ function Convert-ToPositiveInt {
     }
 }
 
-$ItemizedPublicGroupTypes = @("craft", "fishing", "production", "build", "repair", "base", "research")
+$ItemizedPublicGroupTypes = @("activity", "craft", "fishing", "production", "build", "repair", "base", "research")
+$ItemizedPublicActivityTypes = @("craft", "production", "fishing")
 $WorldDropStructureNames = @("commondropitem3d", "commonitemdrop3d")
 
 function Test-WorldDropStructureName {
@@ -546,6 +547,14 @@ function Get-ItemizedGroupOwner {
     return "Monde"
 }
 
+function Get-ItemizedGroupType {
+    param($Event)
+
+    $type = [string](Get-OptionalProperty $Event "type")
+    if ($ItemizedPublicActivityTypes -contains $type) { return "activity" }
+    return $type
+}
+
 function Get-ItemizedGroupKey {
     param($Event)
 
@@ -561,7 +570,8 @@ function Get-ItemizedGroupKey {
     if ($null -eq $bucket) { return $null }
 
     $owner = (Get-ItemizedGroupOwner -Event $Event).ToLowerInvariant()
-    return "$type|$owner|$($bucket.ToString("o"))"
+    $groupType = Get-ItemizedGroupType -Event $Event
+    return "$groupType|$owner|$($bucket.ToString("o"))"
 }
 
 function New-PublicEventKey {
@@ -622,18 +632,36 @@ function Merge-ItemizedPublicItems {
                     added = 0
                     count = 0
                     isNew = $false
+                    types = [System.Collections.ArrayList]::new()
                 }
             }
 
             $current = $grouped[$groupKey]
             $current["added"] = [int]$current["added"] + $added
             $current["isNew"] = [bool]$current["isNew"] -or [bool](Get-OptionalProperty $item "isNew")
+            $eventType = ([string](Get-OptionalProperty $event "type")).Trim()
+            if ($eventType -and -not @($current["types"]).Contains($eventType)) {
+                [void]$current["types"].Add($eventType)
+            }
             if (-not [string]$current["asset"] -and $asset) { $current["asset"] = $asset }
             if (-not [string]$current["icon"] -and (Get-OptionalProperty $item "icon")) {
                 $current["icon"] = Get-OptionalProperty $item "icon"
             }
             $current["name"] = $name
             $current["count"] = Convert-ToPositiveInt (Get-OptionalProperty $item "count")
+        }
+    }
+
+    foreach ($entry in $grouped.Values) {
+        $types = @($entry["types"] | Sort-Object -Unique)
+        if ($types.Count -gt 0) {
+            $entry["types"] = $types
+            if ($types.Count -eq 1) {
+                $entry["sourceType"] = [string]$types[0]
+            }
+        }
+        else {
+            [void]$entry.Remove("types")
         }
     }
 
@@ -690,6 +718,95 @@ function Get-BaseScopeLabel {
     return ""
 }
 
+function Get-ItemizedSourceTypes {
+    param([array]$Events)
+
+    $present = @{}
+    foreach ($event in $Events) {
+        $type = ([string](Get-OptionalProperty $event "type")).Trim()
+        if ($type) { $present[$type] = $true }
+    }
+    $ordered = [System.Collections.ArrayList]::new()
+    foreach ($type in $ItemizedPublicActivityTypes) {
+        if ($present.ContainsKey($type)) {
+            [void]$ordered.Add($type)
+            [void]$present.Remove($type)
+        }
+    }
+    foreach ($type in @($present.Keys | Sort-Object)) {
+        [void]$ordered.Add([string]$type)
+    }
+    return @($ordered)
+}
+
+function Get-ItemizedPublicCategories {
+    param([array]$Events)
+
+    $categories = [System.Collections.ArrayList]::new()
+    foreach ($type in (Get-ItemizedSourceTypes -Events $Events)) {
+        $matching = @($Events | Where-Object { [string](Get-OptionalProperty $_ "type") -eq $type })
+        if ($matching.Count -lt 1) { continue }
+        $added = 0
+        $total = 0
+        $bases = @(
+            $matching |
+                ForEach-Object { ([string](Get-OptionalProperty $_ "base")).Trim() } |
+                Where-Object { $_ } |
+                Sort-Object -Unique
+        )
+        foreach ($event in $matching) {
+            $added += Get-ItemizedEventAddedTotal -Event $event
+            $details = Get-ItemizedEventDetails -Event $event
+            $total = [Math]::Max($total, (Convert-ToPositiveInt (Get-OptionalProperty $details "total")))
+        }
+        $row = [ordered]@{
+            type = [string]$type
+            events = [int]$matching.Count
+            added = [int]$added
+        }
+        if ($bases.Count -gt 0) { $row["bases"] = $bases }
+        if ($total -gt 0) { $row["total"] = $total }
+        [void]$categories.Add([pscustomobject]$row)
+    }
+    return @($categories)
+}
+
+function Get-ItemizedActivityPhrase {
+    param(
+        [Parameter(Mandatory)] [string]$Type,
+        [Parameter(Mandatory)] [int]$Total
+    )
+
+    if ($Type -eq "craft") {
+        $label = Get-FrenchPlural -Value $Total -Singular "fabrication"
+        $agreement = if ($Total -eq 1) { "terminée" } else { "terminées" }
+        return "$Total $label $agreement"
+    }
+    if ($Type -eq "production") {
+        $label = Get-FrenchPlural -Value $Total -Singular "ressource produite" -Plural "ressources produites"
+        return "$Total $label"
+    }
+    if ($Type -eq "fishing") {
+        $label = Get-FrenchPlural -Value $Total -Singular "prise de pêche" -Plural "prises de pêche"
+        return "$Total $label"
+    }
+    $label = Get-FrenchPlural -Value $Total -Singular "activité" -Plural "activités"
+    return "$Total $label"
+}
+
+function Join-FrenchList {
+    param([array]$Values, [int]$Limit = 5)
+
+    $displayed = @($Values | Where-Object { ([string]$_).Trim() } | Select-Object -First $Limit)
+    $remaining = @($Values | Where-Object { ([string]$_).Trim() }).Count - $displayed.Count
+    if ($remaining -gt 0) {
+        $displayed += "$remaining autre$(if ($remaining -eq 1) { '' } else { 's' })"
+    }
+    if ($displayed.Count -lt 1) { return "" }
+    if ($displayed.Count -eq 1) { return [string]$displayed[0] }
+    return "$(@($displayed | Select-Object -First ($displayed.Count - 1)) -join ', ') et $($displayed[-1])"
+}
+
 function Get-AggregatedEventBullets {
     param([array]$Events)
 
@@ -716,7 +833,10 @@ function New-AggregatedItemizedPublicEvent {
             @{ Expression = { Convert-ToPositiveInt (Get-OptionalProperty $_ "id") }; Descending = $true } |
             Select-Object -First 1
     )[0]
-    $eventType = [string](Get-OptionalProperty $latest "type")
+    $latestType = [string](Get-OptionalProperty $latest "type")
+    $sourceTypes = @(Get-ItemizedSourceTypes -Events $Events)
+    $activitySourceTypes = @($sourceTypes | Where-Object { $ItemizedPublicActivityTypes -contains $_ })
+    $eventType = if ($activitySourceTypes.Count -gt 1) { "activity" } else { $latestType }
     $owner = Get-ItemizedGroupOwner -Event $latest
     $bucket = Get-ItemizedEventBucket -Event $latest
     if ($null -eq $bucket) {
@@ -724,6 +844,7 @@ function New-AggregatedItemizedPublicEvent {
     }
     $windowEnd = if ($bucket) { $bucket.AddSeconds($ItemizedEventGroupWindowSeconds) } else { $null }
     $items = @(Merge-ItemizedPublicItems -Events $Events)
+    $categories = @(Get-ItemizedPublicCategories -Events $Events)
     $addedTotal = 0
     foreach ($item in $items) {
         $addedTotal += Convert-ToPositiveInt (Get-OptionalProperty $item "added")
@@ -760,6 +881,8 @@ function New-AggregatedItemizedPublicEvent {
         aggregatedEvents = $batches
         windowMinutes = [int]($ItemizedEventGroupWindowSeconds / 60)
     }
+    if ($sourceTypes.Count -gt 0) { $details["types"] = $sourceTypes }
+    if ($categories.Count -gt 0) { $details["categories"] = $categories }
     if ($items.Count -gt 0) {
         if ($eventType -eq "build") {
             $details["structures"] = $items
@@ -772,7 +895,29 @@ function New-AggregatedItemizedPublicEvent {
     if ($windowEnd) { $details["windowEnd"] = $windowEnd.ToString("o") }
     if ($bases.Count -gt 0) { $details["bases"] = $bases }
 
-    if ($eventType -eq "craft") {
+    if ($eventType -eq "activity") {
+        $title = "Activité relevée"
+        $phrases = @(
+            foreach ($category in $categories) {
+                $categoryType = [string](Get-OptionalProperty $category "type")
+                $categoryAdded = Convert-ToPositiveInt (Get-OptionalProperty $category "added")
+                if ($ItemizedPublicActivityTypes -contains $categoryType -and $categoryAdded -gt 0) {
+                    Get-ItemizedActivityPhrase -Type $categoryType -Total $categoryAdded
+                }
+            }
+        )
+        $message = if ($phrases.Count -gt 0) {
+            "$owner relève $(Join-FrenchList -Values $phrases)."
+        }
+        else {
+            "$owner relève une activité d'atelier."
+        }
+        if ($bases.Count -gt 0) {
+            $baseLabel = Get-FrenchPlural -Value $bases.Count -Singular "Base touchée" -Plural "Bases touchées"
+            $message = "$message ${baseLabel}: $(Join-FrenchList -Values $bases -Limit 3)."
+        }
+    }
+    elseif ($eventType -eq "craft") {
         $title = "Fabrications terminées"
         $total = Get-EventMaxDetailTotal -Events $Events
         $label = Get-FrenchPlural -Value $addedTotal -Singular "fabrication"
@@ -1047,7 +1192,31 @@ function Update-LogbookPublicEvent {
     $baseLabel = Get-BaseScopeLabel -Bases $bases
     $total = Convert-ToPositiveInt (Get-OptionalProperty $details "total")
 
-    if ($eventType -eq "craft") {
+    if ($eventType -eq "activity") {
+        $title = "Activité relevée"
+        $categories = @(Get-OptionalProperty $details "categories")
+        $phrases = @(
+            foreach ($category in $categories) {
+                $categoryType = [string](Get-OptionalProperty $category "type")
+                $categoryAdded = Convert-ToPositiveInt (Get-OptionalProperty $category "added")
+                if ($ItemizedPublicActivityTypes -contains $categoryType -and $categoryAdded -gt 0) {
+                    Get-ItemizedActivityPhrase -Type $categoryType -Total $categoryAdded
+                }
+            }
+        )
+        $message = if ($phrases.Count -gt 0) {
+            "$owner relève $(Join-FrenchList -Values $phrases)."
+        }
+        else {
+            $label = Get-FrenchPlural -Value $addedTotal -Singular "activité" -Plural "activités"
+            "$owner relève $addedTotal $label."
+        }
+        if ($bases.Count -gt 0) {
+            $baseLabel = Get-FrenchPlural -Value $bases.Count -Singular "Base touchée" -Plural "Bases touchées"
+            $message = "$message ${baseLabel}: $(Join-FrenchList -Values $bases -Limit 3)."
+        }
+    }
+    elseif ($eventType -eq "craft") {
         $title = "Fabrications terminées"
         $label = Get-FrenchPlural -Value $addedTotal -Singular "fabrication"
         $totalLabel = if ($total -gt 0) { " Total cumulé: $total." } else { "" }
@@ -1622,17 +1791,48 @@ function Get-SourceSummaryMetric {
     return $Fallback
 }
 
+function Get-EventFacetValues {
+    param(
+        $Event,
+        [Parameter(Mandatory)] [string]$PropertyName
+    )
+
+    $values = [System.Collections.ArrayList]::new()
+    $direct = ([string](Get-OptionalProperty $Event $PropertyName)).Trim()
+    if ($direct) { [void]$values.Add($direct) }
+
+    if ($PropertyName -eq "type") {
+        $details = Get-OptionalProperty $Event "details"
+        foreach ($type in @((Get-OptionalProperty $details "types"))) {
+            $text = ([string]$type).Trim()
+            if ($text -and -not @($values).Contains($text)) { [void]$values.Add($text) }
+        }
+        foreach ($category in @((Get-OptionalProperty $details "categories"))) {
+            $text = ([string](Get-OptionalProperty $category "type")).Trim()
+            if ($text -and -not @($values).Contains($text)) { [void]$values.Add($text) }
+        }
+    }
+
+    return @($values)
+}
+
 function New-V6FacetRows {
     param(
         [array]$Events,
         [Parameter(Mandatory)] [string]$PropertyName
     )
 
+    $counts = @{}
+    foreach ($event in $Events) {
+        foreach ($value in (Get-EventFacetValues -Event $event -PropertyName $PropertyName)) {
+            if (-not $counts.ContainsKey($value)) { $counts[$value] = 0 }
+            $counts[$value] = [int]$counts[$value] + 1
+        }
+    }
     return @(
-        $Events | Where-Object { ([string](Get-OptionalProperty $_ $PropertyName)).Trim() } |
-            Group-Object -Property $PropertyName | Sort-Object -Property Name | ForEach-Object {
-                [ordered]@{ value = [string]$_.Name; count = [int]$_.Count }
-            }
+        $counts.GetEnumerator() | Sort-Object -Property Key | ForEach-Object {
+            [ordered]@{ value = [string]$_.Key; count = [int]$_.Value }
+        }
     )
 }
 
@@ -1684,6 +1884,42 @@ function Get-EventAddedQuantity {
         return Convert-ToPositiveInt ($Matches[1] -replace '\s', '')
     }
     return 1
+}
+
+function Get-EventActivityCategories {
+    param($Event)
+
+    $details = Get-OptionalProperty $Event "details"
+    return @(
+        foreach ($category in @((Get-OptionalProperty $details "categories"))) {
+            $type = ([string](Get-OptionalProperty $category "type")).Trim()
+            if (-not $type) { continue }
+            [ordered]@{
+                type = $type
+                added = Convert-ToPositiveInt (Get-OptionalProperty $category "added")
+                events = Convert-ToPositiveInt (Get-OptionalProperty $category "events")
+            }
+        }
+    )
+}
+
+function Get-EventItemTypes {
+    param(
+        $Item,
+        [string]$FallbackType = ""
+    )
+
+    $values = [System.Collections.ArrayList]::new()
+    foreach ($name in @("types", "sourceTypes")) {
+        foreach ($type in @((Get-OptionalProperty $Item $name))) {
+            $text = ([string]$type).Trim()
+            if ($text -and -not @($values).Contains($text)) { [void]$values.Add($text) }
+        }
+    }
+    $sourceType = ([string](Get-OptionalProperty $Item "sourceType")).Trim()
+    if ($sourceType -and -not @($values).Contains($sourceType)) { [void]$values.Add($sourceType) }
+    if ($values.Count -lt 1 -and $FallbackType) { [void]$values.Add($FallbackType) }
+    return @($values | Where-Object { $_ -in @("craft", "production", "fishing") })
 }
 
 function Add-V6PalFind {
@@ -1859,21 +2095,34 @@ function Get-V6DailyDigest {
             $totals[$metric] = [int]$totals[$metric] + $quantity
             $player["metrics"][$metric] = [int]$player["metrics"][$metric] + $quantity
         }
+        if ($type -eq "activity") {
+            foreach ($category in (Get-EventActivityCategories -Event $event)) {
+                $categoryType = [string](Get-OptionalProperty $category "type")
+                if ($categoryType -notin @("craft", "production", "fishing")) { continue }
+                $quantity = Convert-ToPositiveInt (Get-OptionalProperty $category "added")
+                if ($quantity -le 0) { $quantity = [Math]::Max(1, (Convert-ToPositiveInt (Get-OptionalProperty $category "events"))) }
+                $totals[$categoryType] = [int]$totals[$categoryType] + $quantity
+                $player["metrics"][$categoryType] = [int]$player["metrics"][$categoryType] + $quantity
+            }
+        }
         if ($rareTypes -contains $type) {
             $totals["rare"] = [int]$totals["rare"] + 1
             $player["metrics"]["rare"] = [int]$player["metrics"]["rare"] + 1
         }
 
-        if ($type -in @("craft", "production")) {
-            $target = if ($type -eq "craft") { $craftedItems } else { $producedItems }
+        if ($type -in @("activity", "craft", "production")) {
             foreach ($item in (Get-ItemizedEventItems -Event $event)) {
+                $itemTypes = @(Get-EventItemTypes -Item $item -FallbackType $(if ($type -eq "activity") { "" } else { $type }))
+                if ($itemTypes.Count -ne 1 -or $itemTypes[0] -notin @("craft", "production")) { continue }
+                $itemType = [string]$itemTypes[0]
+                $target = if ($itemType -eq "craft") { $craftedItems } else { $producedItems }
                 $name = ([string](Get-OptionalProperty $item "name")).Trim()
                 if (-not $name) { continue }
                 $asset = ([string](Get-OptionalProperty $item "asset")).Trim()
-                $itemKey = "$type|$(if ($asset) { $asset } else { $name })".ToLowerInvariant()
+                $itemKey = "$itemType|$(if ($asset) { $asset } else { $name })".ToLowerInvariant()
                 if (-not $target.ContainsKey($itemKey)) {
                     $target[$itemKey] = [ordered]@{
-                        key = $itemKey; type = $type; name = $name
+                        key = $itemKey; type = $itemType; name = $name
                         icon = Get-OptionalProperty $item "icon"
                         quantity = 0; newCount = 0
                     }
@@ -2443,18 +2692,18 @@ function Update-V6FacetRows {
         if ($value) { $counts[$value] = Convert-ToPositiveInt (Get-OptionalProperty $row "count") }
     }
     foreach ($event in $RemovedEvents) {
-        $value = ([string](Get-OptionalProperty $event $PropertyName)).Trim()
-        if (-not $value) { continue }
-        if (-not $counts.ContainsKey($value) -or [int]$counts[$value] -lt 1) {
-            throw "La facette '$PropertyName' ne peut pas retirer la valeur '$value'."
+        foreach ($value in (Get-EventFacetValues -Event $event -PropertyName $PropertyName)) {
+            if (-not $counts.ContainsKey($value) -or [int]$counts[$value] -lt 1) {
+                throw "La facette '$PropertyName' ne peut pas retirer la valeur '$value'."
+            }
+            $counts[$value] = [int]$counts[$value] - 1
         }
-        $counts[$value] = [int]$counts[$value] - 1
     }
     foreach ($event in $AddedEvents) {
-        $value = ([string](Get-OptionalProperty $event $PropertyName)).Trim()
-        if (-not $value) { continue }
-        if (-not $counts.ContainsKey($value)) { $counts[$value] = 0 }
-        $counts[$value] = [int]$counts[$value] + 1
+        foreach ($value in (Get-EventFacetValues -Event $event -PropertyName $PropertyName)) {
+            if (-not $counts.ContainsKey($value)) { $counts[$value] = 0 }
+            $counts[$value] = [int]$counts[$value] + 1
+        }
     }
     return @(
         $counts.GetEnumerator() |

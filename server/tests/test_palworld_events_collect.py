@@ -1456,6 +1456,18 @@ class SessionReconciliationTests(unittest.TestCase):
         )
         EVENTS.add_event(
             self.connection,
+            fingerprint="save:capture:kingpaca",
+            occurred_at="2026-07-13T10:02:45-04:00",
+            event_type="capture",
+            player="Alyross",
+            title="Première capture",
+            message="Alyross capture Kingpaca pour la première fois.",
+            icon="kingpaca.webp",
+            source="save",
+            details={"pals": [{"name": "Kingpaca", "count": 1, "icon": "kingpaca.webp"}]},
+        )
+        EVENTS.add_event(
+            self.connection,
             fingerprint="save:craft:3",
             occurred_at="2026-07-13T10:06:00-04:00",
             event_type="craft",
@@ -1474,24 +1486,25 @@ class SessionReconciliationTests(unittest.TestCase):
         events, reconnects = self.public_events()
 
         self.assertEqual(reconnects, 0)
-        self.assertEqual([event["type"] for event in events], ["craft", "production", "craft"])
+        self.assertEqual([event["type"] for event in events], ["craft", "activity", "capture"])
         self.assertEqual(events[0]["title"], "Fabrications terminées")
-        production = events[1]
-        craft = events[2]
-        self.assertEqual(production["title"], "Ressources produites relevées")
-        self.assertIn("Alyross relève 12 ressources produites dans 2 bases", production["message"])
-        self.assertEqual(production["details"]["aggregatedEvents"], 2)
-        self.assertEqual(production["details"]["total"], 23)
-        self.assertEqual(production["details"]["bases"], ["Base 1", "Base 2"])
-        self.assertIn("+7 Salade", production["details"]["bullets"])
-        self.assertIn("+5 Lingot", production["details"]["bullets"])
-        self.assertEqual(craft["title"], "Fabrications terminées")
-        self.assertIn("Alyross termine 11 fabrications", craft["message"])
-        self.assertNotIn("sur 5 min", craft["message"])
-        self.assertEqual(craft["details"]["aggregatedEvents"], 2)
-        self.assertEqual(craft["details"]["total"], 17)
-        self.assertIn("+7 Bois", craft["details"]["bullets"])
-        self.assertIn("+4 Pierre", craft["details"]["bullets"])
+        activity = events[1]
+        capture = events[2]
+        self.assertEqual(activity["title"], "Activité relevée")
+        self.assertIn("Alyross relève 11 fabrications terminées et 12 ressources produites", activity["message"])
+        self.assertIn("Bases touchées: Base 1 et Base 2", activity["message"])
+        self.assertNotIn("sur 5 min", activity["message"])
+        self.assertEqual(activity["details"]["aggregatedEvents"], 4)
+        self.assertEqual(activity["details"]["types"], ["craft", "production"])
+        categories = {category["type"]: category for category in activity["details"]["categories"]}
+        self.assertEqual(categories["craft"]["added"], 11)
+        self.assertEqual(categories["production"]["added"], 12)
+        self.assertEqual(activity["details"]["bases"], ["Base 1", "Base 2"])
+        self.assertIn("+7 Bois", activity["details"]["bullets"])
+        self.assertIn("+7 Salade", activity["details"]["bullets"])
+        self.assertIn("+5 Lingot", activity["details"]["bullets"])
+        self.assertIn("+4 Pierre", activity["details"]["bullets"])
+        self.assertEqual(capture["title"], "Première capture")
 
     def test_public_export_hides_derived_production_when_craft_reports_same_items(self):
         EVENTS.add_event(
