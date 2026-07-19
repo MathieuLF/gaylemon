@@ -79,15 +79,18 @@ Les valeurs inconnues restent `null`. Un `0` signifie une vraie mesure à zéro.
 
 Le tableau de bord charge `public-save-index.json` au départ, puis `players/{slug}.json` seulement quand une fiche joueur est ouverte.
 
-Chaque fiche peut exporter un JSON d'analyse localement depuis le navigateur. Cet export utilise uniquement les données publiques en vigueur:
+Chaque fiche peut exporter un JSON d'analyse localement depuis le bouton `Exporter JSON` de son en-tête. Aucun bouton ou bandeau d'export n'est affiché dans les raccourcis du bas de la fiche. Cet export utilise uniquement les données publiques en vigueur:
 
-- profil, guilde, niveau, position publique et données de personnage disponibles;
-- Pals en équipe;
-- Pals en Palbox;
-- autres Pals publics;
+- profil public complet chargé depuis `players/{slug}.json`;
+- activité publique issue des statistiques;
+- personnage, progression, Paldex, boss, quêtes, technologies, reliques et exploration;
+- Pals en équipe, Pals en Palbox et autres Pals publics;
+- inventaire public complet par section;
 - bases reliées au joueur ou à sa guilde;
 - constructions, travailleurs, recherches de base et stockage agrégé;
-- métadonnées de version et d'horodatage des snapshots.
+- métadonnées de version, génération, provenance et horodatage des sources.
+
+Le fichier exporté utilise un schéma déterministe avec clés d'objets triées, sommaire lisible, blocs `data` complets, relations `bases` et `stock`, puis un guide d'analyse pour faciliter une lecture automatisée.
 
 L'export ne contient pas de GUID, Steam ID, conteneur privé, chemin système ou détail exact de coffre. Il ne remplace pas les contrats publics; il les regroupe dans un fichier pratique pour analyse.
 
