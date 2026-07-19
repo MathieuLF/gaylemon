@@ -4,7 +4,7 @@ param(
     [int]$EventSyncTimeoutSeconds = 60,
     [int]$FullEventSyncIntervalSeconds = 900,
     [int]$FullEventSyncTimeoutSeconds = 240,
-    [int]$SaveSnapshotSyncIntervalSeconds = 60,
+    [int]$SaveSnapshotSyncIntervalSeconds = 45,
     [int]$SaveSnapshotSyncTimeoutSeconds = 180,
     [int]$UpdateTimeoutSeconds = 120
 )
@@ -21,6 +21,7 @@ $saveSnapshotSyncProcess = $null
 $saveSnapshotSyncOutputPath = $null
 $saveSnapshotSyncErrorPath = $null
 $saveSnapshotSyncStartedAt = $null
+$saveSnapshotSyncJustFinished = $false
 New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
 
 function Write-WatcherLog {
@@ -99,6 +100,7 @@ function Invoke-MetricsUpdate {
             "Bypass",
             "-File",
             $updateScript,
+            "-FastOnly",
             "-SkipEvents"
         ) -WindowStyle Hidden -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath -PassThru
 
@@ -211,6 +213,7 @@ function Update-SaveSnapshotSync {
             Stop-ProcessTree -RootPid $script:saveSnapshotSyncProcess.Id
             Write-WatcherLog "Save snapshot sync timed out after $SaveSnapshotSyncTimeoutSeconds seconds."
             Clear-SaveSnapshotSyncProcess
+            $script:saveSnapshotSyncJustFinished = $true
         }
         return
     }
@@ -222,6 +225,7 @@ function Update-SaveSnapshotSync {
         Write-WatcherLog "Save snapshot sync skipped: exit code $($script:saveSnapshotSyncProcess.ExitCode)."
     }
     Clear-SaveSnapshotSyncProcess
+    $script:saveSnapshotSyncJustFinished = $true
 }
 
 function Start-SaveSnapshotSync {
@@ -268,6 +272,10 @@ try {
     while ($true) {
         $now = Get-Date
         Update-SaveSnapshotSync -Now $now
+        if ($script:saveSnapshotSyncJustFinished) {
+            $nextSaveSnapshotSyncAt = (Get-Date).AddSeconds([Math]::Max(15, $SaveSnapshotSyncIntervalSeconds))
+            $script:saveSnapshotSyncJustFinished = $false
+        }
         if (-not $saveSnapshotSyncProcess -and $now -ge $nextSaveSnapshotSyncAt) {
             Start-SaveSnapshotSync
             $nextSaveSnapshotSyncAt = (Get-Date).AddSeconds([Math]::Max(15, $SaveSnapshotSyncIntervalSeconds))

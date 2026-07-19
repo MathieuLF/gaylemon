@@ -371,6 +371,30 @@ catch {
     Write-Result $false "Manifeste de deploiement Ubuntu" $_.Exception.Message
 }
 
+try {
+    $recoverySource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "scripts\verify-microsite-recovery.ps1")
+    $updateMetricsSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "scripts\update-microsite-metrics.ps1")
+    $watcherSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "scripts\watch-microsite-metrics.ps1")
+    $startupStatusSource = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $ProjectRoot "scripts\windows-startup-status.ps1")
+
+    Write-Result (
+        $recoverySource -match "RemoteSnapshotPath" -and
+        $recoverySource -match "public-save-snapshot\.json" -and
+        $recoverySource -match "remoteSnapshotSource" -and
+        $recoverySource -match "provenance\.sourceUpdatedAt"
+    ) "Audit de reprise des fiches joueurs" "le snapshot Ubuntu doit être comparé directement au snapshot local"
+
+    Write-Result (
+        $updateMetricsSource -match '\[int\]\$SaveSnapshotIntervalMinutes\s*=\s*1\b' -and
+        $watcherSource -match '\[int\]\$SaveSnapshotSyncIntervalSeconds\s*=\s*45\b' -and
+        $watcherSource -match '"-FastOnly",\s*"-SkipEvents"' -and
+        $startupStatusSource -match "Dernier snapshot joueurs"
+    ) "Cadence et statut des fiches joueurs" "les fiches doivent être rattrapées vite et visibles dans le statut local"
+}
+catch {
+    Write-Result $false "Contrat local des fiches joueurs" $_.Exception.Message
+}
+
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
     & $node.Source --check (Join-Path $ProjectRoot "portal\assets\app.js") 2>&1 | Out-Null
