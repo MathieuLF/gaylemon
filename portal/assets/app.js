@@ -274,11 +274,29 @@ function ensureSourceFreshnessDetails() {
   sourceFreshnessDetails = document.createElement("details");
   sourceFreshnessDetails.className = "source-freshness";
   sourceFreshnessDetails.innerHTML = `
-    <summary aria-label="Afficher la fraîcheur de chaque source">Fraîcheur</summary>
-    <span class="source-freshness__panel">
-      <strong>État des sources</strong>
+    <summary aria-label="Afficher la fraîcheur des données" aria-controls="source-freshness-panel" aria-expanded="false">
+      <img src="/assets/icons/clock-3.svg?v=20260718.1" alt="" width="24" height="24">
+      <span class="visually-hidden">Fraîcheur des données</span>
+    </summary>
+    <span class="source-freshness__panel" id="source-freshness-panel" role="tooltip">
+      <span class="source-freshness__panel-kicker">Sources du portail</span>
+      <strong>Fraîcheur des données</strong>
       <span data-source-freshness-list><small>Aucune source reçue</small></span>
     </span>`;
+  const summary = sourceFreshnessDetails.querySelector("summary");
+  sourceFreshnessDetails.addEventListener("toggle", () => {
+    summary?.setAttribute("aria-expanded", sourceFreshnessDetails.open ? "true" : "false");
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (sourceFreshnessDetails?.open && !sourceFreshnessDetails.contains(event.target)) {
+      sourceFreshnessDetails.open = false;
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !sourceFreshnessDetails?.open) return;
+    sourceFreshnessDetails.open = false;
+    summary?.focus({ preventScroll: true });
+  });
   siteLastUpdated.parentElement.insertAdjacentElement("afterend", sourceFreshnessDetails);
   return sourceFreshnessDetails;
 }
@@ -290,6 +308,11 @@ function renderSourceFreshness() {
   const rows = [...new Set([...sourceUpdatedAt.keys(), ...sourceHealth.keys()])]
     .filter((source) => sourceFreshnessLabels[source])
     .sort((left, right) => left.localeCompare(right, "fr-CA"));
+  const states = rows.map((source) => sourceHealth.get(source)?.state || "delayed");
+  const overallState = states.includes("error") ? "error" : states.includes("delayed") ? "delayed" : "available";
+  const overallLabel = overallState === "available" ? "à jour" : overallState === "error" ? "une source en erreur" : "une source à surveiller";
+  details.dataset.state = overallState;
+  details.querySelector("summary")?.setAttribute("aria-label", `Fraîcheur des données : ${overallLabel}`);
   list.innerHTML = rows.length
     ? rows.map((source) => {
       const date = sourceUpdatedAt.get(source);
@@ -1118,17 +1141,20 @@ function renderHeaderPlayersTooltip() {
   const updatedText = headerPresenceUpdatedAt ? `Données ${formatRelativeAge(headerPresenceUpdatedAt)}` : "Données en attente";
   if (!count) {
     playersTooltip.innerHTML = `
-      <span class="site-header__players-tooltip-kicker">Présences en direct</span>
-      <strong>Aucun joueur connecté</strong>
+      <span class="site-header__players-tooltip-head">
+        <span><span class="site-header__players-tooltip-kicker">Présences en direct</span><strong>Aucun joueur connecté</strong></span>
+        <small>${escapeHtml(updatedText)}</small>
+      </span>
       <p>Le serveur ne détecte personne en ligne pour le moment.</p>
-      <small>${escapeHtml(updatedText)}</small>
     `;
     return;
   }
 
   playersTooltip.innerHTML = `
-    <span class="site-header__players-tooltip-kicker">Présences en direct</span>
-    <strong>${count}/${escapeHtml(maxPlayers)} en ligne</strong>
+    <span class="site-header__players-tooltip-head">
+      <span><span class="site-header__players-tooltip-kicker">Présences en direct</span><strong>${count}/${escapeHtml(maxPlayers)} en ligne</strong></span>
+      <small>${escapeHtml(updatedText)}</small>
+    </span>
     <ul>
       ${players.map((player) => {
     const startedAt = presenceStartedAt(player);
@@ -1139,10 +1165,9 @@ function renderHeaderPlayersTooltip() {
           <span class="site-header__players-tooltip-avatar">${escapeHtml(playerInitials(player.name))}</span>
           <span><b>${escapeHtml(player.name || "Joueur")}</b><small>Arrivée ${escapeHtml(arrival)} · ${escapeHtml(durationText)}</small></span>
         </li>`;
-  }).join("")}
+    }).join("")}
     </ul>
-    <small>${escapeHtml(updatedText)}</small>
-  `;
+    `;
 }
 
 function formatPercent(value) {
@@ -2885,17 +2910,15 @@ function restoreV6State(state) {
 
 function renderHomeLatestEchoes(payload) {
   if (!homeLatestEchoes) return;
-  const candidates = Array.isArray(payload?.verifiedEchoes) ? payload.verifiedEchoes : payload?.events || [];
-  const verified = sortEventsNewestFirst(candidates, { canonical: Number(payload?.schemaVersion) === 6 })
-    .filter((event) => !event?.confidence || event.confidence === "confirmed")
-    .slice(0, 5);
-  homeLatestEchoes.innerHTML = verified.length
-    ? verified.map((event, index) => renderEventLineHtml(event, index)).join("")
-    : '<li class="event-stream__empty">Aucun écho vérifié pour le moment.</li>';
+  const candidates = Array.isArray(payload?.events) ? payload.events : [];
+  const recent = sortEventsNewestFirst(candidates, { canonical: Number(payload?.schemaVersion) === 6 }).slice(0, 5);
+  homeLatestEchoes.innerHTML = recent.length
+    ? recent.map((event, index) => renderEventLineHtml(event, index)).join("")
+    : '<li class="event-stream__empty">Aucun écho récent pour le moment.</li>';
   if (homeEchoesStatus) {
-    homeEchoesStatus.textContent = verified.length
-      ? `${verified.length} écho${verified.length > 1 ? "s" : ""} confirmé${verified.length > 1 ? "s" : ""} · ${formatRelativeAge(payload?.sourceUpdatedAt || payload?.updatedAt || payload?.generatedAt)}`
-      : "Les prochains échos confirmés apparaîtront ici.";
+    homeEchoesStatus.textContent = recent.length
+      ? `${recent.length} écho${recent.length > 1 ? "s" : ""} · mis à jour ${formatRelativeAge(payload?.sourceUpdatedAt || payload?.updatedAt || payload?.generatedAt)}`
+      : "Les prochains échos apparaîtront ici.";
   }
 }
 
@@ -3644,6 +3667,7 @@ function eventRenderSignature(event) {
     event?.display?.headline || "",
     event?.display?.body || "",
     event?.confidence || "confirmed",
+    event?.details?.windowMinutes || 0,
     ...(event?.display?.bullets || []),
   ]));
 }
@@ -3707,13 +3731,17 @@ function renderEventLineHtml(event, index = 0) {
     const confidenceBadge = event.confidence === "derived"
       ? '<em class="event-line__confidence" aria-label="Attribution déduite : le fait est confirmé pour la guilde, mais son attribution à ce joueur est estimée" title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée.">Attribution déduite</em>'
       : "";
+    const windowMinutes = eventAggregationWindowMinutes(event);
+    const windowBadge = windowMinutes
+      ? `<em class="event-line__window" aria-label="Activité regroupée sur les ${windowMinutes} dernières minutes">${windowMinutes} dernières minutes</em>`
+      : "";
     return `
       <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
-        <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.date)} · ${escapeHtml(timestamp.time)}</strong></time>
+        <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.time)}</strong><span>${escapeHtml(timestamp.date)}</span></time>
         <span class="event-line__rail" aria-hidden="true"><i></i></span>
         <span class="event-line__visual">${visual}</span>
         <span class="event-line__content">
-          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}${confidenceBadge}</span>
+          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${windowBadge}${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}${confidenceBadge}</span>
           <strong>${escapeHtml(headline)}</strong>
           <span class="event-line__body">${escapeHtml(body)}</span>
           ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
@@ -3737,7 +3765,34 @@ function frenchPlural(value, singular, pluralForm) {
   return value === 1 ? singular : pluralForm;
 }
 
+function eventAggregationWindowMinutes(event) {
+  const minutes = Number(event?.details?.windowMinutes || 0);
+  return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+}
+
+function eventAggregationWindowLabel(event) {
+  const minutes = eventAggregationWindowMinutes(event);
+  if (!minutes) return "";
+  return minutes === 1 ? "la dernière minute" : `les ${minutes} dernières minutes`;
+}
+
+function eventAggregationHeadline(event, fallbackHeadline) {
+  const minutes = eventAggregationWindowMinutes(event);
+  if (!minutes) return fallbackHeadline;
+  const labels = {
+    craft: "Fabrications",
+    production: "Productions",
+    fishing: "Pêches",
+    build: "Constructions",
+    loot: "Butins",
+    collection: "Collections",
+  };
+  const label = labels[event.type] || "Activité";
+  return minutes === 1 ? `${label} de la dernière minute` : `${label} des ${minutes} dernières minutes`;
+}
+
 function compactEventHeadline(event, fallbackHeadline) {
+  if (eventAggregationWindowMinutes(event)) return eventAggregationHeadline(event, fallbackHeadline);
   if (event.type !== "production") return fallbackHeadline;
   const player = String(event.player || "").trim();
   const base = String(event.base || "").trim();
@@ -3751,12 +3806,15 @@ function compactProductionEventBody(event, fallbackBody, bullets) {
   const added = eventBulletQuantityTotal(bullets) || eventDetailItemsQuantityTotal(event, "added");
   const total = Number(event.details?.total || eventDetailItemsQuantityTotal(event, "count"));
   if (!added) return fallbackBody;
-  const ready = added === 1
-    ? "1 ressource produite est prête."
-    : `${added.toLocaleString("fr-CA")} ressources produites sont prêtes.`;
-  return total > 0
-    ? `${ready} Stock de production actuel: ${total.toLocaleString("fr-CA")}.`
+  const isDerived = event.confidence === "derived";
+  const ready = isDerived
+    ? added === 1 ? "1 ressource supplémentaire a été relevée." : `${added.toLocaleString("fr-CA")} ressources supplémentaires ont été relevées.`
+    : added === 1 ? "1 ressource produite est prête." : `${added.toLocaleString("fr-CA")} ressources produites sont prêtes.`;
+  const prefix = eventAggregationWindowLabel(event);
+  const body = total > 0
+    ? `${ready} ${isDerived ? "Stock observé" : "Stock de production actuel"} : ${total.toLocaleString("fr-CA")}.`
     : ready;
+  return prefix ? `Sur ${prefix}, ${body.charAt(0).toLocaleLowerCase("fr-CA")}${body.slice(1)}` : body;
 }
 
 function compactItemizedEventBody(event, fallbackBody, bullets) {
@@ -3766,11 +3824,13 @@ function compactItemizedEventBody(event, fallbackBody, bullets) {
   const total = Number(event.details?.total || 0);
   const player = String(event.player || "").trim();
   if (!added || !total || !player) return fallbackBody;
+  const prefix = eventAggregationWindowLabel(event);
+  const lead = prefix ? `Sur ${prefix}, ` : "";
 
   if (event.type === "craft") {
-    return `${player} termine ${added} ${frenchPlural(added, "fabrication", "fabrications")}. Total cumulé: ${total}.`;
+    return `${lead}${player} termine ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "fabrication", "fabrications")}. Total cumulé : ${total.toLocaleString("fr-CA")}.`;
   }
-  return `${player} ramène ${added} ${frenchPlural(added, "prise de pêche", "prises de pêche")}. Total cumulé: ${total}.`;
+  return `${lead}${player} ramène ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "prise de pêche", "prises de pêche")}. Total cumulé : ${total.toLocaleString("fr-CA")}.`;
 }
 
 function renderEventPaginationControls(pageCount) {

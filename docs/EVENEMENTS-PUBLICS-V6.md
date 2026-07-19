@@ -2,14 +2,14 @@
 
 Le contrat v6 publie les échos par journée sans exposer la base SQLite ni imposer le téléchargement de l'historique complet. Le collecteur produit la projection canonique; la synchronisation Windows la valide et la copie, sans recréer les événements métier.
 
-Les contrats v5 restent publiés pendant la période de transition. `public-events-channel.json` garde v5 actif pendant que v6 est produit et observé en parallèle. Après promotion, le portail tente v6 en premier et revient à v5 seulement si le manifeste v6 est absent ou invalide.
+Le canal public active v6. Les contrats v5 restent publiés temporairement comme repli d'exploitation; le portail revient à v5 seulement si le canal est explicitement replié ou si l'activation v6 ne peut pas être validée.
 
 ## Fichiers servis
 
 - `public-events-head-v6.json`: pointeur actif compact, revalidé par ETag, vers le manifeste et la tête immuables d'une même génération;
 - `public-events-manifest-v6.json`: copie de compatibilité du manifeste courant, avec comptes, curseurs, provenance, hachages et journées disponibles;
 - `public-events-v6/{generationId}/manifest.json`: manifeste immuable réellement suivi par le pointeur actif;
-- `public-events-v6/{generationId}/head.json`: cinq derniers échos et cinq derniers échos confirmés, avec curseur global et plage de la fenêtre chaude;
+- `public-events-v6/{generationId}/head.json`: cinq échos les plus récents et sous-ensemble de compatibilité `verifiedEchoes`, avec curseur global et plage de la fenêtre chaude;
 - `public-events-v6/{fragmentGenerationId}/{jour}.json`: échos canoniques d'une journée;
 - `public-daily/{dailyGenerationId}/{jour}.json`: résumé quotidien précalculé, sans copie du tableau complet des événements;
 - `public-events-manifest-v6.previous.json`: dernier manifeste cohérent conservé localement pour le repli d'exploitation.
@@ -29,7 +29,7 @@ La publication suit cet ordre:
 6. remplacer atomiquement le pointeur actif en dernier;
 7. nettoyer uniquement les générations qui ne sont plus référencées par le nouveau manifeste ou le précédent.
 
-Quand le canal actif vaut `v6`, le portail sonde d'abord le pointeur. S'il change, il charge le manifeste immuable puis sa tête, et vérifie leurs hachages avant d'utiliser un fragment. Si une lecture échoue, il conserve l'ensemble cohérent déjà affiché. Il ne mélange jamais deux `generationId`. Tant que le canal vaut `v5`, les fichiers v6 continuent d'être publiés et contrôlés sans être adoptés par les parcours publics.
+Le portail sonde d'abord le pointeur v6. S'il change, il charge le manifeste immuable puis sa tête, et vérifie leurs hachages avant d'utiliser un fragment. Si une lecture échoue, il conserve l'ensemble cohérent déjà affiché. Il ne mélange jamais deux `generationId`. Un repli explicite sur v5 n'arrête pas la production ni le contrôle des générations v6.
 
 ## Identité et déduplication
 
@@ -58,9 +58,9 @@ Le manifeste, la tête, les fragments et les résumés transportent les champs p
 
 La projection ne doit contenir ni adresse IP, ni identifiant brut, ni coordonnée privée, ni URL sensible, ni contenu détaillé de coffre. Le validateur local injecte des sentinelles sensibles dans un export fictif et refuse leur présence dans les fichiers publics.
 
-## Validation et bascule
+## Validation et canal actif
 
-Avant une mise en observation:
+Avant toute publication ou modification du contrat:
 
 ```powershell
 .\scripts\test-public-events-v6.ps1
@@ -68,10 +68,10 @@ python -m unittest discover -s .\server\tests -p "test_*.py" -v
 .\scripts\valider-depot.ps1
 ```
 
-La mise en observation conserve `activeContract=v5` dans `portal/public-events-channel.json`. Après 24 heures, comparer les comptes, doublons, coupures et délais, puis promouvoir atomiquement la génération déjà validée:
+Le canal actif est v6. La commande suivante valide le pointeur et son manifeste immuable avant de confirmer atomiquement ce canal:
 
 ```powershell
 .\scripts\set-public-events-channel.ps1 -ActiveContract v6
 ```
 
-Le même script avec `-ActiveContract v5` effectue le repli sans retirer les fichiers v6. Le contrat v5 reste publié sept jours après la promotion. Une correction P0 ou P1 ne demande pas de redémarrer Palworld.
+Le même script avec `-ActiveContract v5` effectue un repli contrôlé sans retirer les fichiers v6. Le contrat v5 reste publié temporairement pour cette seule capacité de repli. Une correction P0 ou P1 ne demande pas de redémarrer Palworld.

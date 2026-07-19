@@ -20,6 +20,10 @@ PalworldSaveTools est installé comme dépendance séparée sous `vendor/Palworl
 
 Les polices Nunito et Baloo 2 distribuées sous `portal/assets/fonts/` utilisent la SIL Open Font License 1.1. Le texte de licence est fourni dans [portal/assets/fonts/OFL.txt](portal/assets/fonts/OFL.txt).
 
+## Lucide
+
+L’icône d’horloge distribuée sous `portal/assets/icons/clock-3.svg` provient de [Lucide](https://lucide.dev/) et est utilisée sous licence ISC.
+
 ## Nginx et images Docker
 
 Le fichier Compose référence l'image officielle Nginx. L'image elle-même n'est pas redistribuée dans ce dépôt et conserve ses propres licences.

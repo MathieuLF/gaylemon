@@ -108,7 +108,7 @@ public-events-index.json
 public-events-page-0001.json
 ```
 
-Le navigateur sonde le petit pointeur v6, valide le manifeste et la tête d'une même génération, puis charge seulement la journée consultée. Il ne charge plus l'historique complet sur une route normale. Les contrats paginés v5 restent un repli temporaire pendant l'observation.
+Le navigateur sonde le petit pointeur v6, valide le manifeste et la tête d'une même génération, puis charge seulement la journée consultée. Il ne charge plus l'historique complet sur une route normale. Les contrats paginés v5 restent disponibles uniquement comme repli temporaire.
 
 La page ne doit pas perdre:
 

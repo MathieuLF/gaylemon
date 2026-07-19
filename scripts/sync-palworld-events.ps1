@@ -2557,7 +2557,7 @@ function Write-FastEventOutputs {
         events = $events
     }
     if (Test-CanonicalEventProjection -Payload $RecentPayload) {
-        # Le contrat v5 reste actif pendant l'observation. Il relaie donc la
+        # Le contrat v5 reste disponible comme repli temporaire. Il relaie la
         # borne canonique sans tenter de réinterpréter le regroupement serveur.
         $hotRecentPayload["projectionWindow"] = Get-OptionalProperty $RecentPayload "projectionWindow"
     }
