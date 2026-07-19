@@ -180,7 +180,7 @@ try {
     Assert-True ($head.baseGenerationId -eq $manifest.generationId) "La tête ne référence pas la génération active."
     Assert-True ($manifest.head.path -eq "data/public-events-v6/$($manifest.generationId)/head.json") "La tête n'est pas une ressource immuable de la génération."
     Assert-True (("sha256:" + (Get-FileHash -LiteralPath $headPath -Algorithm SHA256).Hash.ToLowerInvariant()) -eq $manifest.head.sha256) "Le hash de la tête ne correspond pas au manifeste."
-    Assert-True (@($head.events).Count -le 5) "La tête v6 dépasse la limite de cinq échos."
+    Assert-True (@($head.events).Count -le 7) "La tête v6 dépasse la limite de sept échos."
     Assert-True ((Get-Item -LiteralPath $manifestPath).LastWriteTimeUtc -ge (Get-Item -LiteralPath $headPath).LastWriteTimeUtc) "Le manifeste n'a pas été publié après la tête."
 
     foreach ($day in @($manifest.days)) {
@@ -324,8 +324,8 @@ try {
     $tailRecent = Copy-JsonValue -Value $tailFull
     $tailRecent.events = [object[]]@([pscustomobject]@{
         key = "public-group:craft:joueuse:2026-07-18T10:00:00-04:00"; id = 402; occurredAt = "2026-07-18T10:02:00-04:00"; type = "craft"
-        player = "Joueuse"; guild = $null; base = "Atelier"; title = "Fabrications compilées"; message = "Joueuse termine 5 fabrications en 5 min."
-        display = [pscustomobject]@{ headline = "Fabrications compilées"; body = "Joueuse termine 5 fabrications en 5 min."; bullets = @("+5 Bois") }
+        player = "Joueuse"; guild = $null; base = "Atelier"; title = "Fabrications compilées"; message = "Joueuse termine 5 fabrications sur 5 min."
+        display = [pscustomobject]@{ headline = "Fabrications compilées"; body = "Joueuse termine 5 fabrications sur 5 min."; bullets = @("+5 Bois") }
         details = [pscustomobject]@{ aggregatedEvents = 2; items = @([pscustomobject]@{ name = "Bois"; added = 5; count = 5 }) }
         confidence = "confirmed"; icon = $null; source = "save"
     })
@@ -680,7 +680,7 @@ try {
 
     $cursorRoot = Join-Path $tempRoot "canonical-global-cursor"
     $cursorPath = Join-Path $tempRoot "canonical-global-cursor.json"
-    $cursorEvents = @(6..1 | ForEach-Object {
+    $cursorEvents = @(7..1 | ForEach-Object {
         [ordered]@{
             key = "cursor-recent-$_"; id = $_; occurredAt = "2026-07-18T1$($_):00:00-04:00"; type = "discovery"
             player = "Joueuse"; guild = $null; base = $null; title = "Découverte $_"; message = "Découverte récente $_."
@@ -689,23 +689,23 @@ try {
         }
     })
     $cursorEvents += [ordered]@{
-        key = "cursor-old-day"; id = 7; occurredAt = "2026-07-17T08:00:00-04:00"; type = "discovery"
+        key = "cursor-old-day"; id = 8; occurredAt = "2026-07-17T08:00:00-04:00"; type = "discovery"
         player = "Joueuse"; guild = $null; base = $null; title = "Découverte reprise"; message = "Découverte reprise sur une ancienne journée."
         display = [ordered]@{ headline = "Découverte reprise"; body = "Découverte reprise sur une ancienne journée."; bullets = @() }
         details = [ordered]@{}; confidence = "confirmed"; icon = $null; source = "save"
     }
     $cursorPayload = ($canonicalPayload | ConvertTo-Json -Depth 12 | ConvertFrom-Json)
     $cursorPayload.events = $cursorEvents
-    $cursorPayload.revision = "6:cursor:7"
-    $cursorPayload.projectionRevision = 7
-    Set-TestProjectionWindow -Payload $cursorPayload -Mode full -ThroughProjectionRevision 7
-    $cursorPayload.summary = [pscustomobject]@{ rawEvents = 7; publicEvents = 7; echoes = 7; representedEvents = 7; totalEchoes = 7; totalRepresentedEvents = 7; events = 7; totalEvents = 7 }
+    $cursorPayload.revision = "6:cursor:8"
+    $cursorPayload.projectionRevision = 8
+    Set-TestProjectionWindow -Payload $cursorPayload -Mode full -ThroughProjectionRevision 8
+    $cursorPayload.summary = [pscustomobject]@{ rawEvents = 8; publicEvents = 8; echoes = 8; representedEvents = 8; totalEchoes = 8; totalRepresentedEvents = 8; events = 8; totalEvents = 8 }
     [IO.File]::WriteAllText($cursorPath, (($cursorPayload | ConvertTo-Json -Depth 12) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
     Invoke-LocalSync -Source $cursorPath -Root $cursorRoot
     $cursorManifest = Get-Content -LiteralPath (Join-Path $cursorRoot "public-events-manifest-v6.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     $cursorHead = (Get-ManifestHead -Root $cursorRoot -Manifest $cursorManifest).Payload
-    Assert-True ($cursorManifest.cursor.maxId -eq 7 -and $cursorHead.cursor.maxId -eq 7) "La tête ne reprend pas le curseur maximal de la projection complète."
-    Assert-True ($cursorHead.windowCursor.maxId -eq 6) "La plage de la fenêtre chaude ne reste pas distincte du curseur global."
+    Assert-True ($cursorManifest.cursor.maxId -eq 8 -and $cursorHead.cursor.maxId -eq 8) "La tête ne reprend pas le curseur maximal de la projection complète."
+    Assert-True ($cursorHead.windowCursor.maxId -eq 7) "La plage de la fenêtre chaude ne reste pas distincte du curseur global."
 
     $day17Initial = @($canonicalManifest.days | Where-Object { $_.date -eq "2026-07-17" })[0]
     $day18Initial = @($canonicalManifest.days | Where-Object { $_.date -eq "2026-07-18" })[0]
@@ -919,7 +919,7 @@ try {
     Assert-True ($afterProvenance.sourceProvenanceRevision -eq "provenance-b" -and $afterProvenance.gameVersion -eq "v2" -and $afterProvenance.catalogCommit -eq "catalog-b") "La nouvelle provenance n'a pas atteint le manifeste."
     Assert-True ($provenanceHead.baseGenerationId -eq $afterProvenance.generationId -and $provenanceHead.gameVersion -eq "v2") "La tête n'a pas suivi le changement de provenance."
 
-    Assert-True (@($provenanceHead.events).Count -le 5) "La fenêtre de curseur de la tête dépasse cinq échos."
+    Assert-True (@($provenanceHead.events).Count -le 7) "La fenêtre de curseur de la tête dépasse sept échos."
     Assert-True (@($provenanceHead.verifiedEchoes | Where-Object { $_.confidence -ne "confirmed" }).Count -eq 0) "La tête vérifiée contient un écho dérivé."
     Assert-True ($provenanceHead.counts.totalEchoes -eq $afterProvenance.counts.echoes) "La tête n'expose pas le compte exact des échos."
     Assert-True ($provenanceHead.hasMore -eq ($provenanceHead.counts.totalEchoes -gt @($provenanceHead.events).Count)) "Le signal de saturation de la tête est incohérent."

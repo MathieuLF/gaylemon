@@ -253,6 +253,8 @@ test("un fragment manquant ou invalide ne peut pas adopter le nouveau manifeste"
     app.indexOf("async function selectEventDate"),
   );
   assert.ok(terminalLoader.indexOf("fetchEventsV6Candidate") < terminalLoader.indexOf("stageAndCommitV6Candidate"));
+  assert.match(terminalLoader, /v6HeadAsTerminalPayload/);
+  assert.doesNotMatch(terminalLoader, /loadEventDayV6/);
   assert.doesNotMatch(terminalLoader, /loadEventsV6State/);
 });
 
@@ -333,7 +335,8 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /role="tooltip"/);
   assert.doesNotMatch(app, /<\/ul>\s*<small>\$\{escapeHtml\(updatedText\)\}<\/small>/);
   assert.match(app, /registerPayloadDataUpdate\("catalog", manifest\)/);
-  assert.match(app, /Attribution déduite/);
+  assert.match(app, /Joueur estimé/);
+  assert.doesNotMatch(app, /Attribution déduite/);
   assert.match(app, /settings: \{ label: "Règles du monde"/);
   assert.match(app, /presenceAvailable: false/);
   assert.doesNotMatch(app, /params\.get\("jour"\) \?\? saved\.day/);
@@ -357,6 +360,9 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /function v6NavigableDates/);
   assert.match(app, /contentHash: `empty:\$\{dateKey\}`/);
   assert.match(app, /v6DateCanBeOpened/);
+  assert.match(app, /const terminalV6EchoLimit = 7/);
+  assert.match(app, /terminalHead: true/);
+  assert.match(app, /eventPagination\.hidden = true/);
   assert.match(styles, /site-header__players-tooltip[\s\S]*?max-height:\s*none;[\s\S]*?overflow:\s*visible;/);
   assert.match(styles, /site-header__players-tooltip ul[\s\S]*?grid-template-columns:\s*repeat\(2,/);
   assert.match(styles, /home-echoes__list[\s\S]*?gap:\s*10px;/);
@@ -388,15 +394,15 @@ test("les événements compilés rendent explicitement leur fenêtre de cinq min
     const groupedCraft = { type: "craft", details: { windowMinutes: 5 } };
     const groupedProduction = { type: "production", details: { windowMinutes: 5 } };
     assert.equal(minutes(groupedCraft), 5);
-    assert.equal(label(groupedCraft), "les 5 dernières minutes");
-    assert.equal(headline(groupedCraft, "Fabrications compilées"), "Fabrications des 5 dernières minutes");
-    assert.equal(headline(groupedProduction, "Stocks compilés"), "Productions des 5 dernières minutes");
+    assert.equal(label(groupedCraft), "5 min");
+    assert.equal(headline(groupedCraft, "Fabrications compilées"), "Fabrications sur 5 min");
+    assert.equal(headline(groupedProduction, "Stocks compilés"), "Productions sur 5 min");
     assert.equal(headline({ type: "boss", details: {} }, "Boss vaincu"), "Boss vaincu");
   } finally {
     delete globalThis.eventAggregationWindowMinutes;
   }
   assert.match(app, /event-line__window/);
-  assert.match(app, /Activité regroupée sur les \$\{windowMinutes\} dernières minutes/);
+  assert.match(app, /Bilan sur \$\{windowMinutes\} min/);
   assert.match(app, /<time datetime="\$\{escapeHtml\(event\.occurredAt\)\}"><strong>\$\{escapeHtml\(timestamp\.time\)\}<\/strong><span>\$\{escapeHtml\(timestamp\.date\)\}<\/span><\/time>/);
 });
 
@@ -491,6 +497,6 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260718\.14/);
-    assert.match(html, /app\.js\?v=20260718\.21/);
+    assert.match(html, /app\.js\?v=20260718\.23/);
   }
 });

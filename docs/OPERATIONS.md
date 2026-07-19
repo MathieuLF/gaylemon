@@ -302,7 +302,7 @@ Les fabrications et productions de sauvegarde sont compilées dans l'export publ
 
 Il ne publie pas les destructions, transferts, récoltes, coffres ouverts, butins aléatoires ou attributions ambiguës quand la sauvegarde ne permet pas de relier l'action à un joueur avec certitude.
 
-La projection canonique est calculée près de SQLite. Les observations brutes restent privées et auditables; une correction de publication les masque ou les requalifie sans les supprimer. L'identité métier empêche qu'une collecte directe et sa reprise produisent deux niveaux ou deux recherches identiques. Une recherche est publiée une fois par guilde et une attribution déduite reste marquée `derived`.
+La projection canonique est calculée près de SQLite. Les observations brutes restent privées et auditables; une correction de publication les masque ou les requalifie sans les supprimer. L'identité métier empêche qu'une collecte directe et sa reprise produisent deux niveaux ou deux recherches identiques. Une recherche est publiée une fois par guilde et une attribution estimée reste marquée `derived`; côté portail, elle est libellée comme joueur estimé.
 
 ### Reprojection publique contrôlée
 

@@ -185,6 +185,7 @@ let eventCurrentPage = 1;
 let eventsFullLoaded = false;
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
+const terminalV6EchoLimit = 7;
 let terminalEventPageSize = 8;
 let dailySelectedDateKey = "";
 let dailyAvailableDateKeys = [];
@@ -3432,6 +3433,38 @@ async function loadEventDayV6(dateKey, manifest = eventsManifestV6, head = event
   return mergeV6DayWithHead(payload, dateKey, manifest, head);
 }
 
+function v6HeadAsTerminalPayload(head, manifest = eventsManifestV6) {
+  const generationId = String(manifest?.generationId || head?.baseGenerationId || "");
+  if (!v6GenerationIsValid(head, generationId, true)) throw new Error("mixed-v6-terminal-head");
+  const events = sortEventsNewestFirst((head.events || []).filter(eventCanBePublished), { canonical: true })
+    .slice(0, terminalV6EchoLimit);
+  const totalEchoes = Number(manifest?.counts?.echoes ?? head?.counts?.totalEchoes ?? events.length);
+  return {
+    ...head,
+    version: 6,
+    schemaVersion: 6,
+    ok: true,
+    recent: true,
+    terminalHead: true,
+    generationId,
+    activeGenerationId: generationId,
+    revision: `${generationId}:${head.revision || head.cursor?.maxId || head.generatedAt || ""}:terminal-head`,
+    updatedAt: head.sourceUpdatedAt || head.generatedAt || manifest?.sourceUpdatedAt || manifest?.generatedAt,
+    summary: {
+      events: events.length,
+      totalEvents: Number.isFinite(totalEchoes) && totalEchoes >= 0 ? totalEchoes : events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+    counts: {
+      ...(head.counts || {}),
+      echoes: events.length,
+      totalEchoes: Number.isFinite(totalEchoes) && totalEchoes >= 0 ? totalEchoes : events.length,
+    },
+    events,
+  };
+}
+
 function renderEventDateControls() {
   if (!eventDateNavigation || !isDailyDigestRoute()) return;
   const dates = v6NavigableDates();
@@ -3453,22 +3486,22 @@ async function loadTerminalEventsV6(silent = false) {
   try {
     const candidate = await fetchEventsV6Candidate(silent, true);
     if (!candidate.ok) return candidate;
-    const dates = v6NavigableDates(candidate.manifest);
-    const selectedDate = dates[0];
     const { payload, state } = await stageAndCommitV6Candidate(
       candidate,
-      () => loadEventDayV6(selectedDate, candidate.manifest, candidate.head),
+      () => Promise.resolve(v6HeadAsTerminalPayload(candidate.head, candidate.manifest)),
       commitEventsV6Candidate,
     );
-    eventSelectedDateKey = selectedDate;
+    eventSelectedDateKey = "";
+    eventCursor = "";
+    eventCurrentPage = 1;
     if (state.generationChanged) clearV6GenerationCaches();
     eventsSnapshot = payload;
-    eventsRecentSnapshot = eventsHeadV6;
+    eventsRecentSnapshot = payload;
     eventsFullLoaded = false;
     renderEventSummaryCards(payload);
     renderEventSyncStatus(new Date(), payload.updatedAt);
     renderEventFiltersFromFacets(eventsIndexSnapshot);
-    renderEventDateControls();
+    eventDateNavigation?.setAttribute("hidden", "");
     renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
     updateTerminalUnseen();
     return { ok: true, changed: state.changed || previousRevision !== payload.revision, mode: "v6" };
@@ -3476,20 +3509,21 @@ async function loadTerminalEventsV6(silent = false) {
     const restored = restoreV6State(rollbackState);
     if (restored) {
       if (eventsSnapshot?.version === 6 && String(eventsSnapshot.activeGenerationId || "") === String(eventsManifestV6?.generationId || "")) {
-        renderEventDateControls();
+        eventDateNavigation?.setAttribute("hidden", "");
         return { ok: true, changed: false, stale: true, error, mode: "v6" };
       }
       try {
-        const dates = v6NavigableDates();
-        eventSelectedDateKey = dates.includes(eventSelectedDateKey) ? eventSelectedDateKey : dates[0];
-        const payload = await loadEventDayV6(eventSelectedDateKey);
+        eventSelectedDateKey = "";
+        eventCursor = "";
+        eventCurrentPage = 1;
+        const payload = v6HeadAsTerminalPayload(eventsHeadV6, eventsManifestV6);
         eventsSnapshot = payload;
-        eventsRecentSnapshot = eventsHeadV6;
+        eventsRecentSnapshot = payload;
         eventsFullLoaded = false;
         renderEventSummaryCards(payload);
         renderEventSyncStatus(new Date(), payload.updatedAt);
         renderEventFiltersFromFacets(eventsIndexSnapshot);
-        renderEventDateControls();
+        eventDateNavigation?.setAttribute("hidden", "");
         renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
         updateTerminalUnseen();
         return { ok: true, changed: false, stale: true, error, mode: "v6" };
@@ -3840,9 +3874,7 @@ function writeTerminalState() {
   for (const key of ["type", "player"]) {
     if (state[key] && state[key] !== "all") params.set(key, state[key]);
   }
-  if (eventsContractMode === "v6") {
-    if (state.cursor) params.set("cursor", state.cursor);
-  } else if (state.page > 1) {
+  if (eventsContractMode !== "v6" && state.page > 1) {
     params.set("page", String(state.page));
   }
   const query = params.toString();
@@ -3887,7 +3919,7 @@ function renderEventStreamItems(visible, terminal, refinePageSize, options = {})
 
   if (!options.preserveDom) {
     eventStream.innerHTML = rendered.map((item) => item.html).join("");
-    return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+    return Boolean(terminal && eventsContractMode !== "v6" && refinePageSize && refineRenderedTerminalPageSize());
   }
 
   const existingLines = new Map(
@@ -3911,7 +3943,7 @@ function renderEventStreamItems(visible, terminal, refinePageSize, options = {})
       });
     });
   }
-  return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+  return Boolean(terminal && eventsContractMode !== "v6" && refinePageSize && refineRenderedTerminalPageSize());
 }
 
 function renderEventLineHtml(event, index = 0) {
@@ -3929,11 +3961,11 @@ function renderEventLineHtml(event, index = 0) {
     const key = eventIdentity(event) || `visible:${index}`;
     const signature = eventRenderSignature(event);
     const confidenceBadge = event.confidence === "derived"
-      ? '<em class="event-line__confidence" aria-label="Attribution déduite : le fait est confirmé pour la guilde, mais son attribution à ce joueur est estimée" title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée.">Attribution déduite</em>'
+      ? '<em class="event-line__confidence" aria-label="Joueur estimé : le fait est confirmé pour la guilde, mais le joueur affiché est le meilleur rattachement disponible" title="Fait confirmé pour la guilde; joueur affiché selon le meilleur rattachement disponible.">Joueur estimé</em>'
       : "";
     const windowMinutes = eventAggregationWindowMinutes(event);
     const windowBadge = windowMinutes
-      ? `<em class="event-line__window" aria-label="Activité regroupée sur les ${windowMinutes} dernières minutes">${windowMinutes} dernières minutes</em>`
+      ? `<em class="event-line__window" aria-label="Bilan regroupé sur ${windowMinutes} minutes">Bilan sur ${windowMinutes} min</em>`
       : "";
     return `
       <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
@@ -3973,7 +4005,7 @@ function eventAggregationWindowMinutes(event) {
 function eventAggregationWindowLabel(event) {
   const minutes = eventAggregationWindowMinutes(event);
   if (!minutes) return "";
-  return minutes === 1 ? "la dernière minute" : `les ${minutes} dernières minutes`;
+  return minutes === 1 ? "1 min" : `${minutes} min`;
 }
 
 function eventAggregationHeadline(event, fallbackHeadline) {
@@ -3988,7 +4020,7 @@ function eventAggregationHeadline(event, fallbackHeadline) {
     collection: "Collections",
   };
   const label = labels[event.type] || "Activité";
-  return minutes === 1 ? `${label} de la dernière minute` : `${label} des ${minutes} dernières minutes`;
+  return minutes === 1 ? `${label} sur 1 min` : `${label} sur ${minutes} min`;
 }
 
 function compactEventHeadline(event, fallbackHeadline) {
@@ -4036,22 +4068,8 @@ function compactItemizedEventBody(event, fallbackBody, bullets) {
 function renderEventPaginationControls(pageCount) {
   if (!eventPagination) return;
   if (isTerminalRoute() && eventsContractMode === "v6") {
-    const total = terminalVisibleEvents.length;
-    const pageSize = terminalEventPageSize;
-    const previousStart = Math.max(0, terminalEventWindowStart - pageSize);
-    const nextStart = terminalEventWindowStart + pageSize;
-    const previousCursor = terminalVisibleEvents[previousStart] ? eventIdentity(terminalVisibleEvents[previousStart]) : "";
-    const nextCursor = terminalVisibleEvents[nextStart] ? eventIdentity(terminalVisibleEvents[nextStart]) : "";
-    if (terminalEventWindowStart === 0 && nextStart >= total) {
-      eventPagination.innerHTML = "";
-      eventPagination.hidden = true;
-      return;
-    }
-    eventPagination.hidden = false;
-    eventPagination.innerHTML = `
-      <button type="button" data-event-cursor="${escapeHtml(previousCursor)}" ${terminalEventWindowStart === 0 ? "disabled" : ""}>Échos plus récents</button>
-      <span class="event-pagination__position">${formatInteger(terminalEventWindowStart + 1)}–${formatInteger(Math.min(terminalEventWindowStart + pageSize, total))} sur ${formatInteger(total)}</span>
-      <button type="button" data-event-cursor="${escapeHtml(nextCursor)}" ${nextStart >= total ? "disabled" : ""}>Échos plus anciens</button>`;
+    eventPagination.innerHTML = "";
+    eventPagination.hidden = true;
     return;
   }
   if (pageCount <= 1) {
@@ -4308,26 +4326,29 @@ function renderEvents(refinePageSize = true, options = {}) {
     ].filter(Boolean).join(" ")).includes(query);
   });
   const terminal = isTerminalRoute();
-  if (terminal) updateTerminalPageSize();
-  const pageSize = terminal ? terminalEventPageSize : dashboardEventPageSize;
+  const terminalV6 = terminal && eventsContractMode === "v6";
+  if (terminal && !terminalV6) updateTerminalPageSize();
+  const pageSize = terminalV6 ? terminalV6EchoLimit : terminal ? terminalEventPageSize : dashboardEventPageSize;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  if (terminal && eventsContractMode === "v6") {
-    const cursorIndex = eventCursor
-      ? filtered.findIndex((event) => eventIdentity(event) === eventCursor)
-      : 0;
-    terminalEventWindowStart = cursorIndex >= 0 ? cursorIndex : 0;
-    eventCurrentPage = Math.floor(terminalEventWindowStart / pageSize) + 1;
-    terminalVisibleEvents = filtered;
+  if (terminalV6) {
+    eventCursor = "";
+    terminalEventWindowStart = 0;
+    eventCurrentPage = 1;
+    terminalVisibleEvents = filtered.slice(0, terminalV6EchoLimit);
   } else {
     eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
     terminalEventWindowStart = (eventCurrentPage - 1) * pageSize;
     terminalVisibleEvents = filtered;
   }
   const start = terminalEventWindowStart;
-  const visible = filtered.slice(start, start + pageSize);
+  const visible = terminalV6 ? terminalVisibleEvents : filtered.slice(start, start + pageSize);
 
   const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
-  const resultLabel = filtered.length === events.length
+  const resultLabel = terminalV6
+    ? (filtered.length === events.length
+      ? `${dailyPlural(visible.length, "écho récent", "échos récents")} · ${formatInteger(totalEvents)} synchronisés`
+      : `${dailyPlural(visible.length, "résultat", "résultats")} dans les ${Math.min(events.length, terminalV6EchoLimit)} plus récents · ${formatInteger(totalEvents)} synchronisés`)
+    : filtered.length === events.length
     ? (eventsSnapshot?.recent && totalEvents > events.length
       ? `${events.length} échos récents affichés sur ${totalEvents.toLocaleString("fr-CA")}`
       : `${events.length} écho${events.length > 1 ? "s" : ""}`)
@@ -5463,8 +5484,8 @@ function renderDailyHighlights(summary) {
   ].slice(0, 14);
   if (!highlights.length) return '<li class="daily-empty">Aucun moment marquant détecté pour cette journée.</li>';
   return highlights.map((highlight) => {
-    const badge = highlight.confidence === "derived" ? "Attribution déduite" : highlight.badge;
-    const badgeTitle = highlight.confidence === "derived" ? ' title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée."' : "";
+    const badge = highlight.confidence === "derived" ? "Joueur estimé" : highlight.badge;
+    const badgeTitle = highlight.confidence === "derived" ? ' title="Fait confirmé pour la guilde; joueur affiché selon le meilleur rattachement disponible."' : "";
     return `
     <li class="daily-highlight" style="--highlight-color:${escapeHtml(highlight.accent)}">
       <time>${escapeHtml(highlight.time)}</time>
@@ -5613,17 +5634,17 @@ function renderDailyV6Basic(payload) {
     .filter((entry) => entry.count > 0)
     .sort((left, right) => right.count - left.count);
   if (dailyStatus) dailyStatus.textContent = derived
-    ? `${dailyPlural(players.length, "joueur actif", "joueurs actifs")} · ${dailyPlural(derived, "attribution déduite", "attributions déduites")}`
+    ? `${dailyPlural(players.length, "joueur actif", "joueurs actifs")} · ${dailyPlural(derived, "joueur estimé", "joueurs estimés")}`
     : `${dailyPlural(players.length, "joueur actif", "joueurs actifs")} · bilan confirmé`;
   if (dailyUpdatedAt) dailyUpdatedAt.textContent = `Échos actualisés ${formatRelativeAge(payload.sourceUpdatedAt || payload.generatedAt)}`;
   if (dailyMetrics) dailyMetrics.innerHTML = [
-    renderDailyMetric("Échos publics", formatInteger(echoes), derived ? `${dailyPlural(derived, "attribution déduite", "attributions déduites")} signalée${derived > 1 ? "s" : ""}` : "Regroupements confirmés de la journée", "events"),
+    renderDailyMetric("Échos publics", formatInteger(echoes), derived ? `${dailyPlural(derived, "joueur estimé", "joueurs estimés")}` : "Regroupements confirmés de la journée", "events"),
     renderDailyMetric("Faits représentés", formatInteger(represented), "Observations réunies dans les échos", "rare"),
     renderDailyMetric("Aventuriers", formatInteger(players.length), "Joueurs associés à au moins un écho", "capture"),
     ...typeRows.slice(0, 4).map((entry) => renderDailyMetric(eventTypeMeta[entry.type]?.label || entry.type, formatInteger(entry.count), "Échos de cette catégorie", entry.type)),
   ].join("");
   if (dailyBrief) dailyBrief.innerHTML = `
-    <div class="daily-brief__lead"><strong>${escapeHtml(dailyDisplayDate(payload.date))}</strong><span>${dailyPlural(echoes, "écho public", "échos publics")} · ${dailyPlural(represented, "fait représenté", "faits représentés")}${derived ? ` · ${dailyPlural(derived, "attribution déduite", "attributions déduites")}` : ""}</span></div>
+    <div class="daily-brief__lead"><strong>${escapeHtml(dailyDisplayDate(payload.date))}</strong><span>${dailyPlural(echoes, "écho public", "échos publics")} · ${dailyPlural(represented, "fait représenté", "faits représentés")}${derived ? ` · ${dailyPlural(derived, "joueur estimé", "joueurs estimés")}` : ""}</span></div>
     <ul class="daily-brief__list">${typeRows.slice(0, 6).map((entry) => `<li><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><span>${dailyPlural(entry.count, "écho", "échos")}</span></li>`).join("") || "<li><span>Aucun fait public pour cette journée.</span></li>"}</ul>`;
   if (dailyHourly) dailyHourly.innerHTML = '<p class="daily-empty">Le rythme détaillé sera disponible au prochain bilan complet.</p>';
   if (dailyTypes) dailyTypes.innerHTML = typeRows.length
@@ -5638,8 +5659,8 @@ function renderDailyV6Basic(payload) {
   if (dailyHighlights) dailyHighlights.innerHTML = latest.length
     ? latest.map((event) => {
       const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
-      const badge = event.confidence === "derived" ? "Attribution déduite" : meta.label;
-      const badgeTitle = event.confidence === "derived" ? ' title="Le fait est confirmé pour la guilde; son attribution à ce joueur est estimée."' : "";
+      const badge = event.confidence === "derived" ? "Joueur estimé" : meta.label;
+      const badgeTitle = event.confidence === "derived" ? ' title="Fait confirmé pour la guilde; joueur affiché selon le meilleur rattachement disponible."' : "";
       return `<li class="daily-highlight" style="--highlight-color:${escapeHtml(event.player ? playerColor(event.player) : meta.color)}"><time>${escapeHtml(formatTime(event.occurredAt))}</time><span><b>${escapeHtml(event.player || "Palpagos")}</b><strong>${escapeHtml(event.display?.headline || event.title || meta.label)}</strong><small>${escapeHtml(event.display?.body || event.message || "Écho public")}</small></span><em${badgeTitle}>${escapeHtml(badge)}</em></li>`;
     }).join("")
     : '<li class="daily-empty">Aucun moment marquant publié pour cette journée.</li>';
@@ -7682,7 +7703,7 @@ eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; eventCursor
 eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
 eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
 eventControls?.addEventListener("toggle", () => {
-  if (isTerminalRoute() && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
+  if (isTerminalRoute() && eventsContractMode !== "v6" && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
     void updateTerminalEvents(false);
   }
 });
@@ -7716,9 +7737,14 @@ eventDateToday?.addEventListener("click", () => {
   if (today) void selectEventDate(today);
 });
 eventUnseen?.addEventListener("click", () => {
-  const latestDate = v6ManifestDays()[0]?.date;
   markTerminalEchoesSeen();
-  if (latestDate) void selectEventDate(latestDate);
+  eventCursor = "";
+  eventCurrentPage = 1;
+  if (eventsContractMode === "v6") {
+    renderEvents(false);
+    writeTerminalState();
+    document.querySelector("#event-stream")?.scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
+  }
 });
 dailyDateInput?.addEventListener("change", () => {
   void selectDailyDate(dailyDateInput.value);
