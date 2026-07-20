@@ -4,4 +4,5 @@ gaylemon ALL=(root) NOPASSWD: /usr/bin/systemctl restart palworld.service
 gaylemon ALL=(root) NOPASSWD: /usr/bin/systemctl restart palworld-welcome.service
 gaylemon ALL=(root) NOPASSWD: /usr/bin/systemctl start palworld-kuma-push.service
 gaylemon ALL=(root) NOPASSWD: /usr/bin/systemctl start palworld-stats.service
+gaylemon ALL=(root) NOPASSWD: /usr/bin/systemctl start palworld-performance.service
 gaylemon ALL=(root) NOPASSWD: /srv/storage/steam/bin/palworld-configure-balanced.sh

@@ -435,6 +435,7 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   const app = await portalFile("assets/app.js");
   const state = extractFunction(app, "sourceHealthState");
   const statsRenderer = app.slice(app.indexOf("function renderStats"), app.indexOf("function playerInitials"));
+  const uptimeLoader = app.slice(app.indexOf("async function loadUptime"), app.indexOf("async function readUptimePayload"));
 
   assert.equal(state("available", "current"), "available");
   assert.equal(state("documented-but-unavailable", "current"), "delayed");
@@ -449,6 +450,7 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   assert.match(statsRenderer, /provenance\.sourceStatus/);
   assert.match(app, /source-freshness__value/);
   assert.match(app, /normalizedFreshness === "stable"/);
+  assert.match(uptimeLoader, /else registerPayloadDataUpdate\("uptime", payload\)/);
   assert.match(app, /Catalogue \$\{manifest\.generationId\} disponible/);
   assert.match(app, /registerDataUpdate\(\s*"bases"/);
   assert.match(app, /"base indexée", "bases indexées"/);
@@ -591,6 +593,6 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260719\.14/);
-    assert.match(html, /app\.js\?v=20260719\.10/);
+    assert.match(html, /app\.js\?v=20260719\.11/);
   }
 });
