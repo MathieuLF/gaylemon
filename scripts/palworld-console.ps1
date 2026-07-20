@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet(
         "Menu",
         "CheckAccess",
@@ -27,6 +27,7 @@
         "OpenMicrosite",
         "OpenStatus",
         "RefreshMetrics",
+        "TunePerformance",
         "ValidateRepository",
         "DiagnoseIntegrations",
         "PreviewUbuntuDeploy",
@@ -616,6 +617,15 @@ function Push-KumaHealth {
     Show-Logs -Mode "kuma" -LineCount 10 -ShouldFollow:$false
 }
 
+function Tune-Performance {
+    Write-Title "Priorité Palworld"
+    Write-StatusLine Info "Application du profil performance sans redémarrage du serveur de jeu."
+    Invoke-RemoteSystemctl -Verb "start" -Unit "palworld-performance.service"
+    if ($script:LastActionExitCode -eq 0) {
+        Write-StatusLine Ok "Profil performance appliqué."
+    }
+}
+
 function Show-ApiTunnelStatus {
     Invoke-ProjectScript -ScriptName "palworld-api-tunnel.ps1" -ArgumentList @("status")
 }
@@ -793,6 +803,7 @@ function Show-MainMenu {
         Write-MenuItem "11" (Get-Icon "Restart") "Appliquer la config et redémarrer Palworld" "confirmation RESTART" "Red"
         Write-MenuItem "12" (Get-Icon "Restart") "Redémarrer le watcher de bienvenue" "" "Yellow"
         Write-MenuItem "13" (Get-Icon "Web") "Forcer un push Uptime Kuma" "" "Magenta"
+        Write-MenuItem "31" (Get-Icon "Server") "Réappliquer la priorité Palworld" "sans redémarrage" "Green"
 
         Write-Host ""
         Write-Host " Local Windows" -ForegroundColor DarkCyan
@@ -850,6 +861,7 @@ function Show-MainMenu {
             "28" { Diagnose-Integrations; Pause-Menu }
             "29" { Show-UbuntuMaintenanceMenu }
             "30" { Show-MaintenanceOverview; Pause-Menu }
+            "31" { Tune-Performance; Pause-Menu }
             "0" { return }
             default { Write-StatusLine Warn "Choix invalide." }
         }
@@ -873,6 +885,7 @@ switch ($Action) {
     "Restart" { Restart-Palworld }
     "RestartWelcome" { Restart-WelcomeWatcher }
     "PushKuma" { Push-KumaHealth }
+    "TunePerformance" { Tune-Performance }
     "ApiTunnelStatus" { Show-ApiTunnelStatus }
     "StartApiTunnel" { Start-ApiTunnel }
     "StopApiTunnel" { Stop-ApiTunnel }

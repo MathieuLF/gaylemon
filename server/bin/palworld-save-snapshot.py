@@ -38,10 +38,21 @@ DEFAULT_PRIVATE_BASES_OUTPUT = Path(
 DEFAULT_DIAGNOSTICS = Path(
     "/home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json"
 )
+DEFAULT_STATS = Path("/srv/storage/steam/servers/palworld/stats/stats.json")
+DEFAULT_CATALOG_DRIFT = Path(
+    "/home/gaylemon/Gaylemon/runtime/private-catalog-drift.json"
+)
+DEFAULT_PUBLIC_CATALOGS_ROOT = Path(
+    "/home/gaylemon/Gaylemon/runtime/public-catalogs"
+)
+DEFAULT_PUBLIC_CATALOGS_MANIFEST = Path(
+    "/home/gaylemon/Gaylemon/runtime/public-catalogs-manifest.json"
+)
 DEFAULT_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-snapshot-history")
 DEFAULT_BASES_HISTORY = Path("/home/gaylemon/Gaylemon/runtime/save-bases-history")
 DEFAULT_LOCK = Path("/home/gaylemon/Gaylemon/runtime/palworld-save-snapshot.lock")
-PROJECTION_VERSION = 4
+DEFAULT_ROLLING_HISTORY_MINUTES = 20
+PROJECTION_VERSION = 5
 DEATH_DROP_LABELS = {
     "DroppedCharacter": "Sac de récupération",
     "DeathPenaltyChest": "Coffre de récupération",
@@ -63,7 +74,7 @@ FORBIDDEN_PUBLIC_KEY = re.compile(
     re.IGNORECASE,
 )
 # This value describes the public location category, never an Unreal container ID.
-PUBLIC_KEY_EXCEPTIONS = {"container"}
+PUBLIC_KEY_EXCEPTIONS = {"container", "steamBuildId"}
 
 WORK_LABELS = {
     "EmitFlame": "Allumage",
@@ -325,22 +336,28 @@ def public_catalog_item(asset, catalogs):
     }
 
 
-def counted_catalog_rows(values, catalogs):
+def counted_catalog_rows(values, catalogs, drift=None, player_name=None, category="item"):
     rows = []
     for asset, count in values.items():
         amount = max(0, to_int(count, 0))
         if amount <= 0:
             continue
+        if not (catalogs or {}).get("items", {}).get(str(asset).casefold()):
+            record_catalog_drift(drift, category, asset, player_name)
         rows.append({**public_catalog_item(asset, catalogs), "count": amount})
     rows.sort(key=lambda row: (-row["count"], row["name"].casefold()))
     return rows
 
 
-def player_records(sections, catalogs=None):
+def player_records(sections, catalogs=None, drift=None, player_name=None):
     fishing = integer_map(record_property(sections, "FishingCountMap"))
     crafted = integer_map(record_property(sections, "CraftItemCount"))
-    fish_rows = counted_catalog_rows(fishing, catalogs)
-    crafted_rows = counted_catalog_rows(crafted, catalogs)
+    fish_rows = counted_catalog_rows(
+        fishing, catalogs, drift, player_name, "fishing-item"
+    )
+    crafted_rows = counted_catalog_rows(
+        crafted, catalogs, drift, player_name, "crafted-item"
+    )
     return {
         "treasuresFound": to_int(scalar(record_property(sections, "FoundTreasureCount")), 0),
         "normalDungeonsCleared": to_int(
@@ -392,6 +409,21 @@ def fixed_point(prop):
         return round(float(raw or 0) / 1000, 1)
     except (TypeError, ValueError):
         return 0.0
+
+
+def catalog_item_weight(info) -> float | None:
+    if not isinstance(info, dict):
+        return None
+    for key in ("weight", "Weight", "item_weight"):
+        if info.get(key) is None:
+            continue
+        try:
+            value = float(info[key])
+        except (TypeError, ValueError):
+            continue
+        if value >= 0:
+            return round(value, 3)
+    return None
 
 
 def vector(prop):
@@ -497,6 +529,109 @@ def keyed_catalog(rows):
     }
 
 
+def record_catalog_drift(observations, category, identifier, players=None):
+    """Collect an unknown catalog identifier without adding it to public data."""
+    if observations is None:
+        return
+    identifier = str(identifier or "").strip()
+    category = str(category or "unknown").strip()
+    if not identifier:
+        return
+    key = f"{category}:{identifier.casefold()}"
+    row = observations.setdefault(
+        key,
+        {"category": category, "identifier": identifier, "players": set()},
+    )
+    if isinstance(players, str):
+        players = [players]
+    for player in players or []:
+        name = str(player or "").strip()
+        if name:
+            row["players"].add(name)
+
+
+def read_json_object(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def runtime_provenance(stats_path: Path, parser_sha: str) -> dict:
+    stats = read_json_object(stats_path)
+    source = stats.get("provenance") if isinstance(stats.get("provenance"), dict) else {}
+    return {
+        "observedAt": source.get("observedAt"),
+        "sourceUpdatedAt": source.get("sourceUpdatedAt"),
+        "gameVersion": source.get("gameVersion"),
+        "steamBuildId": source.get("steamBuildId"),
+        "parserCommit": parser_sha or source.get("parserCommit") or None,
+        "catalogCommit": parser_sha or source.get("catalogCommit") or None,
+        "freshness": source.get("freshness") or "current",
+        "sourceStatus": source.get("sourceStatus") or "available",
+    }
+
+
+def update_catalog_drift_report(
+    path: Path,
+    observations: dict,
+    observed_at: str,
+    provenance: dict,
+) -> dict:
+    """Persist private catalog drift while keeping public diagnostics aggregate-only."""
+    existing = read_json_object(path)
+    entries = {
+        str(row.get("key") or ""): row
+        for row in existing.get("entries") or []
+        if isinstance(row, dict) and row.get("key")
+    }
+    active_keys = set()
+    for key, observation in observations.items():
+        active_keys.add(key)
+        previous = entries.get(key, {})
+        players = sorted(
+            set(previous.get("players") or []) | set(observation.get("players") or []),
+            key=str.casefold,
+        )
+        entries[key] = {
+            "key": key,
+            "category": observation["category"],
+            "identifier": observation["identifier"],
+            "firstSeenAt": previous.get("firstSeenAt") or observed_at,
+            "lastSeenAt": observed_at,
+            "players": players,
+            "gameVersion": provenance.get("gameVersion"),
+            "steamBuildId": provenance.get("steamBuildId"),
+            "catalogCommit": provenance.get("catalogCommit"),
+            "appearances": int(previous.get("appearances") or 0) + 1,
+            "active": True,
+        }
+    for key, row in entries.items():
+        if key not in active_keys:
+            row["active"] = False
+    ordered = sorted(
+        entries.values(),
+        key=lambda row: (str(row.get("category") or ""), str(row.get("identifier") or "").casefold()),
+    )
+    report = {
+        "version": 1,
+        "ok": True,
+        "updatedAt": observed_at,
+        "warning": "Private catalog diagnostics. Never publish this file.",
+        "gameVersion": provenance.get("gameVersion"),
+        "steamBuildId": provenance.get("steamBuildId"),
+        "catalogCommit": provenance.get("catalogCommit"),
+        "entries": ordered,
+    }
+    write_atomic(path, report)
+    categories = Counter(row["category"] for row in observations.values())
+    return {
+        "unknownIdentifiers": len(observations),
+        "categories": dict(sorted(categories.items())),
+    }
+
+
 def technical_pal_asset(asset):
     return bool(
         re.search(r"^(BOSS_|GYM_|RAID_|SUMMON_|PREDATOR_|NPC_|QUEST_)", asset, re.I)
@@ -520,6 +655,11 @@ def load_catalogs(parser_repo: Path):
     ).get("areas", [])
     relics = json.loads((resources / "relic_data.json").read_text(encoding="utf-8"))
     world = json.loads((resources / "world.json").read_text(encoding="utf-8"))
+    experience = json.loads((resources / "pal_exp_table.json").read_text(encoding="utf-8"))
+    friendship = json.loads((resources / "friendship.json").read_text(encoding="utf-8"))
+    learnsets_payload = json.loads(
+        (resources / "pals_learnset.json").read_text(encoding="utf-8")
+    )
 
     pals = keyed_catalog(characters.get("pals", []))
     display_groups = {}
@@ -570,6 +710,31 @@ def load_catalogs(parser_repo: Path):
         "technology": keyed_catalog(world.get("technology", [])),
         "structures": keyed_catalog(world.get("structures", [])),
         "labResearch": world.get("lab_research", {}),
+        "experience": {
+            to_int(level, 0): row
+            for level, row in experience.items()
+            if to_int(level, 0) > 0 and isinstance(row, dict)
+        },
+        "friendship": sorted(
+            (
+                {
+                    "rank": to_int(row.get("FriendshipRank"), 0),
+                    "required": to_int(row.get("RequiredPoint"), 0),
+                }
+                for row in friendship.values()
+                if isinstance(row, dict)
+            ),
+            key=lambda row: row["required"],
+        ),
+        "learnsets": {
+            key: rows
+            for asset, rows in (learnsets_payload.get("learnset") or {}).items()
+            if isinstance(rows, list)
+            for key in {
+                str(asset).casefold(),
+                str((pals.get(str(asset).casefold()) or {}).get("name") or asset).casefold(),
+            }
+        },
     }
 
 
@@ -633,7 +798,7 @@ def item_container_map(world):
     return result
 
 
-def inventory_items(slots, item_catalog):
+def inventory_items(slots, item_catalog, drift=None, player_name=None):
     grouped = {}
     for slot in slots:
         raw = nested(slot, "RawData", "value", default={})
@@ -643,8 +808,11 @@ def inventory_items(slots, item_catalog):
         if not asset or count <= 0:
             continue
         info = item_catalog.get(asset.casefold(), {})
+        if not info:
+            record_catalog_drift(drift, "inventory-item", asset, player_name)
         key = asset.casefold()
         if key not in grouped:
+            weight = catalog_item_weight(info)
             grouped[key] = {
                 "name": str(info.get("name") or asset),
                 "count": 0,
@@ -652,15 +820,21 @@ def inventory_items(slots, item_catalog):
                 "icon": web_icon(info.get("icon")),
                 "rarity": to_int(info.get("rarity"), 0),
                 "category": info.get("type_a_display") or info.get("type_b_display"),
+                **({"weight": weight, "totalWeight": 0.0} if weight is not None else {}),
             }
         grouped[key]["count"] += count
+        if "weight" in grouped[key]:
+            grouped[key]["totalWeight"] = round(
+                grouped[key]["count"] * grouped[key]["weight"],
+                3,
+            )
         grouped[key]["slot"] = min(
             grouped[key]["slot"], to_int(raw.get("slot_index"), 0)
         )
     return sorted(grouped.values(), key=lambda row: row["slot"])
 
 
-def player_inventory(player_data, containers, item_catalog):
+def player_inventory(player_data, containers, item_catalog, drift=None, player_name=None):
     inventory = nested(player_data, "InventoryInfo", "value", default={})
     sections = (
         ("common", "Sac", "CommonContainerId"),
@@ -676,7 +850,9 @@ def player_inventory(player_data, containers, item_catalog):
             {
                 "key": key,
                 "label": label,
-                "items": inventory_items(containers.get(identifier, []), item_catalog),
+                "items": inventory_items(
+                    containers.get(identifier, []), item_catalog, drift, player_name
+                ),
             }
         )
     return result
@@ -776,6 +952,7 @@ def container_inventory(identifier, records, dynamic_items, catalogs):
         if not asset or count <= 0:
             continue
         info = catalogs["items"].get(asset.casefold(), {})
+        weight = catalog_item_weight(info)
         items.append(
             {
                 "name": str(info.get("name") or asset),
@@ -784,6 +961,7 @@ def container_inventory(identifier, records, dynamic_items, catalogs):
                 "slot": to_int(raw.get("slot_index"), 0),
                 "icon": web_icon(info.get("icon")),
                 "rarity": to_int(info.get("rarity"), 0),
+                **({"weight": weight, "totalWeight": round(weight * count, 3)} if weight is not None else {}),
                 "category": str(
                     info.get("type_a_display") or info.get("type_b_display") or "Autres"
                 ),
@@ -853,9 +1031,16 @@ def public_item_totals(inventories, limit=None):
                     "count": 0,
                     "icon": item.get("icon"),
                     "category": item.get("category") or "Autres",
+                    **(
+                        {"weight": item.get("weight"), "totalWeight": 0.0}
+                        if item.get("weight") is not None
+                        else {}
+                    ),
                 },
             )
             current["count"] += to_int(item.get("count"), 0)
+            if "weight" in current:
+                current["totalWeight"] = round(current["count"] * float(current["weight"]), 3)
             categories[current["category"]] += to_int(item.get("count"), 0)
     top_items = sorted(grouped.values(), key=lambda row: (-row["count"], row["name"].casefold()))
     if limit is not None:
@@ -876,7 +1061,17 @@ def guild_member_names(raw, player_names_by_uid):
     return sorted((name for name in names if name), key=str.casefold)
 
 
-def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, counters):
+def build_base_snapshots(
+    world,
+    catalogs,
+    captured_at,
+    source_name,
+    parser_sha,
+    counters,
+    drift=None,
+    source_provenance=None,
+):
+    source_provenance = source_provenance or {}
     groups = nested(world, "GroupSaveDataMap", "value", default=[])
     characters = nested(world, "CharacterSaveParameterMap", "value", default=[])
     character_lookup = {
@@ -894,7 +1089,9 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         raw = nested(group, "value", "RawData", "value", default={})
         if raw.get("group_type") != "EPalGroupType::Guild":
             continue
-        group_lookup[normalized_id(group.get("key"))] = {
+        group_key = normalized_id(group.get("key"))
+        group_lookup[group_key] = {
+            "key": f"guild_{public_hash(group_key)}",
             "name": str(raw.get("guild_name") or raw.get("group_name") or "Guilde"),
             "campLevel": to_int(raw.get("base_camp_level"), 1),
             "players": guild_member_names(raw, player_names_by_uid),
@@ -922,6 +1119,8 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         asset = str(scalar(obj.get("MapObjectId"), "Structure") or "Structure")
         world_drop = is_world_drop_structure_asset(asset)
         info = {} if world_drop else resolve_structure(asset, catalogs)
+        if not world_drop and not info:
+            record_catalog_drift(drift, "structure", asset)
         name = "Butin au sol" if world_drop else str(info.get("name") or asset.replace("_", " "))
         if not world_drop:
             structure_name_by_model[normalized_id(model.get("instance_id"))] = name
@@ -934,6 +1133,7 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         category = "Butin au sol" if world_drop else structure_category(asset, info)
         row = None
         if not world_drop:
+            model_key = normalized_id(model.get("instance_id"))
             row = {
                 "name": name,
                 "asset": asset,
@@ -943,6 +1143,8 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
                 "damaged": maximum_hp > 0 and current_hp < maximum_hp,
                 "healthPercent": round(current_hp / maximum_hp * 100, 1) if maximum_hp else None,
             }
+            if model_key:
+                row["key"] = f"structure_{public_hash(base_key, model_key)}"
             structures_by_base.setdefault(base_key, []).append(row)
 
         for module in nested(
@@ -1043,7 +1245,12 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         base_key = normalized_id(base.get("key"))
         raw = nested(base, "value", "RawData", "value", default={})
         group_key = normalized_id(raw.get("group_id_belong_to"))
-        guild = group_lookup.get(group_key, {"name": "Guilde", "campLevel": 1, "players": []})
+        guild = group_lookup.get(group_key, {
+            "key": f"guild_{public_hash(group_key)}",
+            "name": "Guilde",
+            "campLevel": 1,
+            "players": [],
+        })
         worker_id = nested(
             base, "value", "WorkerDirector", "value", "RawData", "value", "container_id", default=""
         )
@@ -1057,7 +1264,9 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
                 counters["unresolvedBaseWorkers"] += 1
                 continue
             params = save_parameter(character)
-            worker = pal_details(params, "base", catalogs)
+            worker = pal_details(
+                params, "base", catalogs, drift, guild.get("players") or []
+            )
             worker["task"] = tasks_by_worker.get(worker_key)
             workers.append(worker)
         workers.sort(key=lambda row: (-row["level"], row["name"].casefold()))
@@ -1085,6 +1294,7 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         public = {
             "name": name,
             "guild": guild["name"],
+            "guildKey": guild["key"],
             "players": guild["players"],
             "campLevel": guild["campLevel"],
             "position": position,
@@ -1108,6 +1318,16 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
                 "highlights": [
                     {"name": item_name, "count": count}
                     for item_name, count in highlights.most_common(12)
+                ],
+                "states": [
+                    {
+                        "key": row["key"],
+                        "name": row["name"],
+                        "damaged": row["damaged"],
+                        "healthPercent": row["healthPercent"],
+                    }
+                    for row in structures
+                    if row.get("key")
                 ],
             },
             "storage": {
@@ -1177,12 +1397,40 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
         )
         private_shared_storage.append({"guild": guild["name"], **inventory})
 
+    guild_research = []
+    for group_key, research in research_by_guild.items():
+        guild = group_lookup.get(group_key, {
+            "key": f"guild_{public_hash(group_key)}",
+            "name": "Guilde",
+            "players": [],
+        })
+        guild_research.append({
+            "key": guild["key"],
+            "guild": guild["name"],
+            "players": guild["players"],
+            "current": research.get("current"),
+            "completed": int(research.get("completed") or 0),
+        })
+    guild_research.sort(key=lambda row: (row["guild"].casefold(), row["key"]))
+
+    provenance = {
+        "observedAt": captured_at,
+        "sourceUpdatedAt": captured_at,
+        "gameVersion": source_provenance.get("gameVersion"),
+        "steamBuildId": source_provenance.get("steamBuildId"),
+        "parserCommit": source_provenance.get("parserCommit") or parser_sha or None,
+        "catalogCommit": source_provenance.get("catalogCommit") or parser_sha or None,
+        "schemaVersion": PROJECTION_VERSION,
+        "freshness": "current",
+        "sourceStatus": "available",
+    }
     public_payload = {
         "version": 1,
         "ok": True,
         "updatedAt": captured_at,
         "source": {"type": "palworld-built-in-backup", "backup": source_name},
         "parser": {"name": "PalworldSaveTools", "commit": parser_sha},
+        "provenance": provenance,
         "summary": {
             "bases": len(public_bases),
             "workers": sum(base["workers"]["assigned"] for base in public_bases),
@@ -1194,6 +1442,7 @@ def build_base_snapshots(world, catalogs, captured_at, source_name, parser_sha, 
             "busyWorkers": sum(base["workers"]["busy"] for base in public_bases),
         },
         "bases": public_bases,
+        "guildResearch": guild_research,
         "guildStorage": shared_storage,
     }
     private_payload = {
@@ -1221,6 +1470,78 @@ def resolve_skill(value, catalog, prefix=""):
         "cooldown": info.get("cooldown"),
         "element": info.get("element"),
     }
+
+
+def catalog_contains(value, catalog, prefix=""):
+    asset = str(value or "")
+    if prefix and asset.startswith(prefix):
+        asset = asset[len(prefix) :]
+    return bool((catalog or {}).get(asset.casefold()))
+
+
+def experience_progress(level, experience, table, pal=False):
+    level = max(1, to_int(level, 1))
+    experience = max(0, to_int(experience, 0))
+    current = table.get(level) if isinstance(table, dict) else None
+    following = table.get(level + 1) if isinstance(table, dict) else None
+    if not isinstance(current, dict) or not isinstance(following, dict):
+        return None
+    total_key = "PalTotalEXP" if pal else "TotalEXP"
+    current_total = max(0, to_int(current.get(total_key), 0))
+    next_total = max(current_total, to_int(following.get(total_key), current_total))
+    required = next_total - current_total
+    if required <= 0:
+        return None
+    gained = min(required, max(0, experience - current_total))
+    return {
+        "level": level,
+        "nextLevel": level + 1,
+        "gained": gained,
+        "required": required,
+        "remaining": max(0, next_total - experience),
+        "percent": round(gained / required * 100, 1),
+    }
+
+
+def friendship_progress(points, thresholds):
+    points = to_int(points, 0)
+    rows = [row for row in thresholds or [] if isinstance(row, dict)]
+    if not rows:
+        rank = friendship_rank(points)
+        return {"points": points, "rank": rank, "nextRank": None, "remaining": None}
+    current = max(
+        (row for row in rows if to_int(row.get("required"), 0) <= points),
+        key=lambda row: to_int(row.get("required"), 0),
+        default=rows[0],
+    )
+    following = next(
+        (row for row in rows if to_int(row.get("required"), 0) > points),
+        None,
+    )
+    current_required = to_int(current.get("required"), 0)
+    next_required = to_int(following.get("required"), 0) if following else current_required
+    span = max(0, next_required - current_required)
+    gained = max(0, points - current_required)
+    return {
+        "points": points,
+        "rank": to_int(current.get("rank"), 0),
+        "nextRank": to_int(following.get("rank"), 0) if following else None,
+        "remaining": max(0, next_required - points) if following else 0,
+        "percent": round(min(span, gained) / span * 100, 1) if span else 100.0,
+    }
+
+
+def upcoming_learnset(species_name, level, catalogs, limit=3):
+    rows = (catalogs.get("learnsets") or {}).get(str(species_name or "").casefold(), [])
+    upcoming = []
+    for row in rows:
+        unlock_level = to_int(row.get("level"), 0)
+        if unlock_level <= to_int(level, 0):
+            continue
+        skill = resolve_skill(row.get("WazaID"), catalogs.get("skills") or {}, "EPalWazaID::")
+        upcoming.append({"level": unlock_level, **skill})
+    upcoming.sort(key=lambda row: (row["level"], row["name"].casefold()))
+    return upcoming[: max(0, int(limit))]
 
 
 def friendship_rank(points):
@@ -1410,20 +1731,36 @@ def owned_at(prop):
     return acquired.isoformat()
 
 
-def pal_details(params, container, catalogs):
+def pal_details(params, container, catalogs, drift=None, player_name=None):
     asset = str(scalar(params.get("CharacterID"), "Pal inconnu"))
     info = catalogs["pals"].get(asset.casefold(), {})
+    if not info:
+        record_catalog_drift(drift, "pal-species", asset, player_name)
     nickname = str(scalar(params.get("NickName"), "") or "")
     gender = str(scalar(params.get("Gender"), "") or "").replace("EPalGenderType::", "")
     passive_values = array_values(params.get("PassiveSkillList", {}))
     active_values = array_values(params.get("EquipWaza", {}))
     learned_values = array_values(params.get("MasteredWaza", {}))
+    for value in passive_values:
+        if not catalog_contains(value, catalogs["passives"]):
+            record_catalog_drift(drift, "passive-skill", value, player_name)
+    for value in [*active_values, *learned_values]:
+        if not catalog_contains(value, catalogs["skills"], "EPalWazaID::"):
+            record_catalog_drift(drift, "active-skill", value, player_name)
+    level = to_int(scalar(params.get("Level"), 0), 0)
+    experience = to_int(scalar(params.get("Exp"), 0), 0)
+    friendship_points = to_int(scalar(params.get("FriendshipPoint"), 0), 0)
+    species_name = str(info.get("name") or asset)
     return {
         "name": nickname or str(info.get("name") or asset),
-        "species": str(info.get("name") or asset),
+        "species": species_name,
         "icon": web_icon(info.get("icon")),
-        "level": to_int(scalar(params.get("Level"), 0), 0),
-        "experience": to_int(scalar(params.get("Exp"), 0), 0),
+        "level": level,
+        "experience": experience,
+        "experienceProgress": experience_progress(
+            level, experience, catalogs.get("experience") or {}, pal=True
+        ),
+        "nextLearnedSkills": upcoming_learnset(species_name, level, catalogs),
         "gender": gender or None,
         "container": container,
         "hp": fixed_point(params.get("Hp", {})),
@@ -1434,7 +1771,11 @@ def pal_details(params, container, catalogs):
             if "SanityValue" in params
             else None
         ),
-        "friendship": to_int(scalar(params.get("FriendshipPoint"), 0), 0),
+        "friendship": friendship_points,
+        "friendshipProgress": friendship_progress(
+            friendship_points, catalogs.get("friendship") or []
+        ),
+        "rarity": to_int(nested(info, "stats", "rarity", default=0), 0) or None,
         "rank": to_int(scalar(params.get("Rank"), 0), 0) if "Rank" in params else None,
         "lucky": bool(scalar(params.get("IsRarePal"), False)),
         "boss": asset.upper().startswith("BOSS_"),
@@ -1510,7 +1851,7 @@ def canonical_pal(asset, catalogs):
     return catalogs["canonicalPals"].get(normalized.casefold())
 
 
-def player_paldex(sections, catalogs, counters):
+def player_paldex(sections, catalogs, counters, drift=None, player_name=None):
     capture_map = integer_map(record_property(sections, "PalCaptureCount"))
     challenge_map = integer_map(record_property(sections, "PalCaptureBonusCount"))
     encountered = true_map_keys(record_property(sections, "PaldeckUnlockFlag"))
@@ -1523,18 +1864,21 @@ def player_paldex(sections, catalogs, counters):
             captured_by_species[str(canonical.get("asset"))] += count
         else:
             counters["unknownPalCaptureAssets"] += 1
+            record_catalog_drift(drift, "pal-capture", asset, player_name)
     for asset, count in challenge_map.items():
         canonical = canonical_pal(asset, catalogs)
         if canonical:
             challenge_by_species[str(canonical.get("asset"))] += count
         else:
             counters["unknownPalChallengeAssets"] += 1
+            record_catalog_drift(drift, "pal-capture-challenge", asset, player_name)
     for asset in encountered:
         canonical = canonical_pal(asset, catalogs)
         if canonical:
             encountered_species.add(str(canonical.get("asset")))
         else:
             counters["unknownPaldeckAssets"] += 1
+            record_catalog_drift(drift, "paldex", asset, player_name)
 
     rows = []
     for species in catalogs["species"]:
@@ -1570,7 +1914,7 @@ def player_paldex(sections, catalogs, counters):
     }
 
 
-def player_bosses(sections, catalogs, counters):
+def player_bosses(sections, catalogs, counters, drift=None, player_name=None):
     normal_flags = true_map_keys(record_property(sections, "NormalBossDefeatFlag"))
     tower_flags = true_map_keys(record_property(sections, "TowerBossDefeatFlag"))
     defeated = []
@@ -1581,6 +1925,7 @@ def player_bosses(sections, catalogs, counters):
         canonical = canonical_pal(asset, catalogs)
         if not canonical:
             counters["unknownBossFlags"] += 1
+            record_catalog_drift(drift, "boss-flag", flag, player_name)
             continue
         name = str(canonical.get("name") or asset)
         if name.casefold() in seen:
@@ -1601,7 +1946,7 @@ def player_bosses(sections, catalogs, counters):
     }
 
 
-def player_exploration(sections, catalogs, counters):
+def player_exploration(sections, catalogs, counters, drift=None, player_name=None):
     fast = true_map_keys(record_property(sections, "FastTravelPointUnlockFlag"))
     areas = true_map_keys(record_property(sections, "FindAreaFlagMap"))
     world_maps = true_map_keys(record_property(sections, "UnlockedWorldMapFlags"))
@@ -1609,6 +1954,10 @@ def player_exploration(sections, catalogs, counters):
     known_areas = areas & catalogs["areas"]
     counters["unknownFastTravelPoints"] += len(fast - known_fast)
     counters["unknownAreas"] += len(areas - known_areas)
+    for identifier in fast - known_fast:
+        record_catalog_drift(drift, "fast-travel", identifier, player_name)
+    for identifier in areas - known_areas:
+        record_catalog_drift(drift, "map-area", identifier, player_name)
     points = sorted(
         {
             str(catalogs["fastTravel"][key].get("localized_name") or "Point de voyage")
@@ -1629,7 +1978,7 @@ def player_exploration(sections, catalogs, counters):
     }
 
 
-def player_technologies(player_data, catalogs, counters):
+def player_technologies(player_data, catalogs, counters, drift=None, player_name=None):
     unlocked = array_values(player_data.get("UnlockedRecipeTechnologyNames", {}))
     rows = []
     seen = set()
@@ -1641,6 +1990,7 @@ def player_technologies(player_data, catalogs, counters):
         info = catalogs["technology"].get(key)
         if not info:
             counters["unknownTechnologies"] += 1
+            record_catalog_drift(drift, "technology", asset, player_name)
             continue
         rows.append(
             {
@@ -1679,13 +2029,23 @@ def player_relics(sections, catalogs):
     }
 
 
-def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_name, parser_sha):
+def build_snapshot(
+    level_payload,
+    player_saves,
+    catalogs,
+    captured_at,
+    source_name,
+    parser_sha,
+    provenance=None,
+):
     world_data = nested(level_payload, "properties", "worldSaveData", "value", default={})
     characters = nested(world_data, "CharacterSaveParameterMap", "value", default=[])
     groups = nested(world_data, "GroupSaveDataMap", "value", default=[])
     bases = nested(world_data, "BaseCampSaveData", "value", default=[])
     containers = item_container_map(world_data)
     counters = Counter()
+    drift = {}
+    provenance = provenance or {}
     public_player_names = player_names_by_uid(characters)
 
     guild_by_player = {}
@@ -1705,6 +2065,7 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
                 guild_by_player[uid] = guild_info
         public_guilds.append(
             {
+                "key": f"guild_{public_hash(normalized_id(group.get('key')))}",
                 "name": name,
                 "players": len(members),
                 "bases": len(base_ids),
@@ -1730,6 +2091,7 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
         if not is_player(entry):
             continue
         params = save_parameter(entry)
+        player_name = str(scalar(params.get("NickName"), "Joueur"))
         uid = player_uid(entry)
         normalized_uid = uid_key(uid)
         guild_info = guild_by_player.get(normalized_uid, {})
@@ -1758,7 +2120,9 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
             container = "party" if party_id and slot_container == party_id else (
                 "palbox" if palbox_id and slot_container == palbox_id else "other"
             )
-            detailed_pals.append(pal_details(pal_params, container, catalogs))
+            detailed_pals.append(
+                pal_details(pal_params, container, catalogs, drift, player_name)
+            )
 
         detailed_pals.sort(
             key=lambda pal: (
@@ -1770,27 +2134,41 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
         top_species = []
         for asset, count in counts.most_common(3):
             info = catalogs["pals"].get(asset.casefold(), {})
+            if not info:
+                record_catalog_drift(drift, "pal-species", asset, player_name)
             top_species.append(
                 {"name": str(info.get("name") or asset), "count": count, "icon": web_icon(info.get("icon"))}
             )
 
-        paldex = player_paldex(sections, catalogs, counters)
-        bosses = player_bosses(sections, catalogs, counters)
-        exploration = player_exploration(sections, catalogs, counters)
-        technologies = player_technologies(player_data, catalogs, counters)
+        paldex = player_paldex(sections, catalogs, counters, drift, player_name)
+        bosses = player_bosses(sections, catalogs, counters, drift, player_name)
+        exploration = player_exploration(
+            sections, catalogs, counters, drift, player_name
+        )
+        technologies = player_technologies(
+            player_data, catalogs, counters, drift, player_name
+        )
         quests = player_quests(player_data)
         challenges = player_challenges(sections)
-        records = player_records(sections, catalogs)
+        records = player_records(sections, catalogs, drift, player_name)
+        player_level = to_int(scalar(params.get("Level"), 0), 0)
+        player_experience = to_int(scalar(params.get("Exp"), 0), 0)
         public_players.append(
             {
-                "name": str(scalar(params.get("NickName"), "Joueur")),
-                "level": to_int(scalar(params.get("Level"), 0), 0),
+                "key": f"player_{public_hash(normalized_uid)}",
+                "name": player_name,
+                "level": player_level,
                 "guild": guild_info.get("name"),
                 "guildBases": guild_info.get("bases"),
                 "campLevel": guild_info.get("campLevel"),
                 "position": public_position(params.get("LastJumpedLocation", {})),
                 "character": {
                     "experience": to_int(scalar(params.get("Exp"), 0), 0),
+                    "experienceProgress": experience_progress(
+                        player_level,
+                        player_experience,
+                        catalogs.get("experience") or {},
+                    ),
                     "hp": fixed_point(params.get("Hp", {})),
                     "shield": fixed_point(params.get("ShieldHP", {})),
                     "hunger": round(float(scalar(params.get("FullStomach"), 0) or 0), 1),
@@ -1806,7 +2184,13 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
                     "favorites": top_species,
                     "collection": detailed_pals,
                 },
-                "inventory": player_inventory(player_data, containers, catalogs["items"]),
+                "inventory": player_inventory(
+                    player_data,
+                    containers,
+                    catalogs["items"],
+                    drift,
+                    player_name,
+                ),
                 "progress": {
                     "technologyPoints": to_int(scalar(player_data.get("TechnologyPoint"), 0), 0),
                     "bossTechnologyPoints": to_int(scalar(player_data.get("bossTechnologyPoint"), 0), 0),
@@ -1834,6 +2218,17 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
         "updatedAt": captured_at,
         "source": {"type": "palworld-built-in-backup", "backup": source_name},
         "parser": {"name": "PalworldSaveTools", "commit": parser_sha},
+        "provenance": {
+            "observedAt": captured_at,
+            "sourceUpdatedAt": captured_at,
+            "gameVersion": provenance.get("gameVersion"),
+            "steamBuildId": provenance.get("steamBuildId"),
+            "parserCommit": provenance.get("parserCommit") or parser_sha or None,
+            "catalogCommit": provenance.get("catalogCommit") or parser_sha or None,
+            "schemaVersion": PROJECTION_VERSION,
+            "freshness": "current",
+            "sourceStatus": "available",
+        },
         "summary": {
             "players": len(public_players),
             "pals": sum(player["pals"]["total"] for player in public_players),
@@ -1854,10 +2249,17 @@ def build_snapshot(level_payload, player_saves, catalogs, captured_at, source_na
         "players": public_players,
     }
     public_bases, private_bases = build_base_snapshots(
-        world_data, catalogs, captured_at, source_name, parser_sha, counters
+        world_data,
+        catalogs,
+        captured_at,
+        source_name,
+        parser_sha,
+        counters,
+        drift,
+        provenance,
     )
     validate_public_payload(snapshot)
-    return snapshot, counters, public_bases, private_bases
+    return snapshot, counters, public_bases, private_bases, drift
 
 
 def validate_public_payload(payload, path="$"):
@@ -1897,18 +2299,203 @@ def write_atomic(path: Path, payload):
     temporary.replace(path)
 
 
-def archive_hourly(history_root: Path, payload, retention_days: int):
-    timestamp = datetime.fromisoformat(payload["updatedAt"])
-    archive = history_root / timestamp.strftime("%Y/%m/%d/%H.json.gz")
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    temporary = Path(f"{archive}.tmp")
+def publish_public_catalogs(
+    parser_repo: Path,
+    output_root: Path,
+    manifest_path: Path,
+    provenance: dict | None,
+    generated_at: str,
+):
+    provenance = provenance or {}
+    catalog_commit = provenance.get("catalogCommit") or provenance.get("parserCommit")
+    resources = parser_repo / "resources" / "game_data"
+    source_paths = {
+        "experience": resources / "pal_exp_table.json",
+        "friendship": resources / "friendship.json",
+        "learnsets": resources / "pals_learnset.json",
+        "skills": resources / "skills.json",
+        "characters": resources / "characters.json",
+        "breeding": resources / "breedingdata.json",
+    }
+    source_state = {
+        name: {
+            "bytes": path.stat().st_size,
+            "modifiedNs": path.stat().st_mtime_ns,
+        }
+        for name, path in source_paths.items()
+    }
+    generation_context = {
+        "gameVersion": provenance.get("gameVersion"),
+        "steamBuildId": provenance.get("steamBuildId"),
+        "parserCommit": provenance.get("parserCommit"),
+        "catalogCommit": catalog_commit,
+    }
+    try:
+        previous_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        previous_manifest = {}
+    previous_files = previous_manifest.get("files") if isinstance(previous_manifest.get("files"), dict) else {}
+
+    def previous_file_is_complete(name):
+        entry = previous_files.get(name)
+        if not isinstance(entry, dict):
+            return False
+        relative = str(entry.get("path") or "")
+        if not re.fullmatch(rf"public-catalogs/[A-Za-z0-9._-]+/{re.escape(name)}\.json", relative):
+            return False
+        target = manifest_path.parent / relative
+        return target.is_file() and target.stat().st_size == int(entry.get("bytes") or -1)
+
+    if (
+        previous_manifest.get("sourceState") == source_state
+        and previous_manifest.get("generationContext") == generation_context
+        and all(previous_file_is_complete(name) for name in ("progression", "learnsets", "breeding"))
+    ):
+        return {
+            "status": "unchanged",
+            "generationId": previous_manifest.get("generationId"),
+            "manifestBytes": manifest_path.stat().st_size,
+            "catalogBytes": sum(int(entry.get("bytes") or 0) for entry in previous_files.values()),
+            "files": len(previous_files),
+        }
+
+    source_bytes = {name: path.read_bytes() for name, path in source_paths.items()}
+    content_digest = hashlib.sha256(
+        b"".join(name.encode("utf-8") + b"\0" + source_bytes[name] for name in sorted(source_bytes))
+    ).hexdigest()
+    context_digest = hashlib.sha256(
+        json.dumps(generation_context, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    safe_commit = re.sub(r"[^A-Za-z0-9._-]+", "-", str(catalog_commit or "catalog")).strip("-._")
+    generation_id = f"{(safe_commit or 'catalog')[:24]}-{content_digest[:10]}{context_digest[:6]}"
+    generation_root = output_root / generation_id
+    generation_generated_at = generated_at
+    if (
+        previous_manifest.get("generationId") == generation_id
+        and previous_manifest.get("contentRevision") == content_digest
+        and previous_manifest.get("generatedAt")
+    ):
+        generation_generated_at = str(previous_manifest["generatedAt"])
+
+    experience = json.loads(source_bytes["experience"].decode("utf-8"))
+    friendship = json.loads(source_bytes["friendship"].decode("utf-8"))
+    learnsets = json.loads(source_bytes["learnsets"].decode("utf-8"))
+    skills = json.loads(source_bytes["skills"].decode("utf-8"))
+    characters = json.loads(source_bytes["characters"].decode("utf-8"))
+    breeding = json.loads(source_bytes["breeding"].decode("utf-8"))
+    pal_names = {
+        str(row.get("asset") or "").casefold(): str(row.get("name") or row.get("asset") or "")
+        for row in characters.get("pals", [])
+        if isinstance(row, dict) and row.get("asset")
+    }
+    public_learnsets = {}
+    for asset, rows in (learnsets.get("learnset") or {}).items():
+        if not isinstance(rows, list):
+            continue
+        public_learnsets[pal_names.get(str(asset).casefold(), str(asset))] = rows
+    live_common = {
+        "schemaVersion": 1,
+        "generationId": generation_id,
+        "generatedAt": generation_generated_at,
+        "observedAt": generated_at,
+        "sourceUpdatedAt": provenance.get("sourceUpdatedAt") or generation_generated_at,
+        "gameVersion": provenance.get("gameVersion"),
+        "steamBuildId": provenance.get("steamBuildId"),
+        "parserCommit": provenance.get("parserCommit"),
+        "catalogCommit": catalog_commit or content_digest,
+        "freshness": provenance.get("freshness") or "current",
+        "sourceStatus": provenance.get("sourceStatus") or "available",
+    }
+    file_common = live_common
+    if previous_manifest.get("generationId") == generation_id:
+        file_common = {
+            key: previous_manifest.get(key, value)
+            for key, value in live_common.items()
+        }
+    payloads = {
+        "progression": {
+            **file_common,
+            "experience": experience,
+            "friendship": friendship,
+        },
+        "learnsets": {
+            **file_common,
+            "learnset": public_learnsets,
+            "skills": skills.get("skills", []),
+        },
+        "breeding": {
+            **file_common,
+            **breeding,
+        },
+    }
+    files = {}
+    total_bytes = 0
+    for name, payload in payloads.items():
+        target = generation_root / f"{name}.json"
+        encoded = json_bytes(payload)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_file() and target.read_bytes() != encoded:
+            raise RuntimeError(f"Immutable catalog generation changed unexpectedly: {target}")
+        if not target.is_file():
+            temporary = target.with_suffix(target.suffix + ".tmp")
+            temporary.write_bytes(encoded)
+            temporary.replace(target)
+        relative = target.relative_to(manifest_path.parent).as_posix()
+        files[name] = {
+            "path": relative,
+            "sha256": f"sha256:{hashlib.sha256(encoded).hexdigest()}",
+            "bytes": len(encoded),
+        }
+        total_bytes += len(encoded)
+
+    manifest = {
+        **live_common,
+        "ok": True,
+        "contentRevision": content_digest,
+        "sourceState": source_state,
+        "generationContext": generation_context,
+        "files": files,
+    }
+    write_atomic(manifest_path, manifest)
+    return {
+        "status": "written",
+        "generationId": generation_id,
+        "manifestBytes": len(json_bytes(manifest)),
+        "catalogBytes": total_bytes,
+        "files": len(files),
+    }
+
+
+def write_gzip_atomic(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(f"{path}.tmp")
     with gzip.open(temporary, "wt", encoding="utf-8", compresslevel=6) as stream:
         json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
-    temporary.replace(archive)
+    temporary.replace(path)
+
+
+def archive_hourly(
+    history_root: Path,
+    payload,
+    retention_days: int,
+    rolling_minutes: int = DEFAULT_ROLLING_HISTORY_MINUTES,
+):
+    timestamp = datetime.fromisoformat(payload["updatedAt"])
+    archive = history_root / timestamp.strftime("%Y/%m/%d/%H.json.gz")
+    if not archive.exists():
+        write_gzip_atomic(archive, payload)
+
+    rolling_root = history_root / "_rolling"
+    rolling_archive = rolling_root / timestamp.strftime("%Y/%m/%d/%H%M%S-%f.json.gz")
+    write_gzip_atomic(rolling_archive, payload)
 
     cutoff = time.time() - max(1, retention_days) * 86400
     for old_archive in history_root.glob("*/*/*/*.json.gz"):
         if old_archive.stat().st_mtime < cutoff:
+            old_archive.unlink()
+    rolling_cutoff = time.time() - max(1, int(rolling_minutes)) * 60
+    for old_archive in rolling_root.glob("*/*/*/*.json.gz"):
+        if old_archive.stat().st_mtime < rolling_cutoff:
             old_archive.unlink()
     return archive.stat().st_size
 
@@ -1959,6 +2546,17 @@ def initial_diagnostics(args, started_at):
         "version": 1,
         "ok": False,
         "updatedAt": started_at,
+        "provenance": {
+            "observedAt": started_at,
+            "sourceUpdatedAt": started_at,
+            "gameVersion": None,
+            "steamBuildId": None,
+            "parserCommit": parser_commit(args.parser_repo),
+            "catalogCommit": parser_commit(args.parser_repo),
+            "schemaVersion": PROJECTION_VERSION,
+            "freshness": "unknown",
+            "sourceStatus": "unknown",
+        },
         "save": None,
         "parse": {
             "startedAt": started_at,
@@ -1973,6 +2571,7 @@ def initial_diagnostics(args, started_at):
             "palsParsed": 0,
             "basesParsed": 0,
             "unknownStructures": {},
+            "catalogDrift": {"unknownIdentifiers": 0, "categories": {}},
             "error": None,
         },
         "output": {
@@ -1983,6 +2582,8 @@ def initial_diagnostics(args, started_at):
             "privateBasesBytes": None,
             "historyArchiveBytes": None,
             "basesHistoryArchiveBytes": None,
+            "catalogManifestBytes": None,
+            "catalogBytes": None,
         },
         "parser": {"name": "PalworldSaveTools", "commit": parser_commit(args.parser_repo)},
     }
@@ -1996,6 +2597,26 @@ def run(args):
         try:
             backup = choose_backup(args.save_root, args.minimum_age)
             diagnostics["save"] = backup_metrics(backup)
+            provenance = runtime_provenance(
+                args.stats, diagnostics["parser"]["commit"]
+            )
+            diagnostics["provenance"].update({
+                "observedAt": started_at,
+                "sourceUpdatedAt": provenance.get("sourceUpdatedAt") or started_at,
+                "gameVersion": provenance.get("gameVersion"),
+                "steamBuildId": provenance.get("steamBuildId"),
+                "parserCommit": provenance.get("parserCommit"),
+                "catalogCommit": provenance.get("catalogCommit"),
+                "freshness": provenance.get("freshness") or "current",
+                "sourceStatus": provenance.get("sourceStatus") or "available",
+            })
+            catalog_publication = publish_public_catalogs(
+                args.parser_repo,
+                args.public_catalogs_root,
+                args.public_catalogs_manifest,
+                provenance,
+                started_at,
+            )
             if existing_snapshot_source(args.output) == (
                 backup.name,
                 diagnostics["parser"]["commit"],
@@ -2006,7 +2627,6 @@ def run(args):
             load_sav, level_properties = load_parser(args.parser_repo)
             catalogs = load_catalogs(args.parser_repo)
             captured_at = datetime.now(timezone.utc).astimezone().isoformat()
-
             with tempfile.TemporaryDirectory(prefix="palworld-public-snapshot-") as tmp:
                 staged = Path(tmp)
                 shutil.copy2(backup / "Level.sav", staged / "Level.sav")
@@ -2031,16 +2651,29 @@ def run(args):
                         player_saves[uid] = parse_player_save(
                             load_sav, find_player_file(staged / "Players", uid)
                         )
-                snapshot, counters, bases_snapshot, private_bases_snapshot = build_snapshot(
+                (
+                    snapshot,
+                    counters,
+                    bases_snapshot,
+                    private_bases_snapshot,
+                    catalog_drift,
+                ) = build_snapshot(
                     level_payload,
                     player_saves,
                     catalogs,
                     captured_at,
                     backup.name,
                     diagnostics["parser"]["commit"],
+                    provenance,
                 )
                 projected_at = time.monotonic()
 
+            catalog_drift_summary = update_catalog_drift_report(
+                args.catalog_drift,
+                catalog_drift,
+                captured_at,
+                provenance,
+            )
             write_atomic(args.output, snapshot)
             write_atomic(args.bases_output, bases_snapshot)
             write_atomic(args.private_bases_output, private_bases_snapshot)
@@ -2050,8 +2683,18 @@ def run(args):
             history_bytes = None
             bases_history_bytes = None
             if not args.no_archive:
-                history_bytes = archive_hourly(args.history, snapshot, args.history_days)
-                bases_history_bytes = archive_hourly(args.bases_history, bases_snapshot, args.history_days)
+                history_bytes = archive_hourly(
+                    args.history,
+                    snapshot,
+                    args.history_days,
+                    args.rolling_history_minutes,
+                )
+                bases_history_bytes = archive_hourly(
+                    args.bases_history,
+                    bases_snapshot,
+                    args.history_days,
+                    args.rolling_history_minutes,
+                )
             completed_at = datetime.now(timezone.utc).astimezone().isoformat()
             diagnostics["ok"] = True
             diagnostics["updatedAt"] = completed_at
@@ -2067,6 +2710,7 @@ def run(args):
                     "palsParsed": snapshot["summary"]["pals"],
                     "basesParsed": snapshot["summary"]["bases"],
                     "unknownStructures": dict(sorted(counters.items())),
+                    "catalogDrift": catalog_drift_summary,
                 }
             )
             diagnostics["output"].update(
@@ -2078,6 +2722,8 @@ def run(args):
                     "privateBasesBytes": len(private_bases_payload),
                     "historyArchiveBytes": history_bytes,
                     "basesHistoryArchiveBytes": bases_history_bytes,
+                    "catalogManifestBytes": catalog_publication["manifestBytes"],
+                    "catalogBytes": catalog_publication["catalogBytes"],
                 }
             )
             write_atomic(args.diagnostics, diagnostics)
@@ -2085,6 +2731,11 @@ def run(args):
         except Exception as exc:
             completed_at = datetime.now(timezone.utc).astimezone().isoformat()
             diagnostics["updatedAt"] = completed_at
+            diagnostics["provenance"].update({
+                "observedAt": completed_at,
+                "freshness": "stale",
+                "sourceStatus": "transient-error",
+            })
             diagnostics["parse"].update(
                 {
                     "completedAt": completed_at,
@@ -2107,10 +2758,27 @@ def parse_args():
         "--private-bases-output", type=Path, default=DEFAULT_PRIVATE_BASES_OUTPUT
     )
     parser.add_argument("--diagnostics", type=Path, default=DEFAULT_DIAGNOSTICS)
+    parser.add_argument("--stats", type=Path, default=DEFAULT_STATS)
+    parser.add_argument(
+        "--catalog-drift", type=Path, default=DEFAULT_CATALOG_DRIFT
+    )
+    parser.add_argument(
+        "--public-catalogs-root", type=Path, default=DEFAULT_PUBLIC_CATALOGS_ROOT
+    )
+    parser.add_argument(
+        "--public-catalogs-manifest",
+        type=Path,
+        default=DEFAULT_PUBLIC_CATALOGS_MANIFEST,
+    )
     parser.add_argument("--history", type=Path, default=DEFAULT_HISTORY)
     parser.add_argument("--bases-history", type=Path, default=DEFAULT_BASES_HISTORY)
     parser.add_argument("--lock", type=Path, default=DEFAULT_LOCK)
     parser.add_argument("--history-days", type=int, default=30)
+    parser.add_argument(
+        "--rolling-history-minutes",
+        type=int,
+        default=DEFAULT_ROLLING_HISTORY_MINUTES,
+    )
     parser.add_argument("--minimum-age", type=int, default=15)
     parser.add_argument("--no-archive", action="store_true")
     return parser.parse_args()

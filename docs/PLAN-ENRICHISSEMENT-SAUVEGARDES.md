@@ -1,6 +1,6 @@
 # Journal enrichi depuis les sauvegardes
 
-Ce document garde le cap du chantier d'enrichissement. Les contrats actifs sont dans [SAVE-SNAPSHOT-V3.md](SAVE-SNAPSHOT-V3.md) et [SAVE-BASES-V1.md](SAVE-BASES-V1.md).
+Ce document garde le cap du chantier d'enrichissement. Les contrats actifs sont dans [SAVE-SNAPSHOT-V3.md](SAVE-SNAPSHOT-V3.md), [SAVE-BASES-V1.md](SAVE-BASES-V1.md) et [EVENEMENTS-PUBLICS-V6.md](EVENEMENTS-PUBLICS-V6.md).
 
 ## État actuel
 
@@ -10,7 +10,7 @@ Le parse des sauvegardes publie maintenant un contrat public v3:
 - Pals détaillés, inventaires personnels et progression fiable;
 - bases, travailleurs, structures, stockages et productions;
 - diagnostics publics légers;
-- journal d'événements enrichi, paginé pour `/terminal`.
+- journal d'événements enrichi, matérialisé dans SQLite et publié en fragments immuables derrière le terminal.
 
 Le microsite charge un index léger au départ, puis les fichiers plus lourds seulement quand un joueur ouvre une fiche, une base ou le terminal. Les fiches joueurs peuvent exporter un JSON d'analyse à partir des données publiques déjà chargées.
 
@@ -41,8 +41,8 @@ Mathieu agrandit la base principale
 ```
 
 ```text
-Brian termine une production à Atelier du nord
-40 ressources produites sont prêtes. Stock de production actuel: 180.
+Brian présente une variation de stock à Atelier du nord
+40 ressources supplémentaires sont observées. Stock observé: 180.
 +40 Lingot
 ```
 
@@ -95,22 +95,26 @@ Il reprendra au prochain passage.
 
 ## Données publiques
 
-Exports attendus:
+Exports actifs:
 
 ```text
+public-events-head-v6.json
+public-events-manifest-v6.json
+public-events-v6/{generationId}/{jour}.json
+public-daily/{generationId}/{jour}.json
 public-events.json
 public-events-recent.json
 public-events-index.json
 public-events-page-0001.json
 ```
 
-Le navigateur charge l'historique complet pour les recherches globales et utilise l'index paginé pour `/terminal`. Il interroge le fichier récent toutes les 20 secondes et fusionne par `key`.
+Le navigateur sonde le petit pointeur v6, valide le manifeste et la tête d'une même génération, puis charge seulement la journée consultée. Il ne charge plus l'historique complet sur une route normale. Les contrats paginés v5 restent disponibles uniquement comme repli temporaire.
 
 La page ne doit pas perdre:
 
 - recherche;
 - filtres;
-- pagination;
+- navigation par date et curseur;
 - position de défilement;
 - consultation d'une page historique.
 

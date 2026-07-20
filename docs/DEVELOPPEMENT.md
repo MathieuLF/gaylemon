@@ -68,9 +68,9 @@ Quand un champ public change:
 
 Augmenter la version du contrat quand la compatibilité est rompue.
 
-Pour les échos, garder ensemble `public-events.json`, `public-events-recent.json`, `public-events-index.json` et `public-events-page-*.json`. Le dashboard peut lire le flux récent de 2 000 échos, mais `/terminal` doit rester capable de consulter l'historique complet et de filtrer sans changer de structure. `/resume` compile une journée en chargeant seulement les pages dont la plage horaire touche la date choisie. Les fabrications et productions peuvent être compilées en fenêtres publiques de 5 minutes; les tests doivent vérifier que `details.items` garde les quantités cumulées. `public-events-sync-state.json` est un état local ignoré. La sync rapide `-Fast` ne reconstruit que le flux récent, l'index et la première page; la sync sans `-Fast` reconstruit toute la pagination.
+Pour les échos v6, modifier ensemble la projection canonique, le manifeste, la tête, les fragments journaliers, les résumés et leurs exemples. `/terminal` reste un journal filtrable par curseur sans paramètre de journée; `/resume` lit le résumé précalculé de la journée sélectionnée. Les fabrications, productions et pêches peuvent rester compilées en fenêtres publiques de 5 minutes, avec les quantités cumulées dans `details.items` et les catégories d'origine dans `details.categories`. Une journée inchangée doit conserver son fragment immuable, une génération partielle ne doit jamais devenir active et les observations privées ne doivent pas être supprimées lors d'une correction publique. Les contrats v5 restent testés tant que la période de compatibilité n'est pas terminée. Voir [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
 
-Pour les fiches joueurs, vérifier que l'export JSON ne contient que les données publiques déjà prévues: Pals en équipe, Pals en Palbox, bases, constructions, stocks agrégés et métadonnées de snapshot.
+Pour les fiches joueurs, vérifier que l'export JSON reste déclenché seulement par le bouton d'en-tête de la fiche et qu'il ne contient que les données publiques déjà prévues: profil complet, activité, progression, inventaire, Pals en équipe, Pals en Palbox, bases, constructions, stocks agrégés et métadonnées de snapshot.
 
 ## Avant un commit
 

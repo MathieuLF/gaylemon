@@ -38,8 +38,7 @@
       },
       "details": {
         "dropType": "character-drop",
-        "status": "appeared",
-        "position": { "mapX": 274, "mapY": 31, "mapVisible": true }
+        "status": "appeared"
       },
       "confidence": "confirmed",
       "icon": null,

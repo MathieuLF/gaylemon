@@ -45,9 +45,18 @@ const eventStream = document.querySelector("#event-stream");
 const eventPagination = document.querySelector("#event-pagination");
 const eventControls = document.querySelector("#event-controls");
 const eventSyncStatus = document.querySelector("#event-sync-status");
+const eventDateNavigation = document.querySelector("#event-date-navigation");
+const eventDateInput = document.querySelector("#event-date");
+const eventDatePrevious = document.querySelector("#event-date-previous");
+const eventDateNext = document.querySelector("#event-date-next");
+const eventDateToday = document.querySelector("#event-date-today");
+const homeLatestEchoes = document.querySelector("#home-latest-echoes");
+const homeEchoesStatus = document.querySelector("#home-echoes-status");
+const playerVisibilityToggle = document.querySelector("#player-visibility-toggle");
 const dailyDateInput = document.querySelector("#daily-date");
 const dailyPrevious = document.querySelector("#daily-previous");
 const dailyNext = document.querySelector("#daily-next");
+const dailyToday = document.querySelector("#daily-today");
 const dailyStatus = document.querySelector("#daily-status");
 const dailyUpdatedAt = document.querySelector("#daily-updated-at");
 const dailyMetrics = document.querySelector("#daily-metrics");
@@ -116,6 +125,7 @@ let refreshMessageUntil = 0;
 let refreshMessageState = "updated";
 let clockTimer;
 let saveSnapshot = null;
+let saveIndexPromise = null;
 let saveDiagnosticsSnapshot = null;
 let statsSnapshot = null;
 let headerPresencePlayers = [];
@@ -124,20 +134,28 @@ let headerPresenceUpdatedAt = "";
 let nextPresenceTooltipRefreshAt = 0;
 let fullSaveSnapshot = null;
 let fullSaveSnapshotPromise = null;
+let fullSaveSnapshotPromiseGenerationId = "";
+let publicCatalogManifest = null;
+let publicCatalogManifestPromise = null;
+const publicCatalogCache = new Map();
+const catalogHydratedPlayers = new WeakSet();
 const playerSnapshotCache = new Map();
 const playerSnapshotPromises = new Map();
 const renderedPlayerTabs = new Set();
 let basesSnapshot = null;
+let basesGenerationRequested = false;
 let selectedPlayerBases = [];
 let selectedPlayerStock = [];
 let stockSource = "all";
 let stockCurrentPage = 1;
 const stockPageSize = 24;
+const mapRouteIsDedicated = document.body.classList.contains("map-view");
 let showMapPlayers = true;
-let showMapBases = false;
+let showMapBases = mapRouteIsDedicated;
 let showMapLegend = true;
 let mapExpandedFallback = false;
 let selectedPlayer = null;
+let selectedPlayerSnapshotPayload = null;
 let palVisibleLimit = 24;
 let paldexCurrentPage = 1;
 let paldexStatusFilter = "all";
@@ -147,10 +165,29 @@ let playerActivityByName = new Map();
 let eventsSnapshot = null;
 let eventsIndexSnapshot = null;
 let eventsRecentSnapshot = null;
+let eventsManifestV6 = null;
+let eventsHeadV6 = null;
+let eventsActivePointerV6 = null;
+let eventsContractMode = "v5";
+let eventsPreferredContract = "v5";
+let eventsContractChannelCheckedAt = 0;
+let eventsContractChannelPromise = null;
+let eventsV6LoadPromise = null;
+let eventsV6RetryAfter = 0;
+let eventSelectedDateKey = "";
+let eventCursor = "";
+let terminalVisibleEvents = [];
+let terminalEventWindowStart = 0;
+let terminalVisitStartCursor = null;
+let terminalVisitStartTotalEchoes = null;
 let eventCurrentPage = 1;
 let eventsFullLoaded = false;
+let eventsV6FullLoadPromise = null;
+let eventsV6HistoryLoadPromise = null;
+let eventsV6HistorySignature = "";
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
+const terminalV6EchoLimit = 6;
 let terminalEventPageSize = 8;
 let dailySelectedDateKey = "";
 let dailyAvailableDateKeys = [];
@@ -158,19 +195,27 @@ let dailyRosterPlayers = [];
 let dailyStatsPlayers = [];
 let dailyStatsUpdatedAt = "";
 let dailyLastSignature = "";
+let dailyRenderedGenerationId = "";
+let dailyCurrentSummary = null;
+let dailyHighlightTypeFilter = "";
 const siteTimeZone = "America/Toronto";
 const eventExportPageSizeFallback = 250;
 const eventPageCache = new Map();
 const eventPagePromises = new Map();
+const eventDayCache = new Map();
+const dailyV6Cache = new Map();
 let eventsFullLoadPromise = null;
 let leaderboardSortKey = "level";
 let leaderboardSortDirection = "desc";
 let backgroundScrollY = 0;
 let playerViewLocked = false;
 let playerReturnUrl = "";
+let playerDialogReturnFocus = null;
+let showInactivePlayers = false;
 let lastTrackedLocation = "";
 let navUpdatePending = false;
 const sourceUpdatedAt = new Map();
+const sourceHealth = new Map();
 const dataRevisions = {
   metrics: "",
   stats: "",
@@ -180,7 +225,14 @@ const dataRevisions = {
   diagnostics: "",
   events: "",
   eventsIndex: "",
+  eventsManifestV6: "",
+  eventsHeadV6: "",
 };
+
+const terminalVisitCursorStorageKey = "gaylemon:terminal:last-cursor";
+const terminalVisitTotalStorageKey = "gaylemon:terminal:last-total-echoes";
+const inactivePlayerBreakpoint = 4;
+const recentPlayerWindowMs = 7 * 24 * 60 * 60 * 1000;
 
 const globalMapView = {
   minScale: 1,
@@ -201,6 +253,167 @@ const worldDiagnosticRefreshAnchorHour = 1;
 const worldDiagnosticRefreshWindowMinutes = 15;
 const worldDiagnosticWarningMs = 3 * 60 * 60 * 1000;
 const worldDiagnosticStaleMs = 6 * 60 * 60 * 1000;
+
+const dataUpdateAnnouncer = document.createElement("p");
+dataUpdateAnnouncer.className = "visually-hidden";
+dataUpdateAnnouncer.id = "data-update-announcer";
+dataUpdateAnnouncer.setAttribute("role", "status");
+dataUpdateAnnouncer.setAttribute("aria-live", "polite");
+dataUpdateAnnouncer.setAttribute("aria-atomic", "true");
+document.body.appendChild(dataUpdateAnnouncer);
+nextUpdate?.setAttribute("aria-live", "off");
+
+const sourceFreshnessLabels = {
+  metrics: "Serveur",
+  uptime: "Disponibilité",
+  stats: "Présences",
+  save: "Sauvegarde",
+  bases: "Bases",
+  diagnostics: "Analyse",
+  events: "Échos",
+  catalog: "Catalogues",
+};
+const statsSourceLabels = {
+  info: "infos",
+  metrics: "métriques",
+  players: "joueurs",
+  settings: "réglages",
+  "game-data": "données avancées",
+};
+let sourceFreshnessDetails = null;
+
+function ensureSourceFreshnessDetails() {
+  if (sourceFreshnessDetails || !siteLastUpdated?.parentElement) return sourceFreshnessDetails;
+  sourceFreshnessDetails = document.createElement("details");
+  sourceFreshnessDetails.className = "source-freshness";
+  sourceFreshnessDetails.innerHTML = `
+    <summary aria-label="Afficher la fraîcheur des données" aria-controls="source-freshness-panel" aria-expanded="false">
+      <img src="/assets/icons/clock-3.svg?v=20260718.1" alt="" width="24" height="24">
+      <span class="visually-hidden">Fraîcheur des données</span>
+    </summary>
+    <span class="source-freshness__panel" id="source-freshness-panel" role="tooltip">
+      <span class="source-freshness__panel-kicker">Sources du portail</span>
+      <strong>Fraîcheur des données</strong>
+      <span data-source-freshness-list><small>Aucune source reçue</small></span>
+    </span>`;
+  const summary = sourceFreshnessDetails.querySelector("summary");
+  let closeTimer = null;
+  const openFreshness = () => {
+    window.clearTimeout(closeTimer);
+    sourceFreshnessDetails.open = true;
+    summary?.setAttribute("aria-expanded", "true");
+  };
+  const closeFreshness = () => {
+    window.clearTimeout(closeTimer);
+    sourceFreshnessDetails.open = false;
+    summary?.setAttribute("aria-expanded", "false");
+  };
+  sourceFreshnessDetails.addEventListener("toggle", () => {
+    summary?.setAttribute("aria-expanded", sourceFreshnessDetails.open ? "true" : "false");
+  });
+  sourceFreshnessDetails.addEventListener("pointerenter", openFreshness);
+  sourceFreshnessDetails.addEventListener("pointerleave", () => {
+    closeTimer = window.setTimeout(closeFreshness, 90);
+  });
+  summary?.addEventListener("focus", openFreshness);
+  sourceFreshnessDetails.addEventListener("focusout", (event) => {
+    if (!sourceFreshnessDetails.contains(event.relatedTarget)) closeFreshness();
+  });
+  summary?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openFreshness();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (sourceFreshnessDetails?.open && !sourceFreshnessDetails.contains(event.target)) {
+      closeFreshness();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !sourceFreshnessDetails?.open) return;
+    closeFreshness();
+    summary?.focus({ preventScroll: true });
+  });
+  siteLastUpdated.parentElement.insertAdjacentElement("afterend", sourceFreshnessDetails);
+  return sourceFreshnessDetails;
+}
+
+function renderSourceFreshness() {
+  const details = ensureSourceFreshnessDetails();
+  const list = details?.querySelector("[data-source-freshness-list]");
+  if (!list) return;
+  const rows = [...new Set([...sourceUpdatedAt.keys(), ...sourceHealth.keys()])]
+    .filter((source) => sourceFreshnessLabels[source])
+    .sort((left, right) => left.localeCompare(right, "fr-CA"));
+  const states = rows.map((source) => sourceHealth.get(source)?.state || "delayed");
+  const overallState = states.includes("error") ? "error" : states.includes("delayed") ? "delayed" : "available";
+  const overallLabel = overallState === "available" ? "à jour" : overallState === "error" ? "une source en erreur" : "une source à surveiller";
+  details.dataset.state = overallState;
+  details.querySelector("summary")?.setAttribute("aria-label", `Fraîcheur des données : ${overallLabel}`);
+  list.innerHTML = rows.length
+    ? rows.map((source) => {
+      const date = sourceUpdatedAt.get(source);
+      const health = sourceHealth.get(source) || { state: "delayed", label: "Retard", details: "" };
+      const time = sourceFreshnessTimeMarkup(date, health);
+      const detailsText = health.details ? ` title="${escapeHtml(health.details)}"` : "";
+      return `<span${detailsText}><b>${escapeHtml(sourceFreshnessLabels[source])}</b><span class="source-freshness__value">${time}<em data-state="${escapeHtml(health.state)}">${escapeHtml(health.label)}</em></span></span>`;
+    }).join("")
+    : "<small>Aucune source reçue</small>";
+}
+
+function sourceFreshnessTimeMarkup(date, health) {
+  if (!date) return "<time>--</time>";
+  const datetime = escapeHtml(date.toISOString());
+  if (health?.state === "available" && health?.label === "Stable") {
+    return `<time datetime="${datetime}">prêt</time>`;
+  }
+  return `<time datetime="${datetime}">${escapeHtml(formatRelativeAge(date))}</time>`;
+}
+
+function sourceHealthState(status, freshness = "") {
+  const normalizedStatus = String(status || "").trim().toLocaleLowerCase("fr-CA");
+  const normalizedFreshness = String(freshness || "").trim().toLocaleLowerCase("fr-CA");
+  if (["transient-error", "error", "down", "unavailable"].includes(normalizedStatus)) return "error";
+  if (normalizedFreshness === "stale" || ["stale", "unknown", "documented-but-unavailable", "unsupported"].includes(normalizedStatus)) return "delayed";
+  if (["available", "current", "ok", "up"].includes(normalizedStatus)) return "available";
+  return normalizedStatus ? "delayed" : "available";
+}
+
+function registerSourceHealth(source, status = "available", freshness = "current", details = "") {
+  const state = sourceHealthState(status, freshness);
+  const normalizedStatus = String(status || "").trim().toLocaleLowerCase("fr-CA");
+  const normalizedFreshness = String(freshness || "").trim().toLocaleLowerCase("fr-CA");
+  sourceHealth.set(source, {
+    state,
+    label: sourceHealthLabel(state, normalizedStatus, normalizedFreshness),
+    details: String(details || ""),
+  });
+  renderSourceFreshness();
+}
+
+function sourceHealthLabel(state, normalizedStatus, normalizedFreshness) {
+  if (state === "available") return normalizedFreshness === "stable" ? "Stable" : "Disponible";
+  if (["documented-but-unavailable", "unsupported"].includes(normalizedStatus)) return "Non disponible";
+  if (normalizedStatus === "unknown") return "À confirmer";
+  return state === "error" ? "Erreur" : "Retard";
+}
+
+function registerPayloadDataUpdate(source, payload) {
+  const provenance = payload?.provenance || {};
+  registerDataUpdate(
+    source,
+    provenance.sourceUpdatedAt || payload?.sourceUpdatedAt || payload?.updatedAt,
+    provenance.sourceStatus || payload?.sourceStatus || (payload?.ok === false ? "transient-error" : "available"),
+    provenance.freshness || payload?.freshness || (payload?.ok === false ? "stale" : "current"),
+  );
+}
+
+function announceDataUpdate(message) {
+  if (!message || !dataUpdateAnnouncer) return;
+  dataUpdateAnnouncer.textContent = "";
+  window.requestAnimationFrame(() => {
+    dataUpdateAnnouncer.textContent = message;
+  });
+}
 
 function routeMatches(slug) {
   const path = location.pathname.replace(/\/+$/, "") || "/";
@@ -656,6 +869,10 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function escapeRegExp(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function formatTooltipText(value) {
   return String(value || "Aucune description disponible")
     .replace(/\+\{EffectValue1\}%/g, "bonus variable")
@@ -772,8 +989,9 @@ function formatRelativeAge(value) {
   return `il y a ${days} j`;
 }
 
-function registerDataUpdate(source, value) {
+function registerDataUpdate(source, value, status = "available", freshness = "current", details = "") {
   const date = parseDate(value);
+  registerSourceHealth(source, status, freshness, details);
   if (!date || !siteLastUpdated) return;
   sourceUpdatedAt.set(source, date);
   const latest = [...sourceUpdatedAt.values()].reduce(
@@ -792,6 +1010,7 @@ function registerDataUpdate(source, value) {
     minute: "2-digit",
   }).replace(",", " ·");
   siteLastUpdated.dataset.tooltip = `Dernières données reçues le ${formatDateTime(latest)}`;
+  renderSourceFreshness();
 }
 
 function latestDateValue(...values) {
@@ -978,17 +1197,20 @@ function renderHeaderPlayersTooltip() {
   const updatedText = headerPresenceUpdatedAt ? `Données ${formatRelativeAge(headerPresenceUpdatedAt)}` : "Données en attente";
   if (!count) {
     playersTooltip.innerHTML = `
-      <span class="site-header__players-tooltip-kicker">Présences en direct</span>
-      <strong>Aucun joueur connecté</strong>
+      <span class="site-header__players-tooltip-head">
+        <span><span class="site-header__players-tooltip-kicker">Présences en direct</span><strong>Aucun joueur connecté</strong></span>
+        <small>${escapeHtml(updatedText)}</small>
+      </span>
       <p>Le serveur ne détecte personne en ligne pour le moment.</p>
-      <small>${escapeHtml(updatedText)}</small>
     `;
     return;
   }
 
   playersTooltip.innerHTML = `
-    <span class="site-header__players-tooltip-kicker">Présences en direct</span>
-    <strong>${count}/${escapeHtml(maxPlayers)} en ligne</strong>
+    <span class="site-header__players-tooltip-head">
+      <span><span class="site-header__players-tooltip-kicker">Présences en direct</span><strong>${count}/${escapeHtml(maxPlayers)} en ligne</strong></span>
+      <small>${escapeHtml(updatedText)}</small>
+    </span>
     <ul>
       ${players.map((player) => {
     const startedAt = presenceStartedAt(player);
@@ -999,10 +1221,9 @@ function renderHeaderPlayersTooltip() {
           <span class="site-header__players-tooltip-avatar">${escapeHtml(playerInitials(player.name))}</span>
           <span><b>${escapeHtml(player.name || "Joueur")}</b><small>Arrivée ${escapeHtml(arrival)} · ${escapeHtml(durationText)}</small></span>
         </li>`;
-  }).join("")}
+    }).join("")}
     </ul>
-    <small>${escapeHtml(updatedText)}</small>
-  `;
+    `;
 }
 
 function formatPercent(value) {
@@ -1053,20 +1274,33 @@ function setWorldDataQuality(name, state) {
 
 function renderWorldContractStatus() {
   if (!worldDataGrid) return;
-  const publicOutput = saveDiagnosticsSnapshot?.publicOutput || {};
+  const diagnostics = currentSaveDiagnosticsSnapshot();
+  const bases = currentBasesSnapshot();
+  const fullSnapshot = currentFullSaveSnapshot();
+  const publicOutput = diagnostics?.publicOutput || {};
+  const diagnosticEvents = diagnostics?.events || {};
+  const eventContractReady = Boolean(
+    Number(eventsHeadV6?.schemaVersion) === 6
+    || Number(eventsManifestV6?.schemaVersion) === 6
+    || Number(eventsActivePointerV6?.schemaVersion) === 6
+    || eventsSnapshot?.version != null
+    || diagnosticEvents.count
+    || diagnosticEvents.updatedAt
+  );
   const contracts = [
-    ["diagnostic", saveDiagnosticsSnapshot?.version != null ? `v${saveDiagnosticsSnapshot.version}` : ""],
-    ["index", saveSnapshot?.version != null ? `v${saveSnapshot.version}` : ""],
-    ["snapshot", publicOutput.snapshotBytes || fullSaveSnapshot?.version ? "prêt" : ""],
-    ["bases", publicOutput.basesBytes ? "prêt" : basesSnapshot?.version != null ? `v${basesSnapshot.version}` : ""],
-    ["échos", eventsSnapshot?.version != null ? `v${eventsSnapshot.version}` : ""],
+    { label: "diagnostic", ready: diagnostics?.version != null, value: diagnostics?.version != null ? `v${diagnostics.version}` : "" },
+    { label: "index", ready: saveSnapshot?.version != null, value: saveSnapshot?.version != null ? `v${saveSnapshot.version}` : "" },
+    { label: "snapshot", ready: Boolean(publicOutput.snapshotBytes || fullSnapshot?.version), value: publicOutput.snapshotBytes || fullSnapshot?.version ? "prêt" : "" },
+    { label: "bases", ready: Boolean(publicOutput.basesBytes || bases?.version != null), value: publicOutput.basesBytes ? "prêt" : bases?.version != null ? `v${bases.version}` : "" },
+    { label: "échos", ready: eventContractReady, value: eventContractReady ? (eventsManifestV6?.schemaVersion ? `v${eventsManifestV6.schemaVersion}` : "prêt") : "" },
   ];
-  const loaded = contracts.filter(([, value]) => value);
-  setWorldData("contracts", loaded.length ? `${loaded.length}/${contracts.length}` : "--");
+  const loaded = contracts.filter((contract) => contract.ready);
+  const coreReady = contracts.slice(0, 4).every((contract) => contract.ready);
+  setWorldData("contracts", coreReady && eventContractReady ? "Prêtes" : coreReady ? "Échos en cours" : "Chargement");
   setWorldDataNote("contracts", loaded.length
-    ? loaded.map(([label, value]) => `${label} ${value}`).join(" · ")
-    : "Versions chargées au fil des exports");
-  setWorldDataQuality("contracts", loaded.length === contracts.length ? "up" : "warning");
+    ? loaded.map((contract) => `${contract.label} ${contract.value}`.trim()).join(" · ")
+    : "Les exports publics se chargent avec la page");
+  setWorldDataQuality("contracts", coreReady ? "up" : "warning");
 }
 
 function formatParsingWarningsNote(parse) {
@@ -1093,10 +1327,57 @@ function formatParsingWarningsNote(parse) {
   return details.length ? `${base}: ${details.join(", ")}` : base;
 }
 
+function publicSaveGenerationId(payload) {
+  const generationId = String(payload?.generationId || "");
+  return /^[A-Za-z0-9._-]+$/.test(generationId) ? generationId : "";
+}
+
+function activeSaveGenerationId() {
+  return publicSaveGenerationId(saveSnapshot);
+}
+
+function saveGenerationIsValid(payload, expectedGenerationId) {
+  const generationId = publicSaveGenerationId(payload);
+  return Boolean(payload?.ok && generationId && expectedGenerationId && generationId === String(expectedGenerationId));
+}
+
+function currentBasesSnapshot() {
+  return saveGenerationIsValid(basesSnapshot, activeSaveGenerationId()) ? basesSnapshot : null;
+}
+
+function currentSaveDiagnosticsSnapshot() {
+  return saveGenerationIsValid(saveDiagnosticsSnapshot, activeSaveGenerationId()) ? saveDiagnosticsSnapshot : null;
+}
+
+function currentFullSaveSnapshot() {
+  return saveGenerationIsValid(fullSaveSnapshot, activeSaveGenerationId()) ? fullSaveSnapshot : null;
+}
+
+function assertActiveSaveGeneration(payload, source, expectedGenerationId = activeSaveGenerationId()) {
+  if (
+    !saveGenerationIsValid(payload, expectedGenerationId)
+    || String(expectedGenerationId) !== activeSaveGenerationId()
+  ) {
+    throw new Error(`mixed-save-generation:${source}`);
+  }
+  return payload;
+}
+
+async function ensureActiveSaveGeneration() {
+  if (saveIndexPromise) await saveIndexPromise;
+  if (!activeSaveGenerationId()) await loadSaveSnapshot(true, false);
+  const generationId = activeSaveGenerationId();
+  if (!generationId) throw new Error("save-generation-unavailable");
+  return generationId;
+}
+
 function renderSaveDiagnostics(payload) {
-  if (!payload?.ok || !worldDataGrid) return;
+  if (!payload?.ok || !worldDataGrid) {
+    registerPayloadDataUpdate("diagnostics", payload);
+    return;
+  }
   saveDiagnosticsSnapshot = payload;
-  registerDataUpdate("diagnostics", payload.updatedAt);
+  registerPayloadDataUpdate("diagnostics", payload);
   const save = payload.save || {};
   const parse = payload.parse || {};
   const output = payload.output || {};
@@ -1152,19 +1433,19 @@ function renderSaveDiagnostics(payload) {
     setWorldData("events", eventTotal ? eventTotal.toLocaleString("fr-CA") : "--");
     setWorldDataNote("events", diagnosticEvents.firstAt && diagnosticEvents.lastAt
       ? `${formatDateTime(diagnosticEvents.firstAt)} → ${formatDateTime(diagnosticEvents.lastAt)}`
-      : "Échos publics chargés");
+      : "Journal chargé");
     setWorldDataQuality("events", eventTotal ? "up" : "warning");
     setWorldData("last-event", formatRelativeAge(lastEventAt));
     setWorldDataNote("last-event", lastEventAt
-      ? `${formatDateTime(lastEventAt)} · flux vérifié ${formatRelativeAge(diagnosticEvents.updatedAt)}`
-      : `Journal public · flux vérifié ${formatRelativeAge(diagnosticEvents.updatedAt)}`);
+      ? `${formatDateTime(lastEventAt)} · journal à jour ${formatRelativeAge(diagnosticEvents.updatedAt)}`
+      : `Journal public · journal à jour ${formatRelativeAge(diagnosticEvents.updatedAt)}`);
     const lastEventDate = parseDate(lastEventAt);
     const feedUpdatedDate = parseDate(diagnosticEvents.updatedAt);
     const eventFreshnessDate = feedUpdatedDate || lastEventDate;
     const eventFreshnessAgeMs = eventFreshnessDate ? Date.now() - eventFreshnessDate.getTime() : Number.POSITIVE_INFINITY;
     setWorldDataQuality("last-event", eventFreshnessAgeMs > worldDiagnosticStaleMs ? "stale" : eventFreshnessAgeMs > worldDiagnosticWarningMs ? "warning" : "up");
   }
-  worldDataState.textContent = parse.status === "ok" && freshnessState === "up" ? "Snapshot vérifié" : parse.status === "ok" ? "Snapshot ancien" : "Analyse à surveiller";
+      worldDataState.textContent = parse.status === "ok" && freshnessState === "up" ? "Snapshot à jour" : parse.status === "ok" ? "Snapshot ancien" : "Analyse à surveiller";
   worldDataState.dataset.state = parse.status === "ok" && freshnessState === "up" ? "up" : "warning";
   renderWorldContractStatus();
 }
@@ -1202,7 +1483,30 @@ function getDisplayPlayers(payload) {
     playersBySlug.set(slug, createProvisionalPlayer(activity));
   });
 
-  return [...playersBySlug.values()];
+  return [...playersBySlug.values()].sort((left, right) => {
+    const leftActivity = getPlayerActivity(left);
+    const rightActivity = getPlayerActivity(right);
+    const leftDate = parseDate(leftActivity?.lastSeenAt || leftActivity?.lastOnlineAt)?.getTime() || 0;
+    const rightDate = parseDate(rightActivity?.lastSeenAt || rightActivity?.lastOnlineAt)?.getTime() || 0;
+    const leftGroup = leftActivity?.isOnline ? 0 : Date.now() - leftDate <= recentPlayerWindowMs ? 1 : 2;
+    const rightGroup = rightActivity?.isOnline ? 0 : Date.now() - rightDate <= recentPlayerWindowMs ? 1 : 2;
+    return leftGroup - rightGroup || rightDate - leftDate || String(left.name).localeCompare(String(right.name), "fr-CA");
+  });
+}
+
+function playerIsInactiveForMobile(player, index) {
+  const activity = getPlayerActivity(player);
+  return index >= inactivePlayerBreakpoint && !activity?.isOnline;
+}
+
+function syncPlayerVisibilityToggle(hasInactivePlayers) {
+  if (!savePlayers || !playerVisibilityToggle) return;
+  savePlayers.classList.toggle("is-showing-inactive", showInactivePlayers);
+  playerVisibilityToggle.hidden = !hasInactivePlayers;
+  playerVisibilityToggle.setAttribute("aria-expanded", String(showInactivePlayers));
+  playerVisibilityToggle.textContent = showInactivePlayers
+    ? "Replier les aventuriers moins récents"
+    : "Voir les aventuriers moins récents";
 }
 
 function getPlayerActivity(player) {
@@ -1440,7 +1744,7 @@ function renderMetrics(payload) {
         <p>${escapeHtml(message)}</p>
       `;
     }
-    registerDataUpdate("metrics", payload?.updatedAt);
+    registerPayloadDataUpdate("metrics", payload);
     return;
   }
 
@@ -1453,7 +1757,7 @@ function renderMetrics(payload) {
   setMetric("camps", metrics.baseCamps ?? "--");
   setMetric("uptime", metrics.uptime || "--");
 
-  registerDataUpdate("metrics", payload.updatedAt);
+  registerPayloadDataUpdate("metrics", payload);
   const players = Array.isArray(payload.players) ? payload.players : [];
   headerPresencePlayers = players;
   headerPresenceMaxPlayers = metrics.maxPlayers ?? null;
@@ -1465,17 +1769,17 @@ function renderUptime(payload) {
   if (!payload?.ok) {
     uptimeSummary.textContent = payload?.error || "La disponibilité sera affichée au prochain passage du collecteur.";
     uptimeBars.innerHTML = createPlaceholderBars();
-    registerDataUpdate("uptime", payload?.updatedAt);
+    registerPayloadDataUpdate("uptime", payload);
     return;
   }
 
   const monitor = Array.isArray(payload.monitors) ? payload.monitors[0] : null;
   const summary = payload.summary || {};
-  const status = monitor?.status || summary.status || "unknown";
-  const uptime = monitor?.uptime24h ?? summary.uptime24hAverage;
-  const ping = monitor?.ping;
+  const status = monitor?.status || summary.status || summary.monitorStatus || payload.status || "unknown";
+  const uptime = monitor?.uptime24h ?? summary.uptime24hAverage ?? summary.uptimeLast24h ?? summary.uptimeLast24hObserved;
+  const ping = monitor?.ping ?? summary.ping ?? summary.averagePing;
 
-  registerDataUpdate("uptime", payload.updatedAt);
+  registerPayloadDataUpdate("uptime", payload);
   const pingText = ping != null ? ` · réponse ${ping} ms` : "";
   uptimeSummary.textContent = `${getStatusSentence(status)} · ${formatPercent(uptime)} de disponibilité sur 24 h${pingText}`;
 
@@ -1494,7 +1798,7 @@ function getStatusSentence(status) {
     case "maintenance":
       return "Une maintenance est en cours";
     case "pending":
-      return "Vérification en cours";
+  return "Chargement";
     default:
       return "Synchronisation en cours";
   }
@@ -1504,13 +1808,40 @@ function createPlaceholderBars() {
   return Array.from({ length: 24 }, () => '<span class="uptime-segment uptime-segment--unknown"></span>').join("");
 }
 
+function normalizeStatsSourceStatus(payload, source, value) {
+  if (source === "game-data") {
+    const gameDataStatus = payload?.collection?.gameDataStatus;
+    if (gameDataStatus && gameDataStatus !== "available") return gameDataStatus;
+  }
+  return value?.status || "unknown";
+}
+
+function formatStatsSourceStatus(status) {
+  const normalizedStatus = String(status || "").trim().toLocaleLowerCase("fr-CA");
+  const state = sourceHealthState(normalizedStatus);
+  if (["documented-but-unavailable", "unsupported"].includes(normalizedStatus)) return "non disponible";
+  if (normalizedStatus === "unknown") return "à confirmer";
+  return state === "available" ? "disponible" : state === "error" ? "en erreur" : "à surveiller";
+}
+
 function renderStats(payload) {
+  const provenance = payload?.provenance || {};
+  const sourceSummary = Object.entries(payload?.sources || {})
+    .map(([source, value]) => {
+      const status = normalizeStatsSourceStatus(payload, source, value);
+      return `${statsSourceLabels[source] || source}: ${formatStatsSourceStatus(status)}`;
+    })
+    .join(" · ");
+  registerDataUpdate(
+    "stats",
+    provenance.sourceUpdatedAt || payload?.updatedAt,
+    provenance.sourceStatus || (payload?.ok ? "available" : "transient-error"),
+    provenance.freshness || (payload?.ok ? "current" : "stale"),
+    sourceSummary,
+  );
   if (!payload?.ok) {
-    statsSnapshot = null;
     return;
   }
-
-  registerDataUpdate("stats", payload.updatedAt);
 
   const players = getPlayersCollection(payload);
   const server = payload.server || {};
@@ -1634,14 +1965,14 @@ function syncGlobalMapControls() {
     mapPlayerToggle.setAttribute("aria-pressed", String(showMapPlayers));
     mapPlayerToggle.classList.toggle("is-active", showMapPlayers);
     const label = mapPlayerToggle.querySelector("b");
-    if (label) label.textContent = showMapPlayers ? "Joueurs" : "Joueurs masqués";
+    if (label) label.textContent = "Joueurs";
     mapPlayerToggle.dataset.tooltip = showMapPlayers ? "Masquer les joueurs" : "Afficher les joueurs";
   }
   if (mapLegendToggle) {
     mapLegendToggle.setAttribute("aria-pressed", String(showMapLegend));
     mapLegendToggle.classList.toggle("is-active", showMapLegend);
     const label = mapLegendToggle.querySelector("b");
-    if (label) label.textContent = showMapLegend ? "Légende" : "Légende masquée";
+    if (label) label.textContent = "Légende";
     mapLegendToggle.dataset.tooltip = showMapLegend ? "Masquer la légende" : "Afficher la légende";
   }
   if (mapFullscreenToggle) {
@@ -1652,7 +1983,7 @@ function syncGlobalMapControls() {
   }
 }
 
-function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
+function renderGlobalPlayerMap(players, bases = currentBasesSnapshot()?.bases || []) {
   if (!globalPlayerMarkers || !globalPlayerLegend || !globalMapCaption) return;
   const positioned = players
     .map((player, index) => ({ player, index }))
@@ -1748,7 +2079,7 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
     ? `${positionedBases.length} base${positionedBases.length > 1 ? "s" : ""}`
     : "bases masquées";
   globalMapCaption.textContent = `${playerPart} · ${basePart}` + (showMapPlayers ? unchartedNote : "");
-  const visibleBaseCount = basesSnapshot
+  const visibleBaseCount = currentBasesSnapshot()
     ? positionedBases.length
     : Number(saveSnapshot?.summary?.bases || 0);
   if (mapBaseCount) mapBaseCount.textContent = visibleBaseCount;
@@ -1756,7 +2087,7 @@ function renderGlobalPlayerMap(players, bases = basesSnapshot?.bases || []) {
     mapBaseToggle.setAttribute("aria-pressed", String(showMapBases));
     mapBaseToggle.classList.toggle("is-active", showMapBases);
     const label = mapBaseToggle.querySelector("b");
-    if (label) label.textContent = showMapBases ? "Masquer les bases" : "Afficher les bases";
+    if (label) label.textContent = "Bases";
     mapBaseToggle.dataset.tooltip = showMapBases ? "Masquer les bases de la carte" : "Afficher les bases sur la carte";
   }
   syncGlobalMapControls();
@@ -1798,6 +2129,7 @@ function updateAdventurerActivity() {
 function renderSaveSnapshot(payload, syncRoute = true) {
   if (!payload?.ok) {
     if (saveState) saveState.textContent = "En attente";
+    registerPayloadDataUpdate("save", payload);
     return;
   }
 
@@ -1805,7 +2137,14 @@ function renderSaveSnapshot(payload, syncRoute = true) {
   const players = getDisplayPlayers(payload);
   saveSnapshot = { ...payload, players };
   if (saveState) saveState.textContent = "Données synchronisées";
-  registerDataUpdate("save", payload.updatedAt);
+  registerPayloadDataUpdate("save", payload);
+  registerDataUpdate(
+    "bases",
+    payload?.provenance?.sourceUpdatedAt || payload?.updatedAt,
+    payload?.provenance?.sourceStatus || (payload?.ok ? "available" : "transient-error"),
+    payload?.provenance?.freshness || (payload?.ok ? "current" : "stale"),
+    `${dailyPlural(Number(summary.bases || 0), "base indexée", "bases indexées")} dans la dernière sauvegarde publique.`,
+  );
   renderWorldContractStatus();
   const summaryValues = {
     players: players.length,
@@ -1825,6 +2164,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
 
   if (!players.length) {
     if (savePlayers) savePlayers.innerHTML = '<p class="save-empty">Aucun aventurier n\'a encore laissé sa marque dans les sauvegardes.</p>';
+    syncPlayerVisibilityToggle(false);
     return;
   }
 
@@ -1833,10 +2173,13 @@ function renderSaveSnapshot(payload, syncRoute = true) {
     const activity = getPlayerActivityValues(player);
     const teamPals = playerTeamPals(player);
     const cardAccent = playerColor(player);
+    const inactiveForMobile = playerIsInactiveForMobile(player, index);
+    const visibilityClass = inactiveForMobile ? " adventurer-card--less-recent" : "";
+    const visibilityAttribute = inactiveForMobile ? ' data-player-visibility="inactive"' : ' data-player-visibility="recent"';
     if (player.provisional) {
       const level = player.level == null ? "--" : Number(player.level);
       return `
-        <article class="adventurer-card adventurer-card--provisional" data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
+        <article class="adventurer-card adventurer-card--provisional${visibilityClass}"${visibilityAttribute} data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
           <div class="adventurer-card__cover">
             <div class="adventurer-card__identity">
               <span class="adventurer-card__monogram" aria-hidden="true">${escapeHtml(playerInitials(player.name))}</span>
@@ -1877,7 +2220,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
     ].filter(Boolean).slice(0, 3).join("");
 
     return `
-      <article class="adventurer-card" data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
+      <article class="adventurer-card${visibilityClass}"${visibilityAttribute} data-player-slug="${playerSlug(player.name)}" style="--card-order: ${index};--card-accent:${cardAccent}">
         <div class="adventurer-card__cover">
           <div class="adventurer-card__identity">
             <span class="adventurer-card__monogram" aria-hidden="true">${escapeHtml(playerInitials(player.name))}</span>
@@ -1905,6 +2248,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
       </article>
     `;
   }).join("");
+  syncPlayerVisibilityToggle(players.some((player, index) => playerIsInactiveForMobile(player, index)));
   renderLeaderboards();
   if (selectedPlayer?.provisional) {
     const selectedIndex = players.findIndex((player) => playerSlug(player.name) === playerSlug(selectedPlayer.name));
@@ -2008,7 +2352,7 @@ function buildSelectedPlayerStock() {
     addItems("chests", base.name, base.storage?.topItems);
     addItems("production", base.name, base.production?.topItems);
   });
-  (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+  (Array.isArray(currentBasesSnapshot()?.guildStorage) ? currentBasesSnapshot().guildStorage : [])
     .filter((storage) => stockBelongsToPlayer(storage, selectedPlayer))
     .forEach((storage) => addItems("guild", storage.guild || "Guilde", storage.topItems));
 
@@ -2166,8 +2510,19 @@ function baseBelongsToPlayer(base, player) {
   return base?.guild && base.guild !== "Guilde anonyme" && base.guild === player.guild;
 }
 
+function normalizeExportValue(value) {
+  if (Array.isArray(value)) return value.map(normalizeExportValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value)
+    .sort((left, right) => left.localeCompare(right, "fr-CA"))
+    .reduce((output, key) => {
+      output[key] = normalizeExportValue(value[key]);
+      return output;
+    }, {});
+}
+
 function cloneExportValue(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  return value == null ? value : normalizeExportValue(JSON.parse(JSON.stringify(value)));
 }
 
 function exportTimestampSlug(date = new Date()) {
@@ -2184,21 +2539,134 @@ function exportTimestampSlug(date = new Date()) {
 }
 
 function selectedPlayerBaseRows(player = selectedPlayer) {
-  return (Array.isArray(basesSnapshot?.bases) ? basesSnapshot.bases : [])
+  const bases = currentBasesSnapshot();
+  return (Array.isArray(bases?.bases) ? bases.bases : [])
     .filter((base) => baseBelongsToPlayer(base, player));
 }
 
 function selectedPlayerGuildStorageRows(player = selectedPlayer) {
-  return (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+  const bases = currentBasesSnapshot();
+  return (Array.isArray(bases?.guildStorage) ? bases.guildStorage : [])
     .filter((storage) => stockBelongsToPlayer(storage, player));
 }
 
 async function ensurePlayerExportDataReady() {
-  if (!basesSnapshot) await loadBases(true);
+  if (!currentBasesSnapshot()) await loadBases(true);
   if (selectedPlayer) {
+    if (!selectedPlayer.provisional) {
+      try {
+        await hydratePlayerFromPublicCatalogs(selectedPlayer);
+      } catch {
+        // Les catalogues enrichissent l'analyse, mais leur absence ne bloque pas l'export public.
+      }
+    }
     selectedPlayerBases = selectedPlayerBaseRows(selectedPlayer);
     selectedPlayerStock = buildSelectedPlayerStock();
   }
+}
+
+function playerExportPayloadMeta(payload, source, fallback = {}) {
+  const available = Boolean(payload);
+  return cloneExportValue({
+    source,
+    status: available ? (payload?.ok === false ? "unavailable" : "available") : "unavailable",
+    generationId: publicSaveGenerationId(payload) || fallback.generationId || null,
+    version: payload?.version ?? fallback.version ?? null,
+    updatedAt: payload?.updatedAt || fallback.updatedAt || null,
+    provenance: payload?.provenance || fallback.provenance || null,
+  });
+}
+
+function playerRawFields(player) {
+  return {
+    player: Object.keys(player || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    character: Object.keys(player?.character || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    progress: Object.keys(player?.progress || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    pals: Object.keys(player?.pals || {}).sort((left, right) => left.localeCompare(right, "fr-CA")),
+    inventorySections: (Array.isArray(player?.inventory) ? player.inventory : [])
+      .map((section) => String(section?.key || section?.label || "section"))
+      .sort((left, right) => left.localeCompare(right, "fr-CA")),
+  };
+}
+
+function currentPlayerIndexRow(player) {
+  const slug = playerSlug(player?.name);
+  return (Array.isArray(saveSnapshot?.players) ? saveSnapshot.players : [])
+    .find((row) => playerSlug(row?.name) === slug) || null;
+}
+
+function playerInventoryExportSummary(player) {
+  const sections = Array.isArray(player?.inventory) ? player.inventory : [];
+  const sectionSummaries = sections.map((section) => {
+    const items = Array.isArray(section?.items) ? section.items : [];
+    return {
+      key: section?.key || null,
+      label: section?.label || null,
+      itemTypes: items.length,
+      quantity: items.reduce((sum, item) => sum + Number(item?.count || 0), 0),
+      totalWeight: Math.round(items.reduce((sum, item) => sum + Number(item?.totalWeight || 0), 0) * 10) / 10,
+    };
+  });
+  return {
+    sections: sections.length,
+    itemTypes: sectionSummaries.reduce((sum, section) => sum + section.itemTypes, 0),
+    quantity: sectionSummaries.reduce((sum, section) => sum + section.quantity, 0),
+    totalWeight: Math.round(sectionSummaries.reduce((sum, section) => sum + section.totalWeight, 0) * 10) / 10,
+    bySection: sectionSummaries,
+  };
+}
+
+function playerPalExportSummary(player) {
+  const collection = Array.isArray(player?.pals?.collection) ? player.pals.collection : [];
+  const containers = collection.reduce((counts, pal) => {
+    const key = String(pal?.container || "other");
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  return {
+    total: player?.pals?.total ?? collection.length,
+    collection: collection.length,
+    party: containers.party || 0,
+    palbox: containers.palbox || 0,
+    other: collection.length - Number(containers.party || 0) - Number(containers.palbox || 0),
+    uniqueSpecies: player?.pals?.uniqueSpecies ?? null,
+    highestLevel: player?.pals?.highestLevel ?? null,
+    favorites: Array.isArray(player?.pals?.favorites) ? player.pals.favorites.length : 0,
+    containers,
+  };
+}
+
+function playerBaseExportSummary(bases, guildStorage, stock) {
+  return {
+    bases: bases.length,
+    structures: bases.reduce((total, base) => total + Number(base?.structures?.total || 0), 0),
+    damagedStructures: bases.reduce((total, base) => total + Number(base?.structures?.damaged || 0), 0),
+    unfinishedStructures: bases.reduce((total, base) => total + Number(base?.structures?.unfinished || 0), 0),
+    workersAssigned: bases.reduce((total, base) => total + Number(base?.workers?.assigned || 0), 0),
+    workersBusy: bases.reduce((total, base) => total + Number(base?.workers?.busy || 0), 0),
+    storageUnits: bases.reduce((total, base) => total + Number(base?.storage?.units || 0), 0),
+    productionUnits: bases.reduce((total, base) => total + Number(base?.production?.units || 0), 0),
+    guildStorageUnits: guildStorage.reduce((total, storage) => total + Number(storage?.units || 1), 0),
+    stockItemTypes: stock.length,
+    stockQuantity: stock.reduce((total, item) => total + Number(item?.count || 0), 0),
+  };
+}
+
+function playerActivityExport(player) {
+  const values = getPlayerActivityValues(player);
+  return {
+    status: values.activity ? "available" : "unavailable",
+    isOnline: values.isOnline,
+    labels: {
+      presence: values.presence,
+      sessions: values.sessions,
+      playtime: values.playtime,
+      lastSeen: values.lastSeen,
+      lastSeenNote: values.lastSeenNote,
+      ping: values.ping,
+    },
+    raw: cloneExportValue(values.activity),
+  };
 }
 
 function buildPlayerAnalysisExport(player) {
@@ -2208,68 +2676,150 @@ function buildPlayerAnalysisExport(player) {
   const otherPals = collection.filter((pal) => !["party", "palbox"].includes(String(pal.container || "")));
   const bases = selectedPlayerBaseRows(player);
   const guildStorage = selectedPlayerGuildStorageRows(player);
+  const baseSnapshot = currentBasesSnapshot();
+  const indexPlayer = currentPlayerIndexRow(player);
+  const activity = playerActivityExport(player);
+  const inventory = playerInventoryExportSummary(player);
+  const pals = playerPalExportSummary(player);
+  const baseSummary = playerBaseExportSummary(bases, guildStorage, selectedPlayerStock);
+  const playerPayload = selectedPlayerSnapshotPayload?.player === player ? selectedPlayerSnapshotPayload : null;
 
-  return {
+  const payload = {
     export: {
-      schema: "gaylemon-player-analysis.v1",
+      schema: "gaylemon-player-analysis",
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       source: "Gaylémon Palworld",
-      note: "Données publiques en vigueur au moment de l'export.",
+      locale: "fr-CA",
+      timeZone: siteTimeZone,
+      publicOnly: true,
+      deterministic: {
+        objectKeys: "sorted-recursively",
+        arrayOrder: "source-order-preserved",
+        missingValues: "null-or-empty-array",
+      },
+      note: "Données publiques en vigueur au moment de l'export. Les blocs complets sont sous data et relations.",
     },
-    snapshots: {
-      playerUpdatedAt: saveSnapshot?.updatedAt || null,
-      basesUpdatedAt: basesSnapshot?.updatedAt || null,
-      saveVersion: saveSnapshot?.version ?? null,
-      basesVersion: basesSnapshot?.version ?? null,
-    },
-    player: {
+    entity: {
+      type: "player",
       name: player?.name || null,
       slug: playerSlug(player?.name),
       guild: player?.guild || null,
       level: player?.level ?? null,
-      guildBases: player?.guildBases ?? null,
-      campLevel: player?.campLevel ?? null,
-      position: cloneExportValue(player?.position || null),
+    },
+    sources: {
+      player: playerExportPayloadMeta(playerPayload, "players/{slug}.json", {
+        generationId: activeSaveGenerationId(),
+        updatedAt: saveSnapshot?.updatedAt || null,
+        version: saveSnapshot?.version ?? null,
+        provenance: saveSnapshot?.provenance || null,
+      }),
+      index: playerExportPayloadMeta(saveSnapshot, "public-save-index.json"),
+      bases: playerExportPayloadMeta(baseSnapshot, "public-save-bases.json"),
+      stats: playerExportPayloadMeta(statsSnapshot, "public-stats.json"),
+      catalogs: publicCatalogManifest
+        ? playerExportPayloadMeta(publicCatalogManifest, "public-catalogs-manifest.json")
+        : { source: "public-catalogs-manifest.json", status: "unavailable", generationId: null, version: null, updatedAt: null, provenance: null },
+    },
+    summary: {
+      player: {
+        level: player?.level ?? null,
+        guild: player?.guild || null,
+        guildBases: player?.guildBases ?? null,
+        campLevel: player?.campLevel ?? null,
+        position: cloneExportValue(player?.position || null),
+      },
+      activity: cloneExportValue(activity.labels),
+      pals: cloneExportValue(pals),
+      inventory: cloneExportValue(inventory),
+      bases: cloneExportValue(baseSummary),
+      progress: cloneExportValue({
+        technologyPoints: player?.progress?.technologyPoints ?? null,
+        bossTechnologyPoints: player?.progress?.bossTechnologyPoints ?? null,
+        unlockedTechnologies: player?.progress?.unlockedTechnologies ?? null,
+        completedQuests: player?.progress?.completedQuests ?? null,
+        paldexCapturedSpecies: player?.progress?.paldex?.capturedSpecies ?? null,
+        explorationCompletionPercent: player?.progress?.exploration?.completionPercent ?? null,
+      }),
+    },
+    data: {
+      rawPublicFields: cloneExportValue(playerRawFields(player)),
+      player: cloneExportValue(player),
+      indexPlayer: cloneExportValue(indexPlayer),
+      activity: cloneExportValue(activity),
+      pals: {
+        summary: cloneExportValue(pals),
+        party: cloneExportValue(party),
+        palbox: cloneExportValue(palbox),
+        other: cloneExportValue(otherPals),
+      },
+      inventory: {
+        summary: cloneExportValue(inventory),
+        sections: cloneExportValue(player?.inventory || []),
+      },
+      progress: cloneExportValue(player?.progress || {}),
       character: cloneExportValue(player?.character || {}),
     },
-    pals: {
-      summary: cloneExportValue({
-        total: player?.pals?.total ?? collection.length,
-        party: party.length,
-        palbox: palbox.length,
-        other: otherPals.length,
-        uniqueSpecies: player?.pals?.uniqueSpecies ?? null,
-        highestLevel: player?.pals?.highestLevel ?? null,
-      }),
-      party: cloneExportValue(party),
-      palbox: cloneExportValue(palbox),
-      other: cloneExportValue(otherPals),
-    },
-    bases: {
-      summary: {
-        total: bases.length,
-        structures: bases.reduce((total, base) => total + Number(base.structures?.total || 0), 0),
-        damagedStructures: bases.reduce((total, base) => total + Number(base.structures?.damaged || 0), 0),
-        unfinishedStructures: bases.reduce((total, base) => total + Number(base.structures?.unfinished || 0), 0),
-        workersAssigned: bases.reduce((total, base) => total + Number(base.workers?.assigned || 0), 0),
-        storageUnits: bases.reduce((total, base) => total + Number(base.storage?.units || 0), 0),
-        guildStorageUnits: guildStorage.reduce((total, storage) => total + Number(storage.units || 1), 0),
+    relations: {
+      bases: {
+        summary: cloneExportValue(baseSummary),
+        items: cloneExportValue(bases),
+        constructions: cloneExportValue(bases.map((base) => ({
+          name: base.name || null,
+          guild: base.guild || null,
+          campLevel: base.campLevel ?? null,
+          position: base.position || null,
+          structures: base.structures || {},
+          workers: base.workers || {},
+          work: base.work || {},
+          research: base.research || {},
+        }))),
       },
-      items: cloneExportValue(bases),
-      constructions: cloneExportValue(bases.map((base) => ({
-        name: base.name || null,
-        guild: base.guild || null,
-        campLevel: base.campLevel ?? null,
-        position: base.position || null,
-        structures: base.structures || {},
-        workers: base.workers || {},
-        work: base.work || {},
-        research: base.research || {},
-      }))),
-      guildStorage: cloneExportValue(guildStorage),
-      stock: cloneExportValue(selectedPlayerStock),
+      guildStorage: {
+        summary: {
+          units: guildStorage.reduce((total, storage) => total + Number(storage?.units || 1), 0),
+          itemTypes: guildStorage.reduce((total, storage) => total + Number(storage?.itemTypes || 0), 0),
+          rows: guildStorage.length,
+        },
+        items: cloneExportValue(guildStorage),
+      },
+      stock: {
+        summary: {
+          itemTypes: selectedPlayerStock.length,
+          quantity: selectedPlayerStock.reduce((total, item) => total + Number(item?.count || 0), 0),
+          sources: selectedPlayerStock.reduce((counts, item) => {
+            const source = item?.source || "unknown";
+            counts[source] = (counts[source] || 0) + 1;
+            return counts;
+          }, {}),
+        },
+        items: cloneExportValue(selectedPlayerStock),
+      },
+    },
+    analysisGuide: {
+      audience: "lecture automatisée et audit humain",
+      entrypoints: [
+        { key: "summary", use: "Vue courte et déterministe pour décider quoi inspecter." },
+        { key: "data.player", use: "Profil public complet chargé par la fiche joueur." },
+        { key: "data.inventory.sections", use: "Inventaire complet, groupé selon les sections publiques." },
+        { key: "data.pals", use: "Collection complète, aussi découpée en équipe, Palbox et autres conteneurs publics." },
+        { key: "relations.bases.items", use: "Bases reliées au joueur ou à sa guilde." },
+        { key: "relations.stock.items", use: "Stock agrégé prêt à filtrer par source, ressource ou campement." },
+      ],
+      joins: [
+        { from: "entity.slug", to: "data.indexPlayer.name via playerSlug(name)" },
+        { from: "entity.guild", to: "relations.bases.items[].guild" },
+        { from: "entity.guild", to: "relations.guildStorage.items[].guild" },
+        { from: "relations.stock.items[].locations[]", to: "relations.bases.items[].name" },
+      ],
+      privacy: [
+        "Projection publique seulement.",
+        "Aucun GUID, Steam ID, chemin système, conteneur privé ou détail exact de coffre.",
+        "Le stock est agrégé par ressource et source publique.",
+      ],
     },
   };
+  return normalizeExportValue(payload);
 }
 
 function downloadJsonExport(payload, filename) {
@@ -2343,12 +2893,13 @@ function filterBases() {
 
 function renderSelectedPlayerBases() {
   if (!baseGrid || !selectedPlayer) return;
-  selectedPlayerBases = (Array.isArray(basesSnapshot?.bases) ? basesSnapshot.bases : [])
+  const bases = currentBasesSnapshot();
+  selectedPlayerBases = (Array.isArray(bases?.bases) ? bases.bases : [])
     .filter((base) => baseBelongsToPlayer(base, selectedPlayer));
   selectedPlayerStock = buildSelectedPlayerStock();
   const workers = selectedPlayerBases.reduce((total, base) => total + Number(base.workers?.assigned || 0), 0);
   const busyWorkers = selectedPlayerBases.reduce((total, base) => total + Number(base.workers?.busy || 0), 0);
-  const guildStorageUnits = (Array.isArray(basesSnapshot?.guildStorage) ? basesSnapshot.guildStorage : [])
+  const guildStorageUnits = (Array.isArray(bases?.guildStorage) ? bases.guildStorage : [])
     .filter((storage) => stockBelongsToPlayer(storage, selectedPlayer))
     .reduce((total, storage) => total + Number(storage.units || 1), 0);
   const summary = {
@@ -2365,7 +2916,7 @@ function renderSelectedPlayerBases() {
     const element = document.querySelector(`[data-base-summary="${key}"]`);
     if (element) element.textContent = typeof value === "number" ? value.toLocaleString("fr-CA") : value;
   });
-  if (basesState) basesState.textContent = basesSnapshot ? "Campements synchronisés" : "Chargement...";
+  if (basesState) basesState.textContent = bases ? "Campements synchronisés" : "Chargement...";
   baseGrid.innerHTML = selectedPlayerBases.length
     ? selectedPlayerBases.map(baseCardMarkup).join("")
     : '<p class="detail-empty detail-empty--large">Aucun campement n’est associé à cet aventurier.</p>';
@@ -2376,10 +2927,11 @@ function renderSelectedPlayerBases() {
 function renderBaseSnapshot(payload) {
   if (!payload?.ok || !Array.isArray(payload.bases)) {
     if (basesState) basesState.textContent = "En attente";
+    registerPayloadDataUpdate("bases", payload);
     return;
   }
   basesSnapshot = payload;
-  registerDataUpdate("bases", payload.updatedAt);
+  registerPayloadDataUpdate("bases", payload);
   if (basesState) basesState.textContent = `${Number(payload.bases.length || 0).toLocaleString("fr-CA")} bases synchronisées`;
   renderWorldContractStatus();
   if (selectedPlayer) renderSelectedPlayerBases();
@@ -2404,6 +2956,7 @@ const eventTypeMeta = {
   pal: { label: "Pals", token: "PAL", color: "#55a9d6" },
   mutation: { label: "Mutations", token: "MUT", color: "#b682d8" },
   collection: { label: "Collections", token: "PAL", color: "#4da2dd" },
+  activity: { label: "Activité", token: "ACT", color: "#e0a34f" },
   craft: { label: "Fabrications", token: "CRA", color: "#f18b55" },
   build: { label: "Constructions", token: "BLD", color: "#68b35d" },
   production: { label: "Productions", token: "PRD", color: "#4cc3b2" },
@@ -2417,6 +2970,7 @@ const eventTypeMeta = {
   camp: { label: "Camps et bases", token: "BASE", color: "#79b85a" },
   discovery: { label: "Découvertes", token: "NEW", color: "#e96c9b" },
   maintenance: { label: "Maintenances", token: "MAJ", color: "#e7a934" },
+  settings: { label: "Règles du monde", token: "CFG", color: "#cf8b54" },
   server: { label: "Monde", token: "SYS", color: "#77a7be" },
 };
 function normalizeEventSearch(value) {
@@ -2435,8 +2989,29 @@ function formatEventTime(value) {
   };
 }
 
+function eventCanBePublished(event) {
+  let details = "";
+  try {
+    details = JSON.stringify(event?.details || {});
+  } catch {
+    details = "";
+  }
+  const searchable = [
+    event?.title,
+    event?.message,
+    event?.base,
+    event?.headline,
+    event?.body,
+    event?.display?.headline,
+    event?.display?.body,
+    ...(Array.isArray(event?.display?.bullets) ? event.display.bullets : []),
+    details,
+  ].filter(Boolean).join(" ");
+  return !/CommonDropItem3D/i.test(searchable);
+}
+
 function dedupeSessionFallbackEvents(events) {
-  const sourceEvents = Array.isArray(events) ? events : [];
+  const sourceEvents = (Array.isArray(events) ? events : []).filter(eventCanBePublished);
   const journalTransitions = sourceEvents
     .filter((event) => event?.source === "journal" && ["join", "leave"].includes(event.type) && event.player)
     .map((event) => ({
@@ -2492,13 +3067,796 @@ function eventIdentity(event) {
   return fallback ? `fallback:${shortStableHash(fallback)}` : "";
 }
 
-function sortEventsNewestFirst(events) {
-  return dedupeSessionFallbackEvents(events).sort((left, right) => {
+function publicEventOrderRank(event) {
+  const source = String(event?.source || "");
+  const type = String(event?.type || "");
+  if (["journal", "players"].includes(source) && type === "leave") return 0;
+  if (["journal", "players"].includes(source) && ["join", "reconnect"].includes(type)) return 2;
+  return 1;
+}
+
+function sortEventsNewestFirst(events, options = {}) {
+  const candidates = options.canonical
+    ? [...(Array.isArray(events) ? events : [])]
+    : dedupeSessionFallbackEvents(events);
+  return candidates.sort((left, right) => {
     const rightDate = parseDate(right.occurredAt)?.getTime() || 0;
     const leftDate = parseDate(left.occurredAt)?.getTime() || 0;
     if (rightDate !== leftDate) return rightDate - leftDate;
+    const rankDifference = publicEventOrderRank(left) - publicEventOrderRank(right);
+    if (rankDifference !== 0) return rankDifference;
     return Number(right.id || 0) - Number(left.id || 0);
   });
+}
+
+function v6PublicDataPath(value, prefix) {
+  const path = String(value || "").replace(/^\/+/, "");
+  if (!path.startsWith(prefix) || /(?:\.\.|\\|%)/.test(path)) return "";
+  return path;
+}
+
+function v6ManifestDays(manifest = eventsManifestV6) {
+  return (Array.isArray(manifest?.days) ? manifest.days : [])
+    .filter((entry) => isDailyDateKey(entry?.date) && v6PublicDataPath(entry?.path, "data/public-events-v6/"))
+    .sort((left, right) => String(right.date).localeCompare(String(left.date)));
+}
+
+function shiftDailyDateKey(dateKey, days) {
+  if (!isDailyDateKey(dateKey)) return "";
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function v6NavigableDates(manifest = eventsManifestV6) {
+  const published = v6ManifestDays(manifest).map((entry) => entry.date);
+  const today = dailyDateKeyFromDate(new Date());
+  if (!today) return published;
+  const oldest = published.at(-1) || today;
+  const dates = new Set(published);
+  let cursor = today;
+  for (let count = 0; count < 4000 && cursor >= oldest; count += 1) {
+    dates.add(cursor);
+    cursor = shiftDailyDateKey(cursor, -1);
+  }
+  return [...dates].sort((left, right) => right.localeCompare(left));
+}
+
+function v6DateCanBeOpened(dateKey, manifest = eventsManifestV6) {
+  return v6NavigableDates(manifest).includes(dateKey);
+}
+
+function v6DayEntry(dateKey, manifest = eventsManifestV6) {
+  return v6ManifestDays(manifest).find((entry) => entry.date === dateKey) || null;
+}
+
+function v6GenerationIsValid(payload, generationId, head = false) {
+  if (!payload?.ok || Number(payload.schemaVersion) !== 6 || !generationId) return false;
+  return String(head ? payload.baseGenerationId : payload.generationId) === String(generationId);
+}
+
+function v6Sha256IsValid(value) {
+  return /^(?:sha256:)?[a-f0-9]{64}$/i.test(String(value || ""));
+}
+
+function v6ManifestAsIndex(manifest) {
+  const days = v6ManifestDays(manifest);
+  return {
+    version: 6,
+    schemaVersion: 6,
+    ok: true,
+    generationId: manifest.generationId,
+    revision: manifest.generationId,
+    updatedAt: manifest.generatedAt || manifest.sourceUpdatedAt,
+    sourceUpdatedAt: manifest.sourceUpdatedAt,
+    summary: {
+      events: Number(manifest.counts?.echoes || 0),
+      totalEvents: Number(manifest.counts?.echoes || 0),
+      firstAt: days.at(-1)?.firstAt || null,
+      lastAt: days[0]?.lastAt || null,
+    },
+    facets: manifest.facets || { types: [], players: [] },
+    days,
+  };
+}
+
+function clearV6GenerationCaches() {
+  eventDayCache.clear();
+  dailyV6Cache.clear();
+  eventsV6FullLoadPromise = null;
+  eventsV6HistoryLoadPromise = null;
+  eventsV6HistorySignature = "";
+  eventsFullLoaded = false;
+  eventCursor = "";
+  eventCurrentPage = 1;
+}
+
+function captureV6State() {
+  return {
+    manifest: eventsManifestV6,
+    head: eventsHeadV6,
+    mode: eventsContractMode,
+    index: eventsIndexSnapshot,
+    manifestRevision: dataRevisions.eventsManifestV6,
+    headRevision: dataRevisions.eventsHeadV6,
+    sourceUpdatedAt: sourceUpdatedAt.get("events"),
+    selectedDate: eventSelectedDateKey,
+    cursor: eventCursor,
+    page: eventCurrentPage,
+  };
+}
+
+function restoreV6State(state) {
+  if (!state) return false;
+  eventsManifestV6 = state.manifest || null;
+  eventsHeadV6 = state.head || null;
+  const complete = Boolean(eventsManifestV6 && eventsHeadV6);
+  eventsContractMode = complete ? "v6" : state.mode || "v5";
+  eventsIndexSnapshot = state.index || (complete ? v6ManifestAsIndex(eventsManifestV6) : null);
+  dataRevisions.eventsManifestV6 = state.manifestRevision || (complete ? String(eventsManifestV6.generationId || "") : "");
+  dataRevisions.eventsHeadV6 = state.headRevision || (complete ? String(eventsHeadV6.revision || "") : "");
+  eventSelectedDateKey = state.selectedDate || "";
+  eventCursor = state.cursor || "";
+  eventCurrentPage = Math.max(1, Number(state.page || 1));
+  if (state.sourceUpdatedAt) sourceUpdatedAt.set("events", state.sourceUpdatedAt);
+  else sourceUpdatedAt.delete("events");
+  renderSourceFreshness();
+  if (eventsHeadV6) renderHomeLatestEchoes(eventsHeadV6);
+  return complete;
+}
+
+function renderHomeLatestEchoes(payload) {
+  if (!homeLatestEchoes) return;
+  const candidates = Array.isArray(payload?.events) ? payload.events : [];
+  const recent = sortEventsNewestFirst(candidates, { canonical: Number(payload?.schemaVersion) === 6 }).slice(0, 5);
+  homeLatestEchoes.innerHTML = recent.length
+    ? recent.map((event, index) => renderEventLineHtml(event, index)).join("")
+    : '<li class="event-stream__empty">Aucun écho récent pour le moment.</li>';
+  if (homeEchoesStatus) {
+    homeEchoesStatus.textContent = recent.length
+      ? `${recent.length} écho${recent.length > 1 ? "s" : ""} · mis à jour ${formatRelativeAge(payload?.sourceUpdatedAt || payload?.updatedAt || payload?.generatedAt)}`
+      : "Les prochains échos apparaîtront ici.";
+  }
+}
+
+function currentV6MaxCursor() {
+  return Number(eventsManifestV6?.cursor?.maxId || eventsHeadV6?.cursor?.maxId || 0);
+}
+
+function updateTerminalUnseen() {
+  if (eventsContractMode !== "v6") return;
+  markTerminalEchoesSeen();
+}
+
+function markTerminalEchoesSeen() {
+  const cursor = currentV6MaxCursor();
+  if (!cursor) return;
+  terminalVisitStartCursor = cursor;
+  const totalEchoes = Number(eventsHeadV6?.counts?.totalEchoes);
+  terminalVisitStartTotalEchoes = Number.isFinite(totalEchoes) && totalEchoes >= 0 ? totalEchoes : null;
+  try {
+    localStorage.setItem(terminalVisitCursorStorageKey, String(cursor));
+    if (terminalVisitStartTotalEchoes != null) {
+      localStorage.setItem(terminalVisitTotalStorageKey, String(terminalVisitStartTotalEchoes));
+    }
+  } catch {
+    // Le terminal reste fonctionnel lorsque le stockage local est bloqué.
+  }
+}
+
+async function fetchEventsV6Candidate(silent = false, force = false) {
+  const preferredContract = await loadEventsContractChannel(force);
+  if (preferredContract !== "v6") {
+    return { ok: false, changed: false, fallback: true, inactive: true };
+  }
+  if (eventsV6LoadPromise) return eventsV6LoadPromise;
+  if (!force && !eventsManifestV6 && Date.now() < eventsV6RetryAfter) {
+    return { ok: false, changed: false, fallback: true };
+  }
+
+  eventsV6LoadPromise = (async () => {
+    try {
+      let pointer = null;
+      try {
+        pointer = await readJson("data/public-events-head-v6.json", { revalidate: true });
+      } catch (error) {
+        if (!String(error?.message || "").includes("HTTP 404")) throw error;
+      }
+      if (pointer) {
+        const pointerGeneration = String(pointer.baseGenerationId || "");
+        const pointerManifestPath = v6PublicDataPath(pointer.manifest?.path, `data/public-events-v6/${pointerGeneration}/`);
+        const expectedManifestPath = `data/public-events-v6/${pointerGeneration}/manifest.json`;
+        if (
+          !pointer.ok
+          || Number(pointer.schemaVersion) !== 6
+          || !/^[A-Za-z0-9._-]+$/.test(pointerGeneration)
+          || pointerManifestPath !== expectedManifestPath
+          || !v6Sha256IsValid(pointer.manifest?.sha256)
+          || !v6Sha256IsValid(pointer.head?.sha256)
+        ) throw new Error("invalid-v6-active-pointer");
+        if (
+          eventsManifestV6
+          && eventsHeadV6
+          && String(eventsManifestV6.generationId || "") === pointerGeneration
+          && String(eventsHeadV6.revision || "") === String(pointer.head?.revision || pointer.revision || "")
+        ) {
+          eventsActivePointerV6 = pointer;
+          return {
+            ok: true,
+            manifest: eventsManifestV6,
+            head: eventsHeadV6,
+            generationId: pointerGeneration,
+            mode: "v6",
+            unchanged: true,
+          };
+        }
+      }
+      const manifest = pointer
+        ? await readJson(pointer.manifest.path, { immutable: true, expectedSha256: pointer.manifest.sha256 })
+        : await readJson("data/public-events-manifest-v6.json", { revalidate: true });
+      const generationId = String(manifest?.generationId || "");
+      const rawDays = Array.isArray(manifest?.days) ? manifest.days : [];
+      const days = v6ManifestDays(manifest);
+      const incompleteDay = days.some((entry) => !v6PublicDataPath(entry.dailyPath, "data/public-daily/") || !v6Sha256IsValid(entry.sha256) || !v6Sha256IsValid(entry.dailySha256));
+      if (!manifest?.ok || Number(manifest.schemaVersion) !== 6 || !/^[A-Za-z0-9._-]+$/.test(generationId) || days.length !== rawDays.length || incompleteDay) {
+        throw new Error("invalid-v6-manifest");
+      }
+      const expectedHeadPath = `data/public-events-v6/${generationId}/head.json`;
+      const headPath = v6PublicDataPath(manifest.head?.path, `data/public-events-v6/${generationId}/`);
+      if (headPath !== expectedHeadPath || !v6Sha256IsValid(manifest.head?.sha256)) throw new Error("invalid-v6-head-path");
+      if (
+        pointer
+        && (
+          String(pointer.baseGenerationId || "") !== generationId
+          || pointer.head?.path !== manifest.head?.path
+          || pointer.head?.sha256 !== manifest.head?.sha256
+          || String(pointer.head?.revision || "") !== String(manifest.head?.revision || "")
+        )
+      ) throw new Error("mixed-v6-active-pointer");
+      const head = await readJson(headPath, { immutable: true, expectedSha256: manifest.head.sha256 });
+      if (!v6GenerationIsValid(head, generationId, true)) throw new Error("mixed-v6-generation");
+      eventsActivePointerV6 = pointer;
+      eventsV6RetryAfter = 0;
+      return { ok: true, manifest, head, generationId, mode: "v6" };
+    } catch (error) {
+      if (eventsManifestV6 && eventsHeadV6) {
+        return {
+          ok: true,
+          manifest: eventsManifestV6,
+          head: eventsHeadV6,
+          generationId: String(eventsManifestV6.generationId || ""),
+          mode: "v6",
+          stale: true,
+          error,
+        };
+      }
+      eventsV6RetryAfter = Date.now() + 5 * 60 * 1000;
+      if (!silent) console.info("Le journal v6 n’est pas encore publié; repli sur le journal actuel.");
+      return { ok: false, changed: false, fallback: true, error };
+    } finally {
+      eventsV6LoadPromise = null;
+    }
+  })();
+  return eventsV6LoadPromise;
+}
+
+async function loadEventsContractChannel(force = false) {
+  if (!force && eventsContractChannelCheckedAt && Date.now() - eventsContractChannelCheckedAt < refreshEveryMs - 500) {
+    return eventsPreferredContract;
+  }
+  if (eventsContractChannelPromise) return eventsContractChannelPromise;
+
+  eventsContractChannelPromise = (async () => {
+    try {
+      const payload = await readJson("public-events-channel.json", { revalidate: true });
+      const activeContract = String(payload?.activeContract || "").toLocaleLowerCase("en-CA");
+      if (Number(payload?.schemaVersion) !== 1 || !["v5", "v6"].includes(activeContract)) {
+        throw new Error("invalid-events-contract-channel");
+      }
+      const changed = activeContract !== eventsPreferredContract;
+      eventsPreferredContract = activeContract;
+      eventsContractChannelCheckedAt = Date.now();
+      if (changed && activeContract === "v5" && eventsContractMode === "v6") {
+        eventsContractMode = "v5";
+        eventsManifestV6 = null;
+        eventsHeadV6 = null;
+        eventsActivePointerV6 = null;
+        eventsSnapshot = null;
+        eventsIndexSnapshot = null;
+        eventsRecentSnapshot = null;
+        eventsFullLoaded = false;
+        eventsFullLoadPromise = null;
+        clearV6GenerationCaches();
+      }
+      return eventsPreferredContract;
+    } catch {
+      eventsContractChannelCheckedAt = Date.now();
+      return eventsPreferredContract;
+    } finally {
+      eventsContractChannelPromise = null;
+    }
+  })();
+
+  return eventsContractChannelPromise;
+}
+
+function commitEventsV6Candidate(candidate) {
+  if (!candidate?.ok || !candidate.manifest || !candidate.head) throw new Error("invalid-v6-candidate");
+  const previousGeneration = String(eventsManifestV6?.generationId || "");
+  const previousHeadRevision = String(eventsHeadV6?.revision || "");
+  const generationId = String(candidate.manifest.generationId || "");
+  const headRevision = String(candidate.head.revision || candidate.head.cursor?.maxId || candidate.head.generatedAt || "");
+  eventsManifestV6 = candidate.manifest;
+  eventsHeadV6 = candidate.head;
+  eventsContractMode = "v6";
+  eventsIndexSnapshot = v6ManifestAsIndex(candidate.manifest);
+  dataRevisions.eventsManifestV6 = generationId;
+  dataRevisions.eventsHeadV6 = headRevision;
+  registerPayloadDataUpdate("events", candidate.head);
+  renderHomeLatestEchoes(candidate.head);
+  updateTerminalUnseen();
+  return {
+    ok: true,
+    changed: previousGeneration !== generationId || previousHeadRevision !== headRevision,
+    generationChanged: Boolean(previousGeneration && previousGeneration !== generationId),
+    stale: Boolean(candidate.stale),
+    mode: "v6",
+  };
+}
+
+async function stageAndCommitV6Candidate(candidate, loadPayload, commitCandidate) {
+  const payload = await loadPayload();
+  const state = commitCandidate(candidate);
+  return { payload, state };
+}
+
+async function loadEventsV6State(silent = false, force = false) {
+  const candidate = await fetchEventsV6Candidate(silent, force);
+  if (!candidate.ok) {
+    if (!eventsManifestV6 || !eventsHeadV6) eventsContractMode = "v5";
+    return candidate;
+  }
+  return commitEventsV6Candidate(candidate);
+}
+
+function mergeV6DayWithHead(dayPayload, dateKey, manifest = eventsManifestV6, head = eventsHeadV6) {
+  const activeGenerationId = String(manifest?.generationId || "");
+  const headEvents = head && String(head.baseGenerationId) === activeGenerationId
+    ? (head.events || []).filter((event) => dailyDateKeyFromDate(parseDate(event?.occurredAt)) === dateKey)
+    : [];
+  const byKey = new Map();
+  [...(dayPayload.events || []), ...headEvents].forEach((event, index) => {
+    byKey.set(eventIdentity(event) || `v6:${index}`, event);
+  });
+  const events = sortEventsNewestFirst([...byKey.values()], { canonical: true });
+  return {
+    ...dayPayload,
+    version: 6,
+    activeGenerationId,
+    revision: `${activeGenerationId}:${dayPayload.generationId}:${dateKey}:${head?.revision || dayPayload.contentHash || ""}`,
+    updatedAt: head?.sourceUpdatedAt || dayPayload.sourceUpdatedAt || dayPayload.generatedAt,
+    summary: {
+      events: events.length,
+      totalEvents: events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+    events,
+  };
+}
+
+async function loadEventDayV6(dateKey, manifest = eventsManifestV6, head = eventsHeadV6) {
+  const entry = v6DayEntry(dateKey, manifest);
+  if (!manifest?.generationId || !v6DateCanBeOpened(dateKey, manifest)) throw new Error("v6-day-unavailable");
+  if (!entry) {
+    return mergeV6DayWithHead({
+      schemaVersion: 6,
+      ok: true,
+      generationId: String(manifest.generationId),
+      date: dateKey,
+      generatedAt: manifest.generatedAt,
+      sourceUpdatedAt: manifest.sourceUpdatedAt,
+      freshness: manifest.freshness,
+      sourceStatus: manifest.sourceStatus,
+      cursor: { minId: 0, maxId: 0 },
+      counts: { echoes: 0, representedEvents: 0, confirmedEchoes: 0, derivedEchoes: 0 },
+      contentHash: `empty:${dateKey}`,
+      events: [],
+    }, dateKey, manifest, head);
+  }
+  const generationId = String(entry.fragmentGenerationId || entry.generationId || manifest.generationId);
+  const cacheKey = `${generationId}:${entry.path}:${dateKey}`;
+  let payload = eventDayCache.get(cacheKey);
+  if (!payload) {
+    payload = await readJson(v6PublicDataPath(entry.path, "data/public-events-v6/"), {
+      immutable: true,
+      expectedSha256: entry.sha256,
+    });
+    if (!v6GenerationIsValid(payload, generationId) || payload.date !== dateKey || !Array.isArray(payload.events)) {
+      throw new Error("mixed-v6-day-generation");
+    }
+    eventDayCache.set(cacheKey, payload);
+  }
+  return mergeV6DayWithHead(payload, dateKey, manifest, head);
+}
+
+function v6ManifestTotalEchoes(manifest = eventsManifestV6, head = eventsHeadV6) {
+  const total = Number(manifest?.counts?.echoes ?? head?.counts?.totalEchoes ?? 0);
+  return Number.isFinite(total) && total >= 0 ? total : 0;
+}
+
+function dedupeV6Events(events) {
+  const byKey = new Map();
+  (Array.isArray(events) ? events : []).filter(eventCanBePublished).forEach((event, index) => {
+    byKey.set(eventIdentity(event) || `v6:${index}`, event);
+  });
+  return sortEventsNewestFirst([...byKey.values()], { canonical: true });
+}
+
+function v6TerminalPayloadFromEvents(events, options = {}) {
+  const manifest = options.manifest || eventsManifestV6;
+  const head = options.head || eventsHeadV6;
+  const generationId = String(manifest?.generationId || head?.baseGenerationId || "");
+  const sortedEvents = dedupeV6Events(events);
+  const totalEchoes = v6ManifestTotalEchoes(manifest, head) || sortedEvents.length;
+  return {
+    schemaVersion: 6,
+    version: 6,
+    ok: true,
+    terminalFull: Boolean(options.full),
+    terminalHead: !options.full && !options.historyComplete,
+    terminalHistoryComplete: Boolean(options.historyComplete || options.full),
+    terminalHistorySignature: options.historySignature || "",
+    generationId,
+    activeGenerationId: generationId,
+    revision: `${generationId}:${head?.revision || manifest?.generatedAt || ""}:${options.full ? "terminal-full" : "terminal-window"}`,
+    generatedAt: manifest?.generatedAt || head?.generatedAt,
+    sourceUpdatedAt: head?.sourceUpdatedAt || manifest?.sourceUpdatedAt,
+    updatedAt: head?.sourceUpdatedAt || manifest?.sourceUpdatedAt || manifest?.generatedAt || head?.generatedAt,
+    freshness: manifest?.freshness || head?.freshness,
+    sourceStatus: manifest?.sourceStatus || head?.sourceStatus,
+    summary: {
+      events: sortedEvents.length,
+      totalEvents: totalEchoes,
+      firstAt: sortedEvents.at(-1)?.occurredAt || null,
+      lastAt: sortedEvents[0]?.occurredAt || null,
+    },
+    counts: {
+      ...(head?.counts || {}),
+      echoes: sortedEvents.length,
+      totalEchoes,
+    },
+    events: sortedEvents,
+  };
+}
+
+async function loadFullTerminalEventsV6(force = false) {
+  const generationId = String(eventsManifestV6?.generationId || eventsHeadV6?.baseGenerationId || "");
+  if (!generationId) throw new Error("v6-terminal-full-unavailable");
+  if (!force && eventsFullLoaded && eventsSnapshot?.schemaVersion === 6 && String(eventsSnapshot.activeGenerationId || "") === generationId) {
+    return eventsSnapshot;
+  }
+  if (eventsV6FullLoadPromise) return eventsV6FullLoadPromise;
+
+  eventsV6FullLoadPromise = (async () => {
+    const days = v6ManifestDays(eventsManifestV6);
+    const payloads = await Promise.all(days.map((entry) => loadEventDayV6(entry.date, eventsManifestV6, eventsHeadV6)));
+    const payload = v6TerminalPayloadFromEvents(payloads.flatMap((day) => day.events || []), {
+      manifest: eventsManifestV6,
+      head: eventsHeadV6,
+      full: true,
+    });
+    eventsSnapshot = payload;
+    eventsFullLoaded = true;
+    renderEventSummaryCards(payload);
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    return payload;
+  })().finally(() => {
+    eventsV6FullLoadPromise = null;
+  });
+
+  return eventsV6FullLoadPromise;
+}
+
+async function loadTerminalHistoryForFiltersV6(force = false) {
+  const generationId = String(eventsManifestV6?.generationId || eventsHeadV6?.baseGenerationId || "");
+  if (!generationId) throw new Error("v6-terminal-history-unavailable");
+  const filters = currentTerminalFilters();
+  const signature = terminalFilterSignature(filters);
+  if (!eventFiltersRequireFullHistory()) {
+    restoreTerminalV6HeadSnapshot();
+    return eventsSnapshot;
+  }
+  if (!force && eventsFullLoaded && eventsSnapshot?.schemaVersion === 6 && String(eventsSnapshot.activeGenerationId || "") === generationId) {
+    return eventsSnapshot;
+  }
+  if (!force && terminalV6HistoryCoversActiveFilters()) return eventsSnapshot;
+  if (!force && eventsV6HistoryLoadPromise && eventsV6HistorySignature === signature) return eventsV6HistoryLoadPromise;
+
+  eventsV6HistorySignature = signature;
+  const loadPromise = (async () => {
+    const abandonIfStale = () => {
+      if (eventsSnapshot) return eventsSnapshot;
+      restoreTerminalV6HeadSnapshot();
+      return eventsSnapshot;
+    };
+    const candidateDays = v6ManifestDays(eventsManifestV6)
+      .filter((entry) => v6DayCouldMatchTerminalFilters(entry, filters));
+    const totalDays = candidateDays.length;
+    const matchedEvents = [];
+    if (eventResultCount) {
+      eventResultCount.textContent = totalDays
+        ? `Recherche dans l'historique... 0/${formatInteger(totalDays)} journée`
+        : "Aucun jour ne correspond à ces filtres";
+    }
+
+    let loadedDays = 0;
+    for (const entry of candidateDays) {
+      if (signature !== terminalFilterSignature()) {
+        return abandonIfStale();
+      }
+      const payload = await loadEventDayV6(entry.date, eventsManifestV6, eventsHeadV6);
+      matchedEvents.push(...(payload.events || []).filter((event) => eventMatchesTerminalFilters(event, filters)));
+      loadedDays += 1;
+      if (eventResultCount && (loadedDays === 1 || loadedDays === totalDays || loadedDays % 3 === 0)) {
+        const dayLabel = totalDays > 1 ? "journées" : "journée";
+        eventResultCount.textContent = `Recherche dans l'historique... ${formatInteger(loadedDays)}/${formatInteger(totalDays)} ${dayLabel}`;
+      }
+    }
+
+    if (signature !== terminalFilterSignature()) {
+      return abandonIfStale();
+    }
+    const payload = v6TerminalPayloadFromEvents(matchedEvents, {
+      manifest: eventsManifestV6,
+      head: eventsHeadV6,
+      historyComplete: true,
+      historySignature: signature,
+    });
+    payload.summary = {
+      ...(payload.summary || {}),
+      matchedEvents: payload.events.length,
+      searchedDays: totalDays,
+    };
+    eventsSnapshot = payload;
+    eventsFullLoaded = false;
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    return payload;
+  })().finally(() => {
+    if (eventsV6HistoryLoadPromise === loadPromise) eventsV6HistoryLoadPromise = null;
+  });
+
+  eventsV6HistoryLoadPromise = loadPromise;
+  return loadPromise;
+}
+
+async function collectPagedTerminalEventsV6() {
+  const totalEvents = v6ManifestTotalEchoes();
+  const pageSize = terminalV6EchoLimit;
+  const pageCount = Math.max(1, Math.ceil(totalEvents / pageSize));
+  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+  const start = (eventCurrentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, totalEvents);
+  const rows = [];
+  let offset = 0;
+
+  for (const entry of v6ManifestDays(eventsManifestV6)) {
+    const dayCount = Math.max(0, Number(entry.events ?? entry.echoes ?? 0));
+    const nextOffset = offset + dayCount;
+    if (dayCount > 0 && nextOffset > start && offset < end) {
+      const payload = await loadEventDayV6(entry.date, eventsManifestV6, eventsHeadV6);
+      const localStart = Math.max(0, start - offset);
+      const localEnd = Math.min(payload.events.length, end - offset);
+      rows.push(...payload.events.slice(localStart, localEnd));
+    }
+    offset = nextOffset;
+    if (offset >= end) break;
+  }
+
+  return dedupeV6Events(rows).slice(0, pageSize);
+}
+
+async function renderPagedTerminalEventsV6(options = {}) {
+  if (!isTerminalRoute() || eventsContractMode !== "v6" || !eventsManifestV6 || !eventsHeadV6) return false;
+  const preserveViewport = Boolean(options.preserveViewport);
+  const streamTopBefore = preserveViewport ? eventStream?.getBoundingClientRect().top : null;
+  const totalEvents = v6ManifestTotalEchoes();
+  const pageCount = Math.max(1, Math.ceil(totalEvents / terminalV6EchoLimit));
+  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+
+  const canKeepCurrentRows = Boolean(options.preserveDom && eventStream?.querySelector(".event-line"));
+  if (!canKeepCurrentRows && eventStream) {
+    eventStream.innerHTML = '<li class="event-stream__empty">Chargement des échos...</li>';
+  }
+
+  const visible = await collectPagedTerminalEventsV6();
+  terminalEventWindowStart = (eventCurrentPage - 1) * terminalV6EchoLimit;
+  terminalVisibleEvents = visible;
+  if (eventResultCount) {
+    const label = `${dailyPlural(visible.length, "écho affiché", "échos affichés")} · ${formatInteger(totalEvents)} synchronisés`;
+    eventResultCount.textContent = pageCount > 1 ? `${label} · page ${eventCurrentPage} sur ${pageCount}` : label;
+  }
+  renderEventStreamItems(visible, true, false, { preserveDom: Boolean(options.preserveDom) });
+  renderEventPaginationControls(pageCount);
+  if (preserveViewport && Number.isFinite(streamTopBefore)) {
+    const streamTopAfter = eventStream?.getBoundingClientRect().top;
+    if (Number.isFinite(streamTopAfter)) {
+      window.scrollBy({ top: streamTopAfter - streamTopBefore, behavior: "auto" });
+    }
+  }
+  return true;
+}
+
+function v6HeadAsTerminalPayload(head, manifest = eventsManifestV6) {
+  const generationId = String(manifest?.generationId || head?.baseGenerationId || "");
+  if (!v6GenerationIsValid(head, generationId, true)) throw new Error("mixed-v6-terminal-head");
+  const events = sortEventsNewestFirst((head.events || []).filter(eventCanBePublished), { canonical: true })
+    .slice(0, terminalV6EchoLimit);
+  const totalEchoes = Number(manifest?.counts?.echoes ?? head?.counts?.totalEchoes ?? events.length);
+  return {
+    ...head,
+    version: 6,
+    schemaVersion: 6,
+    ok: true,
+    recent: true,
+    terminalHead: true,
+    generationId,
+    activeGenerationId: generationId,
+    revision: `${generationId}:${head.revision || head.cursor?.maxId || head.generatedAt || ""}:terminal-head`,
+    updatedAt: head.sourceUpdatedAt || head.generatedAt || manifest?.sourceUpdatedAt || manifest?.generatedAt,
+    summary: {
+      events: events.length,
+      totalEvents: Number.isFinite(totalEchoes) && totalEchoes >= 0 ? totalEchoes : events.length,
+      firstAt: events.at(-1)?.occurredAt || null,
+      lastAt: events[0]?.occurredAt || null,
+    },
+    counts: {
+      ...(head.counts || {}),
+      echoes: events.length,
+      totalEchoes: Number.isFinite(totalEchoes) && totalEchoes >= 0 ? totalEchoes : events.length,
+    },
+    events,
+  };
+}
+
+function renderEventDateControls() {
+  if (!eventDateNavigation || !isDailyDigestRoute()) return;
+  const dates = v6NavigableDates();
+  const index = dates.indexOf(eventSelectedDateKey);
+  eventDateNavigation.hidden = eventsContractMode !== "v6";
+  if (eventDateInput) {
+    eventDateInput.value = eventSelectedDateKey || "";
+    eventDateInput.min = dates.at(-1) || "";
+    eventDateInput.max = dailyDateKeyFromDate(new Date()) || dates[0] || "";
+  }
+  if (eventDatePrevious) eventDatePrevious.disabled = index < 0 || index >= dates.length - 1;
+  if (eventDateNext) eventDateNext.disabled = index <= 0;
+  if (eventDateToday) eventDateToday.disabled = eventSelectedDateKey === dailyDateKeyFromDate(new Date());
+}
+
+async function loadTerminalEventsV6(silent = false) {
+  const rollbackState = captureV6State();
+  const previousRevision = eventsSnapshot?.revision || "";
+  const hadFullGeneration = eventsFullLoaded && String(eventsSnapshot?.activeGenerationId || "") === String(eventsManifestV6?.generationId || "");
+  const shouldPreserveView = Boolean(silent && (terminalFiltersAreActive() || eventCurrentPage > 1));
+  try {
+    const candidate = await fetchEventsV6Candidate(silent, true);
+    if (!candidate.ok) return candidate;
+    const { payload, state } = await stageAndCommitV6Candidate(
+      candidate,
+      () => Promise.resolve(v6HeadAsTerminalPayload(candidate.head, candidate.manifest)),
+      commitEventsV6Candidate,
+    );
+    eventSelectedDateKey = "";
+    eventCursor = "";
+    if (state.generationChanged) clearV6GenerationCaches();
+    if (!shouldPreserveView) eventCurrentPage = 1;
+    eventsSnapshot = payload;
+    eventsRecentSnapshot = payload;
+    eventsFullLoaded = false;
+    renderEventSummaryCards(payload);
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    renderEventFiltersFromFacets(eventsIndexSnapshot);
+    eventDateNavigation?.setAttribute("hidden", "");
+    if (terminalFiltersAreActive()) {
+      await loadTerminalHistoryForFiltersV6(state.generationChanged);
+      renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    } else if (hadFullGeneration) {
+      await loadFullTerminalEventsV6(state.generationChanged);
+      renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    } else if (eventCurrentPage > 1) {
+      await renderPagedTerminalEventsV6({ preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    } else {
+      renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+    }
+    updateTerminalUnseen();
+    return { ok: true, changed: state.changed || previousRevision !== payload.revision, mode: "v6" };
+  } catch (error) {
+    const restored = restoreV6State(rollbackState);
+    if (restored) {
+      if (eventsSnapshot?.version === 6 && String(eventsSnapshot.activeGenerationId || "") === String(eventsManifestV6?.generationId || "")) {
+        eventDateNavigation?.setAttribute("hidden", "");
+        return { ok: true, changed: false, stale: true, error, mode: "v6" };
+      }
+      try {
+        eventSelectedDateKey = "";
+        eventCursor = "";
+        if (!shouldPreserveView) eventCurrentPage = 1;
+        const payload = v6HeadAsTerminalPayload(eventsHeadV6, eventsManifestV6);
+        eventsSnapshot = payload;
+        eventsRecentSnapshot = payload;
+        eventsFullLoaded = false;
+        renderEventSummaryCards(payload);
+        renderEventSyncStatus(new Date(), payload.updatedAt);
+        renderEventFiltersFromFacets(eventsIndexSnapshot);
+        eventDateNavigation?.setAttribute("hidden", "");
+        if (terminalFiltersAreActive()) {
+          await loadTerminalHistoryForFiltersV6(false);
+          renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        } else if (hadFullGeneration) {
+          await loadFullTerminalEventsV6(false);
+          renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        } else if (eventCurrentPage > 1) {
+          await renderPagedTerminalEventsV6({ preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        } else {
+          renderEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+        }
+        updateTerminalUnseen();
+        return { ok: true, changed: false, stale: true, error, mode: "v6" };
+      } catch {
+        // Le repli v5 reste disponible si la dernière génération complète n’est plus lisible.
+      }
+    }
+    return { ok: false, changed: false, fallback: true, error };
+  }
+}
+
+async function selectEventDate(dateKey, updateUrl = true) {
+  if (!v6DateCanBeOpened(dateKey)) return;
+  const previousDate = eventSelectedDateKey;
+  try {
+    const payload = await loadEventDayV6(dateKey);
+    eventSelectedDateKey = dateKey;
+    eventCursor = "";
+    eventCurrentPage = 1;
+    eventsSnapshot = payload;
+    renderEventSummaryCards(payload);
+    renderEventSyncStatus(new Date(), payload.updatedAt);
+    renderEventDateControls();
+    renderEvents();
+    if (updateUrl) writeTerminalState();
+  } catch {
+    eventSelectedDateKey = previousDate;
+    renderEventDateControls();
+    announceDataUpdate("Cette journée n’a pas pu être chargée. La journée déjà ouverte reste affichée.");
+  }
+}
+
+async function loadHomeEchoes(silent = false) {
+  const v6 = await loadEventsV6State(true, true);
+  if (v6.ok && eventsHeadV6) return v6;
+  try {
+    const payload = await readJson("data/public-events-recent.json");
+    renderHomeLatestEchoes(payload);
+    registerPayloadDataUpdate("events", payload);
+    return { ok: true, changed: isNewDataRevision("events", payload), mode: "v5" };
+  } catch {
+    if (!silent && homeEchoesStatus) homeEchoesStatus.textContent = "Les échos sont momentanément indisponibles.";
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadTerminalEventsPreferred(silent = false) {
+  const v6 = await loadTerminalEventsV6(true);
+  if (v6.ok && eventsContractMode === "v6") return v6;
+  eventDateNavigation?.setAttribute("hidden", "");
+  const fallback = eventFiltersRequireFullHistory()
+    ? await loadEventsWithRecentOverlay(silent)
+    : await loadEventsIndex(silent);
+  if (fallback.ok && !eventsFullLoaded && eventsIndexSnapshot) {
+    await renderPagedTerminalEvents(false, { preserveDom: Boolean(silent), preserveViewport: Boolean(silent) });
+  }
+  return { ...fallback, mode: "v5" };
 }
 
 function primaryEventRevision(payload) {
@@ -2515,8 +3873,69 @@ function recentEventRevision(payload) {
   return parts.length > 1 ? parts.at(-1) : "";
 }
 
+function v5TailReplacementWindow(basePayload, overlayPayload) {
+  const baseVersion = Number(basePayload?.schemaVersion || basePayload?.version || 0);
+  const overlayVersion = Number(overlayPayload?.schemaVersion || overlayPayload?.version || 0);
+  const window = overlayPayload?.projectionWindow;
+  if (
+    baseVersion !== 5
+    || overlayVersion !== 5
+    || !overlayPayload?.recent
+    || window?.mode !== "replace-tail"
+    || window?.complete !== true
+  ) return null;
+
+  const replaceAt = parseDate(window.replaceFrom);
+  const baseRevision = Number(basePayload?.projectionRevision);
+  const fromRevision = Number(window.fromProjectionRevision);
+  const throughRevision = Number(window.throughProjectionRevision);
+  const overlayRevision = Number(overlayPayload?.projectionRevision);
+  if (
+    !replaceAt
+    || !Number.isInteger(baseRevision)
+    || !Number.isInteger(fromRevision)
+    || !Number.isInteger(throughRevision)
+    || !Number.isInteger(overlayRevision)
+    || baseRevision >= throughRevision
+    || fromRevision >= throughRevision
+    || overlayRevision !== throughRevision
+  ) return null;
+
+  return {
+    replaceAt,
+    replaceFrom: String(window.replaceFrom),
+    fromRevision,
+    throughRevision,
+    fullyCovered: baseRevision >= fromRevision,
+  };
+}
+
+function mergeV5PagedTailEvents(baseEvents, basePayload, overlayPayload) {
+  const replacement = v5TailReplacementWindow(basePayload, overlayPayload);
+  const coldEvents = dedupeSessionFallbackEvents(baseEvents);
+  if (!replacement) return coldEvents;
+
+  const byKey = new Map();
+  coldEvents.forEach((event, index) => {
+    const occurredAt = parseDate(event?.occurredAt);
+    if (occurredAt && occurredAt >= replacement.replaceAt) return;
+    byKey.set(eventIdentity(event) || `cold:${index}`, event);
+  });
+  dedupeSessionFallbackEvents(overlayPayload?.events).forEach((event, index) => {
+    const occurredAt = parseDate(event?.occurredAt);
+    if (!occurredAt || occurredAt < replacement.replaceAt) return;
+    byKey.set(eventIdentity(event) || `recent:${index}`, event);
+  });
+  return sortEventsNewestFirst([...byKey.values()], { canonical: true });
+}
+
 function mergeEventPayloads(basePayload, overlayPayload) {
-  const baseEvents = dedupeSessionFallbackEvents(basePayload?.events);
+  const replacement = v5TailReplacementWindow(basePayload, overlayPayload);
+  const baseEvents = dedupeSessionFallbackEvents(basePayload?.events).filter((event) => {
+    if (!replacement) return true;
+    const occurredAt = parseDate(event?.occurredAt);
+    return !occurredAt || occurredAt < replacement.replaceAt;
+  });
   const overlayEvents = dedupeSessionFallbackEvents(overlayPayload?.events);
   const baseRevision = primaryEventRevision(basePayload);
   const overlayRevision = recentEventRevision(overlayPayload) || recentEventRevision(basePayload);
@@ -2526,6 +3945,8 @@ function mergeEventPayloads(basePayload, overlayPayload) {
       events: baseEvents,
       sourceRevision: baseRevision,
       recentRevision: overlayRevision,
+      projectionRevision: replacement?.throughRevision ?? basePayload?.projectionRevision,
+      projectionWindow: replacement ? overlayPayload.projectionWindow : basePayload?.projectionWindow,
       revision: [baseRevision || basePayload?.revision, overlayRevision].filter(Boolean).join("+"),
       summary: {
         ...(basePayload?.summary || {}),
@@ -2550,6 +3971,8 @@ function mergeEventPayloads(basePayload, overlayPayload) {
     version: Math.max(Number(basePayload?.version || 0), Number(overlayPayload?.version || 0)),
     sourceRevision: baseRevision,
     recentRevision: overlayRevision,
+    projectionRevision: replacement?.throughRevision ?? basePayload?.projectionRevision,
+    projectionWindow: replacement ? overlayPayload.projectionWindow : basePayload?.projectionWindow,
     revision: [baseRevision || basePayload?.revision, overlayRevision].filter(Boolean).join("+"),
     updatedAt: latestUpdatedAt || basePayload?.updatedAt || overlayPayload?.updatedAt || new Date().toISOString(),
     summary: {
@@ -2583,9 +4006,28 @@ function renderEventFilterOptions(types, players) {
   if (eventPlayerFilter) delete eventPlayerFilter.dataset.pendingValue;
 }
 
+function eventFacetTypes(event) {
+  const types = new Set();
+  if (event?.type) types.add(String(event.type));
+  const details = event?.details || {};
+  if (Array.isArray(details.types)) {
+    details.types.forEach((type) => {
+      const value = String(type || "").trim();
+      if (value) types.add(value);
+    });
+  }
+  if (Array.isArray(details.categories)) {
+    details.categories.forEach((category) => {
+      const value = String(category?.type || "").trim();
+      if (value) types.add(value);
+    });
+  }
+  return [...types];
+}
+
 function renderEventFilters(events) {
   events = dedupeSessionFallbackEvents(events);
-  const types = [...new Set(events.map((event) => event.type).filter(Boolean))];
+  const types = [...new Set(events.flatMap(eventFacetTypes).filter(Boolean))];
   const players = [...new Set(events.map((event) => event.player).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right, "fr-CA"));
 
@@ -2598,7 +4040,7 @@ function renderEventFiltersFromFacets(payload) {
     ...(payload?.facets?.types || [])
     .map((facet) => typeof facet === "string" ? facet : facet?.value)
     .filter(Boolean),
-    ...recentEvents.map((event) => event.type).filter(Boolean),
+    ...recentEvents.flatMap(eventFacetTypes).filter(Boolean),
   ])];
   const players = [...new Set([
     ...(payload?.facets?.players || [])
@@ -2617,6 +4059,73 @@ function eventFiltersRequireFullHistory() {
     selectedEventTypeValue() !== "all" ||
     selectedEventPlayerValue() !== "all"
   );
+}
+
+function currentTerminalFilters() {
+  return {
+    query: normalizeEventSearch(eventSearch?.value),
+    type: selectedEventTypeValue(),
+    player: selectedEventPlayerValue(),
+  };
+}
+
+function terminalFilterSignature(filters = currentTerminalFilters()) {
+  return JSON.stringify([
+    filters.query || "",
+    filters.type || "all",
+    filters.player || "all",
+  ]);
+}
+
+function eventMatchesTerminalFilters(event, filters = currentTerminalFilters()) {
+  if (filters.type !== "all" && !eventFacetTypes(event).includes(filters.type)) return false;
+  if (filters.player !== "all" && event.player !== filters.player) return false;
+  if (!filters.query) return true;
+  return normalizeEventSearch([
+    event.player,
+    event.guild,
+    event.base,
+    event.title,
+    event.message,
+    event.display?.headline,
+    event.display?.body,
+    ...(event.display?.bullets || []),
+    event.type,
+    ...eventFacetTypes(event),
+  ].filter(Boolean).join(" ")).includes(filters.query);
+}
+
+function v6FacetHasValue(rows, value) {
+  const expected = String(value || "").trim().toLocaleLowerCase("fr-CA");
+  if (!expected) return true;
+  if (!Array.isArray(rows) || !rows.length) return true;
+  return rows.some((row) => String(typeof row === "string" ? row : row?.value || "")
+    .trim()
+    .toLocaleLowerCase("fr-CA") === expected);
+}
+
+function v6DayCouldMatchTerminalFilters(entry, filters = currentTerminalFilters()) {
+  const facets = entry?.facets || {};
+  if (filters.type !== "all" && !v6FacetHasValue(facets.types, filters.type)) return false;
+  if (filters.player !== "all" && !v6FacetHasValue(facets.players, filters.player)) return false;
+  return true;
+}
+
+function terminalV6HistoryCoversActiveFilters() {
+  return Boolean(
+    eventsSnapshot?.terminalHistoryComplete &&
+    eventsSnapshot?.terminalHistorySignature === terminalFilterSignature()
+  );
+}
+
+function restoreTerminalV6HeadSnapshot() {
+  if (!isTerminalRoute() || eventsContractMode !== "v6" || !eventsHeadV6 || !eventsManifestV6) return false;
+  const payload = v6HeadAsTerminalPayload(eventsHeadV6, eventsManifestV6);
+  eventsSnapshot = payload;
+  eventsRecentSnapshot = payload;
+  eventsFullLoaded = false;
+  eventsV6HistorySignature = "";
+  return true;
 }
 
 function eventPageNumbers(current, total) {
@@ -2679,6 +4188,7 @@ function readTerminalState() {
     type: params.get("type") ?? saved.type ?? "all",
     player: params.get("player") ?? saved.player ?? "all",
     page: Number(params.get("page") || saved.page || 1),
+    cursor: params.get("cursor") ?? saved.cursor ?? "",
   };
   if (eventSearch) eventSearch.value = values.q;
   if (eventTypeFilter) {
@@ -2690,6 +4200,8 @@ function readTerminalState() {
     eventPlayerFilter.value = values.player;
   }
   eventCurrentPage = Math.max(1, values.page || 1);
+  eventSelectedDateKey = "";
+  eventCursor = values.cursor || "";
   syncEventControlsState();
   updateTerminalPageSize();
 }
@@ -2715,6 +4227,7 @@ function writeTerminalState() {
     type: selectedEventTypeValue(),
     player: selectedEventPlayerValue(),
     page: eventCurrentPage,
+    cursor: eventCursor,
   };
   localStorage.setItem("gaylemon-terminal-filters", JSON.stringify(state));
   const params = new URLSearchParams();
@@ -2722,7 +4235,9 @@ function writeTerminalState() {
   for (const key of ["type", "player"]) {
     if (state[key] && state[key] !== "all") params.set(key, state[key]);
   }
-  if (state.page > 1) params.set("page", String(state.page));
+  if (state.page > 1) {
+    params.set("page", String(state.page));
+  }
   const query = params.toString();
   history.replaceState(null, "", `/terminal${query ? `?${query}` : ""}`);
 }
@@ -2744,6 +4259,8 @@ function eventRenderSignature(event) {
     event?.message || "",
     event?.display?.headline || "",
     event?.display?.body || "",
+    event?.confidence || "confirmed",
+    event?.details?.windowMinutes || 0,
     ...(event?.display?.bullets || []),
   ]));
 }
@@ -2763,7 +4280,7 @@ function renderEventStreamItems(visible, terminal, refinePageSize, options = {})
 
   if (!options.preserveDom) {
     eventStream.innerHTML = rendered.map((item) => item.html).join("");
-    return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+    return Boolean(terminal && eventsContractMode !== "v6" && refinePageSize && refineRenderedTerminalPageSize());
   }
 
   const existingLines = new Map(
@@ -2787,7 +4304,7 @@ function renderEventStreamItems(visible, terminal, refinePageSize, options = {})
       });
     });
   }
-  return Boolean(terminal && refinePageSize && refineRenderedTerminalPageSize());
+  return Boolean(terminal && eventsContractMode !== "v6" && refinePageSize && refineRenderedTerminalPageSize());
 }
 
 function renderEventLineHtml(event, index = 0) {
@@ -2804,18 +4321,66 @@ function renderEventLineHtml(event, index = 0) {
       : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
     const key = eventIdentity(event) || `visible:${index}`;
     const signature = eventRenderSignature(event);
+    const confidenceBadge = event.confidence === "derived"
+      ? '<em class="event-line__confidence" aria-label="Rattaché à la guilde : le fait vient de la guilde, le joueur affiché est le meilleur repère disponible" title="Cet écho vient de la guilde; le joueur affiché est le meilleur repère disponible.">Rattaché à la guilde</em>'
+      : "";
+    const windowMinutes = eventAggregationWindowMinutes(event);
+    const windowBadge = windowMinutes
+      ? `<em class="event-line__window" aria-label="Tranche de ${windowMinutes} minutes">Tranche de ${windowMinutes} min</em>`
+      : "";
+    const tooltip = renderTerminalEventTooltip(event, {
+      body,
+      bullets,
+      headline,
+      index,
+      key,
+      meta,
+      timestamp,
+      windowMinutes,
+    });
     return `
-      <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}" style="--event-accent:${accent};--event-type-accent:${meta.color}">
-        <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.date)} · ${escapeHtml(timestamp.time)}</strong></time>
+      <li class="event-line event-line--${escapeHtml(event.type)}${playerClass}${detailClass}" data-event-key="${escapeHtml(key)}" data-event-render="${escapeHtml(signature)}"${tooltip.attributes} style="--event-accent:${accent};--event-type-accent:${meta.color}">
+        <time datetime="${escapeHtml(event.occurredAt)}"><strong>${escapeHtml(timestamp.time)}</strong><span>${escapeHtml(timestamp.date)}</span></time>
         <span class="event-line__rail" aria-hidden="true"><i></i></span>
         <span class="event-line__visual">${visual}</span>
         <span class="event-line__content">
-          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}</span>
+          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${windowBadge}${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}${confidenceBadge}</span>
           <strong>${escapeHtml(headline)}</strong>
           <span class="event-line__body">${escapeHtml(body)}</span>
           ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
         </span>
+        ${tooltip.html}
       </li>`;
+}
+
+function renderTerminalEventTooltip(event, context) {
+  if (!isTerminalRoute()) return { attributes: "", html: "" };
+  const tooltipId = `event-tooltip-${context.index}-${playerSlug(context.key)}`;
+  const metaItems = [
+    context.meta.label,
+    context.windowMinutes ? `Tranche de ${context.windowMinutes} min` : "",
+    event.player || "",
+    event.base || "",
+    event.confidence === "derived" ? "Rattaché à la guilde" : "",
+  ].filter(Boolean);
+  const bullets = Array.isArray(context.bullets) ? context.bullets : [];
+  const body = String(context.body || "").trim();
+  const headline = String(context.headline || "Écho").trim();
+  const timestamp = `${context.timestamp.time} · ${context.timestamp.date}`;
+  const ariaLabel = [timestamp, headline, body, ...bullets].filter(Boolean).join(". ");
+  const html = `
+        <span class="event-line__more" aria-hidden="true">Voir tout</span>
+        <span class="event-line__tooltip" id="${escapeHtml(tooltipId)}" role="tooltip">
+          <span class="event-line__tooltip-kicker">${escapeHtml(timestamp)}</span>
+          <span class="event-line__tooltip-meta">${metaItems.map((item) => `<em>${escapeHtml(item)}</em>`).join("")}</span>
+          <strong>${escapeHtml(headline)}</strong>
+          ${body ? `<span class="event-line__tooltip-body">${escapeHtml(body)}</span>` : ""}
+          ${bullets.length ? `<ul class="event-line__tooltip-items">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
+        </span>`;
+  return {
+    attributes: ` tabindex="0" aria-label="${escapeHtml(ariaLabel)}" aria-describedby="${escapeHtml(tooltipId)}"`,
+    html,
+  };
 }
 
 function eventBulletQuantityTotal(bullets) {
@@ -2834,7 +4399,36 @@ function frenchPlural(value, singular, pluralForm) {
   return value === 1 ? singular : pluralForm;
 }
 
+function eventAggregationWindowMinutes(event) {
+  const minutes = Number(event?.details?.windowMinutes || 0);
+  return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+}
+
+function eventAggregationWindowLabel(event) {
+  const minutes = eventAggregationWindowMinutes(event);
+  if (!minutes) return "";
+  return minutes === 1 ? "1 min" : `${minutes} min`;
+}
+
+function eventAggregationHeadline(event, fallbackHeadline) {
+  const minutes = eventAggregationWindowMinutes(event);
+  if (!minutes) return fallbackHeadline;
+  const labels = {
+    activity: "Activité relevée",
+    craft: "Fabrications terminées",
+    production: "Ressources produites relevées",
+    fishing: "Pêche ramenée",
+    build: "Base agrandie",
+    repair: "Réparations terminées",
+    base: "État de base relevé",
+    loot: "Butin récupéré",
+    collection: "Collection enrichie",
+  };
+  return labels[event.type] || fallbackHeadline || "Activité relevée";
+}
+
 function compactEventHeadline(event, fallbackHeadline) {
+  if (eventAggregationWindowMinutes(event)) return eventAggregationHeadline(event, fallbackHeadline);
   if (event.type !== "production") return fallbackHeadline;
   const player = String(event.player || "").trim();
   const base = String(event.base || "").trim();
@@ -2848,26 +4442,49 @@ function compactProductionEventBody(event, fallbackBody, bullets) {
   const added = eventBulletQuantityTotal(bullets) || eventDetailItemsQuantityTotal(event, "added");
   const total = Number(event.details?.total || eventDetailItemsQuantityTotal(event, "count"));
   if (!added) return fallbackBody;
-  const ready = added === 1
-    ? "1 ressource produite est prête."
-    : `${added.toLocaleString("fr-CA")} ressources produites sont prêtes.`;
-  return total > 0
-    ? `${ready} Stock de production actuel: ${total.toLocaleString("fr-CA")}.`
+  const isDerived = event.confidence === "derived";
+  const ready = isDerived
+    ? added === 1 ? "1 ressource supplémentaire a été relevée." : `${added.toLocaleString("fr-CA")} ressources supplémentaires ont été relevées.`
+    : added === 1 ? "1 ressource produite est prête." : `${added.toLocaleString("fr-CA")} ressources produites sont prêtes.`;
+  const body = total > 0
+    ? `${ready} ${isDerived ? "Stock observé" : "Stock de production"} : ${total.toLocaleString("fr-CA")}.`
     : ready;
+  return body;
 }
 
 function compactItemizedEventBody(event, fallbackBody, bullets) {
   if (event.type === "production") return compactProductionEventBody(event, fallbackBody, bullets);
-  if (!bullets.length || !["craft", "fishing"].includes(event.type)) return fallbackBody;
+  if (event.type === "activity") return fallbackBody;
+  if (!bullets.length || !["craft", "fishing", "build", "repair", "base"].includes(event.type)) return fallbackBody;
   const added = eventBulletQuantityTotal(bullets);
   const total = Number(event.details?.total || 0);
   const player = String(event.player || "").trim();
-  if (!added || !total || !player) return fallbackBody;
+  const base = String(event.base || "").trim();
+  if (!added || (!player && !base)) return fallbackBody;
 
   if (event.type === "craft") {
-    return `${player} termine ${added} ${frenchPlural(added, "fabrication", "fabrications")}. Total cumulé: ${total}.`;
+    const totalLabel = total > 0 ? ` Total cumulé : ${total.toLocaleString("fr-CA")}.` : "";
+    return `${player} termine ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "fabrication", "fabrications")}.${totalLabel}`;
   }
-  return `${player} ramène ${added} ${frenchPlural(added, "prise de pêche", "prises de pêche")}. Total cumulé: ${total}.`;
+  if (event.type === "fishing") {
+    const totalLabel = total > 0 ? ` Total cumulé : ${total.toLocaleString("fr-CA")}.` : "";
+    return `${player} ramène ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "prise de pêche", "prises de pêche")}.${totalLabel}`;
+  }
+  const owner = player || base;
+  if (event.type === "build") {
+    const scope = base && !String(owner).includes(base) ? ` à ${base}` : "";
+    const totalLabel = total > 0 ? ` Total suivi : ${total.toLocaleString("fr-CA")}.` : "";
+    return `${owner} ajoute ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "structure", "structures")}${scope}.${totalLabel}`;
+  }
+  if (event.type === "repair") {
+    const scope = base && !String(owner).includes(base) ? ` à ${base}` : "";
+    return `${owner} remet ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "structure", "structures")} en état${scope}.`;
+  }
+  if (event.type === "base") {
+    const scope = base && !String(owner).includes(base) ? ` à ${base}` : "";
+    return `${owner} relève ${added.toLocaleString("fr-CA")} ${frenchPlural(added, "structure endommagée", "structures endommagées")}${scope}.`;
+  }
+  return fallbackBody;
 }
 
 function renderEventPaginationControls(pageCount) {
@@ -2879,6 +4496,22 @@ function renderEventPaginationControls(pageCount) {
   }
 
   eventPagination.hidden = false;
+  if (isTerminalRoute()) {
+    eventPagination.innerHTML = `
+      <button class="event-pagination__step" type="button" data-event-page="${eventCurrentPage - 1}" aria-label="Page précédente" ${eventCurrentPage === 1 ? "disabled" : ""}>
+        <span aria-hidden="true">‹</span>
+      </button>
+      <label class="event-pagination__position">
+        <span class="event-pagination__label">Page</span>
+        <input class="event-pagination__page-input" type="number" inputmode="numeric" min="1" max="${pageCount}" value="${eventCurrentPage}" aria-label="Aller à la page">
+        <span class="event-pagination__total">sur ${formatInteger(pageCount)}</span>
+      </label>
+      <button class="event-pagination__step" type="button" data-event-page="${eventCurrentPage + 1}" aria-label="Page suivante" ${eventCurrentPage === pageCount ? "disabled" : ""}>
+        <span aria-hidden="true">›</span>
+      </button>`;
+    return;
+  }
+
   const pages = eventPageNumbers(eventCurrentPage, pageCount);
   let previousPage = 0;
   const pageButtons = pages.map((page) => {
@@ -2894,6 +4527,14 @@ function renderEventPaginationControls(pageCount) {
 
 function eventIndexTotalEvents() {
   return Number(eventsIndexSnapshot?.summary?.totalEvents || eventsIndexSnapshot?.summary?.events || 0);
+}
+
+function eventIndexDisplayTotalEvents() {
+  const replacement = v5TailReplacementWindow(eventsIndexSnapshot, eventsRecentSnapshot);
+  const recentTotal = Number(eventsRecentSnapshot?.summary?.totalEvents);
+  return replacement && Number.isInteger(recentTotal) && recentTotal >= 0
+    ? recentTotal
+    : eventIndexTotalEvents();
 }
 
 function eventIndexPageSize() {
@@ -3008,9 +4649,15 @@ async function collectPagedTerminalEvents() {
   const sourcePages = eventExportPageNumbersForWindow(start, end, exportPageSize);
   const payloads = await Promise.all(sourcePages.map((page) => loadEventExportPage(page)));
   const sourceStart = (sourcePages[0] - 1) * exportPageSize;
-  return payloads
-    .flatMap((payload) => payload.events || [])
-    .slice(start - sourceStart, end - sourceStart);
+  const coldEvents = payloads.flatMap((payload) => payload.events || []);
+  // La tête v5 peut avancer entre deux checkpoints froids. Tant que la
+  // fenêtre demandée part de la première page exportée, on reconstruit cette
+  // tête avec la queue canonique. Les pages profondes restent volontairement
+  // celles du dernier checkpoint jusqu'à sa prochaine publication.
+  const events = sourceStart === 0
+    ? mergeV5PagedTailEvents(coldEvents, eventsIndexSnapshot, eventsRecentSnapshot)
+    : coldEvents;
+  return events.slice(start - sourceStart, end - sourceStart);
 }
 
 async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
@@ -3040,7 +4687,8 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
     }
 
     const visible = await collectPagedTerminalEvents();
-    const resultLabel = `${totalEvents.toLocaleString("fr-CA")} écho${totalEvents > 1 ? "s" : ""}`;
+    const displayTotalEvents = eventIndexDisplayTotalEvents();
+    const resultLabel = `${displayTotalEvents.toLocaleString("fr-CA")} écho${displayTotalEvents > 1 ? "s" : ""}`;
     const updatedPageCount = Math.max(1, Math.ceil(totalEvents / terminalEventPageSize));
     if (eventResultCount) {
       eventResultCount.textContent = updatedPageCount > 1
@@ -3067,6 +4715,21 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
 }
 
 async function updateTerminalEvents(refinePageSize = true) {
+  if (isTerminalRoute() && eventsContractMode === "v6") {
+    if (eventFiltersRequireFullHistory() && !terminalV6HistoryCoversActiveFilters() && !eventsFullLoaded) {
+      await loadTerminalHistoryForFiltersV6();
+    }
+    if (!eventFiltersRequireFullHistory() && eventsSnapshot?.terminalHistoryComplete && !eventsFullLoaded) {
+      restoreTerminalV6HeadSnapshot();
+    }
+    if (!eventFiltersRequireFullHistory() && !eventsFullLoaded && eventCurrentPage > 1) {
+      await renderPagedTerminalEventsV6({ preserveDom: true, preserveViewport: true });
+    } else {
+      renderEvents(refinePageSize);
+    }
+    writeTerminalState();
+    return;
+  }
   if (isTerminalRoute() && !eventsFullLoaded && eventFiltersRequireFullHistory()) {
     if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
     await loadEventsWithRecentOverlay(true);
@@ -3086,35 +4749,35 @@ function renderEvents(refinePageSize = true, options = {}) {
   const preserveViewport = Boolean(options.preserveViewport);
   const streamTopBefore = preserveViewport ? eventStream?.getBoundingClientRect().top : null;
   const events = dedupeSessionFallbackEvents(eventsSnapshot?.events);
-  const query = normalizeEventSearch(eventSearch?.value);
-  const type = selectedEventTypeValue();
-  const player = selectedEventPlayerValue();
-  const filtered = events.filter((event) => {
-    if (type !== "all" && event.type !== type) return false;
-    if (player !== "all" && event.player !== player) return false;
-    if (!query) return true;
-    return normalizeEventSearch([
-      event.player,
-      event.guild,
-      event.base,
-      event.title,
-      event.message,
-      event.display?.headline,
-      event.display?.body,
-      ...(event.display?.bullets || []),
-      event.type,
-    ].filter(Boolean).join(" ")).includes(query);
-  });
+  const activeFilters = currentTerminalFilters();
+  const filtered = events.filter((event) => eventMatchesTerminalFilters(event, activeFilters));
   const terminal = isTerminalRoute();
-  if (terminal) updateTerminalPageSize();
-  const pageSize = terminal ? terminalEventPageSize : dashboardEventPageSize;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
-  const start = (eventCurrentPage - 1) * pageSize;
-  const visible = filtered.slice(start, start + pageSize);
-
+  const terminalV6 = terminal && eventsContractMode === "v6";
+  if (terminal && !terminalV6) updateTerminalPageSize();
+  const pageSize = terminalV6 ? terminalV6EchoLimit : terminal ? terminalEventPageSize : dashboardEventPageSize;
   const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || events.length);
-  const resultLabel = filtered.length === events.length
+  const terminalHistoryComplete = eventsFullLoaded || terminalV6HistoryCoversActiveFilters();
+  const v6HeadOnly = terminalV6 && !terminalHistoryComplete && !eventFiltersRequireFullHistory();
+  const paginationTotal = v6HeadOnly ? Math.max(v6ManifestTotalEchoes(), filtered.length) : filtered.length;
+  const pageCount = Math.max(1, Math.ceil(paginationTotal / pageSize));
+  if (terminalV6) {
+    eventCursor = "";
+    eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+    terminalEventWindowStart = terminalHistoryComplete ? (eventCurrentPage - 1) * pageSize : 0;
+    terminalVisibleEvents = terminalHistoryComplete ? filtered : filtered.slice(0, terminalV6EchoLimit);
+  } else {
+    eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+    terminalEventWindowStart = (eventCurrentPage - 1) * pageSize;
+    terminalVisibleEvents = filtered;
+  }
+  const start = terminalEventWindowStart;
+  const visible = terminalV6 && !terminalHistoryComplete ? terminalVisibleEvents : filtered.slice(start, start + pageSize);
+
+  const resultLabel = terminalV6
+    ? (filtered.length === events.length && !eventFiltersRequireFullHistory()
+      ? `${dailyPlural(visible.length, "écho affiché", "échos affichés")} · ${formatInteger(totalEvents)} synchronisés`
+      : `${dailyPlural(filtered.length, "résultat", "résultats")} · ${formatInteger(totalEvents)} synchronisés`)
+    : filtered.length === events.length
     ? (eventsSnapshot?.recent && totalEvents > events.length
       ? `${events.length} échos récents affichés sur ${totalEvents.toLocaleString("fr-CA")}`
       : `${events.length} écho${events.length > 1 ? "s" : ""}`)
@@ -3218,6 +4881,9 @@ function dailyEnumerateKeys(firstDate, lastDate) {
 }
 
 function dailyAvailableKeysFromIndex() {
+  if (Number(eventsIndexSnapshot?.schemaVersion) === 6 && Array.isArray(eventsIndexSnapshot?.days)) {
+    return eventsIndexSnapshot.days.map((entry) => entry.date).filter(isDailyDateKey);
+  }
   const keys = new Set();
   for (const entry of eventsIndexSnapshot?.pages || []) {
     if (!Number(entry?.events || 0)) continue;
@@ -3286,8 +4952,8 @@ async function loadDailyRoster() {
       playersByName.set(key, { ...previous, ...player, name: previous.name || name });
     });
     dailyRosterPlayers = [...playersByName.values()];
-    registerDataUpdate("save", savePayload?.updatedAt);
-    if (statsPayload?.updatedAt) registerDataUpdate("stats", statsPayload.updatedAt);
+    registerPayloadDataUpdate("save", savePayload);
+    if (statsPayload) registerPayloadDataUpdate("stats", statsPayload);
     return { ok: true, changed: false };
   } catch {
     dailyRosterPlayers = [];
@@ -3301,7 +4967,12 @@ async function loadDailyEventsForDate(key) {
   const pages = dailyPagesForDate(key);
   if (!pages.length) return [];
   const payloads = await Promise.all(pages.map((entry) => loadEventExportPage(entry.page)));
-  return sortEventsNewestFirst(payloads.flatMap((payload) => payload.events || []))
+  const coldEvents = payloads.flatMap((payload) => payload.events || []);
+  const includesColdHead = pages.some((entry) => Number(entry?.page) === 1);
+  const events = includesColdHead
+    ? mergeV5PagedTailEvents(coldEvents, eventsIndexSnapshot, eventsRecentSnapshot)
+    : coldEvents;
+  return sortEventsNewestFirst(events)
     .filter((event) => dailyDateKeyFromDate(parseDate(event.occurredAt)) === key);
 }
 
@@ -3332,6 +5003,27 @@ function dailyAddedTotal(value) {
   }, 0);
 }
 
+function dailyActivityCategories(event) {
+  return dailyList(event?.details?.categories)
+    .filter((category) => category && typeof category === "object")
+    .map((category) => ({
+      type: String(category.type || "").trim(),
+      added: Math.max(0, dailyNumber(category.added ?? category.count ?? 0)),
+      events: Math.max(0, dailyNumber(category.events ?? 0)),
+    }))
+    .filter((category) => category.type);
+}
+
+function dailyItemTypes(item, fallbackType) {
+  const explicitTypes = [
+    ...dailyList(item?.types),
+    ...dailyList(item?.sourceTypes),
+    item?.sourceType,
+  ].map((type) => String(type || "").trim()).filter(Boolean);
+  const types = explicitTypes.length ? explicitTypes : [fallbackType].filter(Boolean);
+  return [...new Set(types)].filter((type) => ["craft", "production", "fishing"].includes(type));
+}
+
 function dailyRemovedTotal(value) {
   return dailyList(value).reduce((total, item) => {
     if (item && typeof item === "object") return total;
@@ -3356,6 +5048,13 @@ function dailyCountedEntriesFromText(text) {
   }).filter((entry) => entry && entry.count > 0 && entry.name);
 }
 
+function dailyMessageWithoutPlayer(message, player) {
+  const text = String(message || "").trim();
+  const name = String(player || "").trim();
+  if (!name) return text;
+  return text.replace(new RegExp(`^${escapeRegExp(name)}\\s+`, "i"), "").trim();
+}
+
 function dailyCollectionEntries(event) {
   const message = `${event?.display?.body || ""} ${event?.message || ""}`;
   const match = message.match(/accueille\s+(.+?)\s+dans\s+sa\s+collection/i);
@@ -3363,7 +5062,7 @@ function dailyCollectionEntries(event) {
 }
 
 function dailyCaptureEntries(event) {
-  const message = `${event?.display?.body || ""} ${event?.message || ""}`;
+  const message = dailyMessageWithoutPlayer(`${event?.display?.body || ""} ${event?.message || ""}`, event?.player);
   if (event?.type === "capture") {
     const match = message.match(/capture\s+(\d[\d\s]*)\s+(.+?)\.\s+Total/i);
     if (match) {
@@ -3371,6 +5070,14 @@ function dailyCaptureEntries(event) {
         count: Math.max(0, dailyNumber(match[1])),
         name: match[2].trim(),
       }];
+    }
+    const firstCapture = message.match(/capture\s+(.+?)\s+pour\s+la\s+premi[eè]re\s+fois/i);
+    if (firstCapture) {
+      return [{ count: 1, name: firstCapture[1].trim().replace(/[.;:]$/, "") }];
+    }
+    const paldex = message.match(/inscrit\s+(.+?)\s+dans\s+son\s+Paldex(?:\s+avec\s+(\d[\d\s]*)\s+captures?)?/i);
+    if (paldex) {
+      return [{ count: Math.max(1, dailyNumber(paldex[2] || 1)), name: paldex[1].trim().replace(/[.;:]$/, "") }];
     }
   }
   if (event?.type === "collection") return dailyCollectionEntries(event);
@@ -3428,6 +5135,13 @@ function dailyEventQuantities(event) {
   if (event?.type === "production") {
     quantities.production = dailyAddedTotal(items) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+ressources?\s+produites?/i) || 1;
   }
+  if (event?.type === "activity") {
+    dailyActivityCategories(event).forEach((category) => {
+      if (["craft", "production", "fishing"].includes(category.type)) {
+        quantities[category.type] += category.added || category.events || 1;
+      }
+    });
+  }
   if (event?.type === "build") {
     quantities.build = dailyAddedTotal(structures) || dailyAddedTotal(bullets) || dailyFirstNumber(message, /(\d[\d\s]*)\s+nouvelles?\s+structures?/i) || 1;
   }
@@ -3467,16 +5181,24 @@ function dailyItemKey(item, type) {
 }
 
 function dailyItemsFromEvent(event) {
-  if (!["craft", "production", "fishing"].includes(event?.type)) return [];
-  return dailyList(event?.details?.items).filter((item) => item && typeof item === "object").map((item) => ({
-    key: dailyItemKey(item, event.type),
-    type: event.type,
-    name: String(item.name || "Objet").trim() || "Objet",
-    icon: item.icon || null,
-    quantity: dailyItemQuantity(item),
-    isNew: Boolean(item.isNew),
-    player: String(event.player || "Monde").trim() || "Monde",
-  })).filter((item) => item.quantity > 0);
+  if (!["activity", "craft", "production", "fishing"].includes(event?.type)) return [];
+  return dailyList(event?.details?.items)
+    .filter((item) => item && typeof item === "object")
+    .flatMap((item) => {
+      const types = dailyItemTypes(item, event.type === "activity" ? "" : event.type);
+      if (types.length !== 1) return [];
+      const type = types[0];
+      return [{
+        key: dailyItemKey(item, type),
+        type,
+        name: String(item.name || "Objet").trim() || "Objet",
+        icon: item.icon || null,
+        quantity: dailyItemQuantity(item),
+        isNew: Boolean(item.isNew),
+        player: String(event.player || "Monde").trim() || "Monde",
+      }];
+    })
+    .filter((item) => item.quantity > 0);
 }
 
 function dailyAddAggregate(map, entry) {
@@ -3505,10 +5227,12 @@ function dailyPalKey(name, type) {
 function dailyPalEntriesFromEvent(event) {
   const type = event?.type === "capture" ? "capture" : event?.type === "collection" ? "collection" : "";
   if (!type) return [];
-  return dailyCaptureEntries(event).map((entry) => ({
+  const entries = type === "capture" ? dailyCaptureEntries(event) : dailyCollectionEntries(event);
+  return entries.map((entry) => ({
     key: dailyPalKey(entry.name, type),
     type,
     name: entry.name,
+    icon: event.icon || entry.icon || null,
     quantity: Number(entry.count || 0),
     player: String(event.player || "Monde").trim() || "Monde",
   })).filter((entry) => entry.quantity > 0 && entry.name && entry.name.toLocaleLowerCase("fr-CA") !== "autres");
@@ -3521,11 +5245,51 @@ function dailyTopAggregates(map, limit = 5) {
     .slice(0, limit);
 }
 
+function dailyConsolidatedPalFinds(summaryOrPlayer) {
+  const source = summaryOrPlayer?.palFinds instanceof Map
+    ? summaryOrPlayer.palFinds
+    : dailyV6Map(summaryOrPlayer?.palFinds);
+  if (!(source instanceof Map)) return new Map();
+  const consolidated = new Map();
+  source.forEach((entry) => {
+    const name = String(entry?.name || "").trim();
+    if (!name) return;
+    const key = name.toLocaleLowerCase("fr-CA");
+    const current = consolidated.get(key) || {
+      ...entry,
+      key,
+      type: "pal",
+      name,
+      quantity: 0,
+      players: new Map(),
+    };
+    current.quantity = Math.max(Number(current.quantity || 0), Number(entry?.quantity || 0));
+    if (!current.icon && entry?.icon) current.icon = entry.icon;
+    const entryPlayers = entry?.players instanceof Map ? entry.players : new Map(Object.entries(entry?.players || {}));
+    entryPlayers.forEach((quantity, playerName) => {
+      current.players.set(playerName, Math.max(Number(current.players.get(playerName) || 0), Number(quantity || 0)));
+    });
+    consolidated.set(key, current);
+  });
+  return consolidated;
+}
+
+function dailyPalSignalTotal(summaryOrPlayer) {
+  const aggregateTotal = [...dailyConsolidatedPalFinds(summaryOrPlayer).values()]
+    .reduce((total, entry) => total + Number(entry?.quantity || 0), 0);
+  if (aggregateTotal > 0) return aggregateTotal;
+  const metrics = summaryOrPlayer?.metrics || summaryOrPlayer?.totals || summaryOrPlayer || {};
+  const captures = Number(metrics.capture || 0);
+  const collection = Number(metrics.collection || 0);
+  if (captures && collection) return Math.max(captures, collection);
+  return captures + collection;
+}
+
 function dailyAggregatePlayersLabel(entry, limit = 2) {
   const players = [...(entry?.players || new Map()).entries()]
     .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0)
       || String(left[0]).localeCompare(String(right[0]), "fr-CA"));
-  if (!players.length) return "Joueur non identifié";
+  if (!players.length) return "Bilan consolidé";
   const visible = players.slice(0, limit).map(([name, quantity]) => `${name} ${formatInteger(quantity)}`);
   const hidden = players.length - visible.length;
   return `${visible.join(" · ")}${hidden > 0 ? ` · +${hidden}` : ""}`;
@@ -3537,6 +5301,7 @@ function dailyAggregateQuantityLabel(entry) {
   if (entry?.type === "production") return dailyPlural(quantity, "ressource produite", "ressources produites");
   if (entry?.type === "capture") return dailyPlural(quantity, "capture Paldex détectée", "captures Paldex détectées");
   if (entry?.type === "collection") return dailyPlural(quantity, "Pal ajouté en collection", "Pals ajoutés en collection");
+  if (entry?.type === "pal") return dailyPlural(quantity, "Pal repéré", "Pals repérés");
   return formatInteger(quantity);
 }
 
@@ -3545,6 +5310,7 @@ function dailyAggregateShortKind(entry) {
   if (entry?.type === "production") return "production";
   if (entry?.type === "capture") return "captures Paldex";
   if (entry?.type === "collection") return "collection";
+  if (entry?.type === "pal") return "Pals";
   return "total";
 }
 
@@ -3647,6 +5413,7 @@ function dailyHighlightFromEvent(event, quantities) {
     time: date ? formatTime(date) : "--",
     headline,
     body,
+    confidence: event.confidence || "confirmed",
     badge: dailyHighlightBadge(quantities),
     score,
     accent: event.player ? playerColor(event.player) : (eventTypeMeta[event.type]?.color || "#77a7be"),
@@ -3905,6 +5672,7 @@ function renderDailyDateControls(dateKey) {
   const index = dailyAvailableDateKeys.indexOf(dateKey);
   if (dailyPrevious) dailyPrevious.disabled = index < 0 || index >= dailyAvailableDateKeys.length - 1;
   if (dailyNext) dailyNext.disabled = index <= 0;
+  if (dailyToday) dailyToday.disabled = dateKey === dailyDateKeyFromDate(new Date());
 }
 
 function renderDailyMetric(label, value, detail, tone = "", tooltip = "") {
@@ -3930,18 +5698,18 @@ function dailyPlayerReasons(player) {
   }
   const metrics = player.metrics || {};
   const reasons = [
-    { label: "niveaux gagnés", value: Number(metrics.levelUps || 0) },
+    { label: "niveaux gagnés", singular: "niveau gagné", value: Number(metrics.levelUps || 0) },
     { label: "de présence observée", value: Number(player.dailyOnlineSeconds || 0), format: (value) => formatCompactDuration(value) },
-    { label: "ressources produites", value: Number(metrics.production || 0) },
-    { label: "objets fabriqués", value: Number(metrics.craft || 0) },
-    { label: "captures Paldex", value: Number(metrics.capture || 0) },
-    { label: "ajouts collection", value: Number(metrics.collection || 0) },
-    { label: "structures", value: Number(metrics.build || 0) + Number(metrics.repair || 0) },
-    { label: "faits", value: dailyFactTotal(metrics) },
+    { label: "ressources produites", singular: "ressource produite", value: Number(metrics.production || 0) },
+    { label: "objets fabriqués", singular: "objet fabriqué", value: Number(metrics.craft || 0) },
+    { label: "captures Paldex", singular: "capture Paldex", value: Number(metrics.capture || 0) },
+    { label: "ajouts collection", singular: "ajout collection", value: Number(metrics.collection || 0) },
+    { label: "structures", singular: "structure", value: Number(metrics.build || 0) + Number(metrics.repair || 0) },
+    { label: "faits", singular: "fait", value: dailyFactTotal(metrics) },
   ].filter((reason) => reason.value > 0)
     .sort((left, right) => right.value - left.value)
     .slice(0, 3)
-    .map((reason) => `${reason.format ? reason.format(reason.value) : formatInteger(reason.value)} ${reason.label}`);
+    .map((reason) => `${reason.format ? reason.format(reason.value) : formatInteger(reason.value)} ${reason.value === 1 && reason.singular ? reason.singular : reason.label}`);
   return reasons.length ? reasons.join(" · ") : "activité discrète mais présente";
 }
 
@@ -3953,24 +5721,40 @@ function renderDailyBrief(summary) {
   const topHighlight = summary.highlights[0];
   const topCraft = dailyTopAggregates(summary.craftedItems, 1)[0];
   const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
-  const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
-  const levelAgreement = summary.totals.levelUps === 1 ? "" : "s";
+  const topPal = dailyTopAggregates(dailyConsolidatedPalFinds(summary), 1)[0];
+  const palSignals = dailyPalSignalTotal(summary);
+  const factTotal = dailyFactTotal(summary.totals);
+  const lead = summary.presenceAvailable === false
+    ? (summary.totals.eventCount
+      ? `${dailyPlural(summary.totals.activePlayers, "aventurier visible", "aventuriers visibles")} · ${dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus")}`
+      : "Aucun moment publié pour cette journée.")
+    : (summary.totals.eventCount || summary.totals.presenceSessions
+      ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · ${dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus")}`
+      : "Aucun fait ni présence pour cette journée.");
+  const workshopLine = [
+    summary.totals.craft ? dailyPlural(summary.totals.craft, "objet fabriqué", "objets fabriqués") : "",
+    summary.totals.production ? dailyPlural(summary.totals.production, "ressource produite", "ressources produites") : "",
+  ].filter(Boolean).join(" · ");
+  const workshopDetail = [topCraft ? `fabrication: ${topCraft.name}` : "", topProduction ? `production: ${topProduction.name}` : ""]
+    .filter(Boolean).join(" · ");
+  const palLine = palSignals
+    ? `${dailyPlural(palSignals, "Pal repéré", "Pals repérés")}${topPal ? ` · ${topPal.name} ressort le plus` : " dans les captures et collections"}`
+    : "Aucun Pal nommé ne ressort dans les captures ou collections.";
   return `
     <div class="daily-brief__lead">
       <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
-      <span>${summary.totals.eventCount || summary.totals.presenceSessions ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · faits et présences de la journée` : "Aucun fait ni présence pour cette journée."}</span>
+      <span>${lead}</span>
     </div>
     <ul class="daily-brief__list">
-      <li><b>Joueur qui se démarque</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Aucune activité joueur détectée"}</span></li>
-      <li><b>Fabrications</b><span>${summary.totals.craft ? `${dailyPlural(summary.totals.craft, "objet fabriqué", "objets fabriqués")} · ${dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true })}` : "Aucune fabrication détectée"}</span></li>
-      <li><b>Production</b><span>${summary.totals.production ? `${dailyPlural(summary.totals.production, "ressource produite", "ressources produites")} · ${dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true })}` : "Aucune production détectée"}</span></li>
-      <li><b>Pals</b><span>${summary.totals.capture + summary.totals.collection ? `${dailyPlural(summary.totals.capture + summary.totals.collection, "signal Pal", "signaux Pals")} · ${dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true })}` : "Aucune capture Paldex ou entrée de collection détectée"}</span></li>
-      <li><b>Fait dominant</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler"}</span></li>
-      <li><b>Niveaux gagnés</b><span>${dailyPlural(summary.totals.levelUps, "montée de niveau", "montées de niveau")} détectée${levelAgreement} pendant la journée.</span></li>
-      <li><b>Rythme</b><span>${busiestHour?.count ? `${String(busiestHour.hour).padStart(2, "0")} h ressort comme période la plus dense` : "Pas assez de données pour dégager un pic"}</span></li>
+      <li><b>Joueur qui ressort</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement."}</span></li>
+      <li><b>Ateliers et bases</b><span>${workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Les ateliers sont restés plutôt calmes."}</span></li>
+      <li><b>Pals</b><span>${palLine}</span></li>
+      <li><b>Progression</b><span>${summary.totals.levelUps || factTotal ? `${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "moment spécial", "moments spéciaux")}` : "Pas de grande poussée de progression visible."}</span></li>
+      <li><b>Moment fort</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler."}</span></li>
+      <li><b>Rythme</b><span>${busiestHour?.count ? `${String(busiestHour.hour).padStart(2, "0")} h est la période la plus animée` : "Pas assez de données pour dégager un pic."}</span></li>
     </ul>
     <div class="daily-type-strip">
-      ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : entry.type === "capture" || entry.type === "collection" ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b>${escapeHtml(dailyAggregateQuantityLabel(entry))}</span>`).join("")}
+      ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : ["capture", "collection", "pal"].includes(entry.type) ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b>${escapeHtml(dailyAggregateQuantityLabel(entry))}</span>`).join("")}
     </div>`;
 }
 
@@ -3993,7 +5777,8 @@ function renderDailyTypes(summary) {
       accent: "#a06ad7",
       total: summary.totals.craft,
       rows: dailyTopAggregates(summary.craftedItems, 6),
-      tooltip: "Somme des quantités ajoutées dans les événements de fabrication du jour.",
+      filter: "craft",
+      tooltip: "Clique pour revoir les fabrications qui ressortent dans la journée.",
     },
     {
       title: "Ressources produites",
@@ -4001,19 +5786,23 @@ function renderDailyTypes(summary) {
       accent: "#ef7164",
       total: summary.totals.production,
       rows: dailyTopAggregates(summary.producedItems, 6),
-      tooltip: "Somme des ressources prêtes dans les événements de production du jour.",
+      filter: "production",
+      tooltip: "Clique pour revoir les productions qui ressortent dans la journée.",
     },
     {
-      title: "Pals détectés",
-      empty: "Aucune capture Paldex ou entrée de collection détectée.",
+      title: "Pals repérés",
+      empty: "Des captures et collections sont comptées, mais aucun Pal ne ressort encore par nom.",
       accent: "#40c875",
-      total: summary.totals.capture + summary.totals.collection,
-      rows: dailyTopAggregates(summary.palFinds, 6),
-      tooltip: "Total des captures Paldex détectées et des Pals ajoutés à la collection pendant la journée.",
+      total: dailyPalSignalTotal(summary),
+      rows: dailyTopAggregates(dailyConsolidatedPalFinds(summary), 6),
+      filter: "pal",
+      tooltip: "Clique pour revoir les captures et ajouts de Pals qui ressortent.",
     },
   ];
-  return groups.map((group) => `
-    <article class="daily-tangible-card" style="--tangible-color:${escapeHtml(group.accent)}" tabindex="0" data-tooltip="${escapeHtml(group.tooltip)}">
+  return groups.map((group) => {
+    const active = dailyHighlightTypeFilter === group.filter;
+    return `
+    <article class="daily-tangible-card${active ? " is-active" : ""}" style="--tangible-color:${escapeHtml(group.accent)}" tabindex="0" role="button" aria-pressed="${active ? "true" : "false"}" data-daily-type-filter="${escapeHtml(group.filter)}" data-tooltip="${escapeHtml(active ? "Filtre actif. Clique pour revoir tous les moments." : group.tooltip)}">
       <header>
         <span>${escapeHtml(group.title)}</span>
         <strong>${formatInteger(group.total)}</strong>
@@ -4026,7 +5815,8 @@ function renderDailyTypes(summary) {
             <strong>${formatInteger(row.quantity)}</strong>
           </li>`).join("") : `<li class="daily-item-list__empty">${escapeHtml(group.empty)}</li>`}
       </ol>
-    </article>`).join("");
+    </article>`;
+  }).join("");
 }
 
 function dailyPlayerFactLabels(player) {
@@ -4050,7 +5840,7 @@ function dailyPlayerFactLabels(player) {
 function dailyPlayerTopLine(player) {
   const topCraft = dailyTopAggregates(player.craftedItems, 1)[0];
   const topProduction = dailyTopAggregates(player.producedItems, 1)[0];
-  const topPal = dailyTopAggregates(player.palFinds, 1)[0];
+  const topPal = dailyTopAggregates(dailyConsolidatedPalFinds(player), 1)[0];
   const pieces = [
     topCraft ? `Fabrication: ${topCraft.name} (${formatInteger(topCraft.quantity)})` : "",
     topProduction ? `Production: ${topProduction.name} (${formatInteger(topProduction.quantity)})` : "",
@@ -4066,15 +5856,15 @@ function dailyPlayerLastTrace(player) {
 function dailyPlayerPresenceFocus(player) {
   if (Number(player?.eventCount || 0) > 0) return dailyPlayerTopLine(player);
   if (player?.dailyPresenceObserved && Number(player?.dailyOnlineSeconds || 0) > 0) {
-    return `Présence observée ${formatCompactDuration(player.dailyOnlineSeconds)}; aucun écho de sauvegarde attribué pendant cette journée.`;
+    return `Présence observée ${formatCompactDuration(player.dailyOnlineSeconds)}; aucun moment du journal attribué pendant cette journée.`;
   }
   if (player?.dailyPresenceObserved) {
     return "Présence repérée ce jour-là.";
   }
   const lastTrace = dailyPlayerLastTrace(player);
   return lastTrace
-    ? `Aucune présence ni écho le ${dailyDisplayDate(dailySelectedDateKey, { short: true })}; dernière trace ${dailyShortDateTime(lastTrace)}.`
-    : `Aucune présence ni écho pour ${dailyDisplayDate(dailySelectedDateKey, { short: true })}.`;
+    ? `Aucune présence ni moment publié le ${dailyDisplayDate(dailySelectedDateKey, { short: true })}; dernière trace ${dailyShortDateTime(lastTrace)}.`
+    : `Aucune présence ni moment publié pour ${dailyDisplayDate(dailySelectedDateKey, { short: true })}.`;
 }
 
 function renderDailyPresenceHighlights(player) {
@@ -4108,21 +5898,24 @@ function renderDailyPlayerCard(player) {
     player.pals != null ? `${formatInteger(player.pals)} Pals` : "",
   ].filter(Boolean).join(" · ");
   const playerAccent = playerColor(player.name);
-  const palTotal = Number(player.metrics.capture || 0) + Number(player.metrics.collection || 0);
+  const palTotal = dailyPalSignalTotal(player);
   const factTotal = dailyFactTotal(player.metrics);
   const hasPublishedEchoes = Number(player.eventCount || 0) > 0;
   const hasDailyActivity = dailyPlayerHasActivity(player);
   const lastTrace = dailyPlayerLastTrace(player);
+  const presenceStat = player.presenceAvailable === false
+    ? `<span data-tooltip="Moments attribués à ce joueur pendant la journée."><b>${formatInteger(player.eventCount)}</b><small>Moments</small></span>`
+    : `<span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>`;
   const statsMarkup = hasPublishedEchoes ? `
         <span data-tooltip="${escapeHtml("Montées de niveau détectées pendant la journée.")}"><b>${formatInteger(player.metrics.levelUps)}</b><small>Niveaux gagnés</small></span>
-        <span data-tooltip="${escapeHtml(`${dailyPlural(player.metrics.capture, "capture Paldex détectée", "captures Paldex détectées")} + ${dailyPlural(player.metrics.collection, "Pal ajouté en collection", "Pals ajoutés en collection")}.`)}"><b>${formatInteger(palTotal)}</b><small>Pals détectés</small></span>
+        <span data-tooltip="${escapeHtml("Captures et ajouts de collection regroupés par Pal.")}"><b>${formatInteger(palTotal)}</b><small>Pals repérés</small></span>
         <span data-tooltip="${escapeHtml("Quantités ajoutées par les événements de fabrication.")}"><b>${formatInteger(player.metrics.craft)}</b><small>Objets fabriqués</small></span>
         <span data-tooltip="${escapeHtml("Ressources prêtes ou sorties de production dans les bases.")}"><b>${formatInteger(player.metrics.production)}</b><small>Ressources produites</small></span>
-        <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
+        ${presenceStat}
         <span data-tooltip="${escapeHtml("Découvertes, défis, boss, mutations, notes, pêche et autres faits non routiniers.")}"><b>${formatInteger(factTotal)}</b><small>Faits divers</small></span>` : hasDailyActivity ? `
         <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
         <span data-tooltip="${escapeHtml("Sessions observées pendant la journée sélectionnée.")}"><b>${formatInteger(player.dailySessionCount)}</b><small>Sessions du jour</small></span>
-        <span data-tooltip="${escapeHtml("Aucun écho de sauvegarde attribué à ce joueur pour cette journée.")}"><b>0</b><small>Échos</small></span>
+        <span data-tooltip="${escapeHtml("Aucun moment attribué à ce joueur pour cette journée.")}"><b>0</b><small>Moments</small></span>
         <span data-tooltip="${escapeHtml("Niveau actuel du joueur.")}"><b>${player.level != null ? formatInteger(player.level) : "--"}</b><small>Niveau actuel</small></span>` : `
         <span data-tooltip="${escapeHtml("Niveau actuel du joueur.")}"><b>${player.level != null ? formatInteger(player.level) : "--"}</b><small>Niveau actuel</small></span>
         <span data-tooltip="${escapeHtml("Nombre actuel de Pals du joueur.")}"><b>${player.pals != null ? formatInteger(player.pals) : "--"}</b><small>Pals actuels</small></span>
@@ -4152,7 +5945,7 @@ function dailySyntheticHighlights(summary) {
     || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
   const topCraft = dailyTopAggregates(summary.craftedItems, 1)[0];
   const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
-  const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
+  const topPal = dailyTopAggregates(dailyConsolidatedPalFinds(summary), 1)[0];
   const rows = [];
   if (leader) {
     rows.push({
@@ -4223,13 +6016,38 @@ function dailyCuratedEventHighlights(summary, limit = 10) {
   return selected;
 }
 
+function dailyHighlightMatchesFilter(highlight, filter) {
+  if (!filter) return true;
+  const type = String(highlight?.type || "");
+  if (filter === "pal") return ["capture", "collection", "daily-pal"].includes(type);
+  if (filter === "craft") return ["craft", "daily-craft"].includes(type);
+  if (filter === "production") return ["production", "daily-production"].includes(type);
+  return type === filter;
+}
+
+function dailyHighlightFilterLabel(filter) {
+  if (filter === "craft") return "les fabrications";
+  if (filter === "production") return "les productions";
+  if (filter === "pal") return "les Pals";
+  return "ce filtre";
+}
+
 function renderDailyHighlights(summary) {
-  const highlights = [
+  const allHighlights = [
     ...dailySyntheticHighlights(summary),
     ...dailyCuratedEventHighlights(summary, 10),
-  ].slice(0, 14);
+  ];
+  const highlights = allHighlights
+    .filter((highlight) => dailyHighlightMatchesFilter(highlight, dailyHighlightTypeFilter))
+    .slice(0, 14);
+  if (!highlights.length && dailyHighlightTypeFilter) {
+    return `<li class="daily-empty">Rien de notable pour ${escapeHtml(dailyHighlightFilterLabel(dailyHighlightTypeFilter))} dans les moments retenus. <button type="button" class="daily-filter-reset" data-daily-filter-reset>Revoir toute la journée</button></li>`;
+  }
   if (!highlights.length) return '<li class="daily-empty">Aucun moment marquant détecté pour cette journée.</li>';
-  return highlights.map((highlight) => `
+  return highlights.map((highlight) => {
+    const badge = highlight.confidence === "derived" ? "Rattaché à la guilde" : highlight.badge;
+  const badgeTitle = highlight.confidence === "derived" ? ' title="Cet écho vient de la guilde; le joueur affiché est le meilleur repère disponible."' : "";
+    return `
     <li class="daily-highlight" style="--highlight-color:${escapeHtml(highlight.accent)}">
       <time>${escapeHtml(highlight.time)}</time>
       <span>
@@ -4237,21 +6055,24 @@ function renderDailyHighlights(summary) {
         <strong>${escapeHtml(highlight.headline)}</strong>
         <small>${escapeHtml(highlight.body)}</small>
       </span>
-      ${highlight.badge ? `<em>${escapeHtml(highlight.badge)}</em>` : ""}
-    </li>`).join("");
+      ${badge ? `<em${badgeTitle}>${escapeHtml(badge)}</em>` : ""}
+    </li>`;
+  }).join("");
 }
 
 function renderDailyDigest(summary) {
   if (!dailyMetrics) return;
+  if (dailyCurrentSummary?.dateKey !== summary.dateKey) dailyHighlightTypeFilter = "";
+  dailyCurrentSummary = summary;
   const totals = summary.totals;
   if (dailyStatus) {
-    dailyStatus.textContent = totals.eventCount || totals.presenceSessions
-      ? `${dailyPlural(totals.activePlayers, "joueur actif", "joueurs actifs")} · bilan de journée`
-      : "Aucun fait ni présence pour cette journée";
+    dailyStatus.textContent = totals.eventCount || (summary.presenceAvailable !== false && totals.presenceSessions)
+      ? `${dailyPlural(totals.activePlayers, summary.presenceAvailable === false ? "joueur dans le journal" : "joueur actif", summary.presenceAvailable === false ? "joueurs dans le journal" : "joueurs actifs")} · journée prête`
+      : summary.presenceAvailable === false ? "Aucun moment publié pour cette journée" : "Aucun fait ni présence pour cette journée";
   }
   if (dailyUpdatedAt) {
     dailyUpdatedAt.textContent = eventsIndexSnapshot?.updatedAt
-      ? `Échos actualisés ${formatRelativeAge(eventsIndexSnapshot.updatedAt)}`
+      ? `Journal actualisé ${formatRelativeAge(eventsIndexSnapshot.updatedAt)}`
       : "Synchronisation en attente";
   }
   const leader = summary.players.filter((player) => dailyPlayerHasActivity(player) && player.name !== "Monde")
@@ -4259,20 +6080,26 @@ function renderDailyDigest(summary) {
       || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
   const topCraft = dailyTopAggregates(summary.craftedItems, 1)[0];
   const topProduction = dailyTopAggregates(summary.producedItems, 1)[0];
-  const topPal = dailyTopAggregates(summary.palFinds, 1)[0];
+  const topPal = dailyTopAggregates(dailyConsolidatedPalFinds(summary), 1)[0];
+  const palSignals = dailyPalSignalTotal(summary);
   const topLevelPlayer = summary.players.filter((player) => Number(player.metrics?.levelUps || 0) > 0)
     .sort((left, right) => Number(right.metrics?.levelUps || 0) - Number(left.metrics?.levelUps || 0)
       || Number(right.score || 0) - Number(left.score || 0)
       || String(left.name).localeCompare(String(right.name), "fr-CA"))[0];
   const factTotal = dailyFactTotal(totals);
+  const palMetricDetail = topPal
+    ? dailyTopAggregateLabel(topPal, "Aucun Pal nommé ne ressort", { withDont: true })
+    : palSignals
+      ? "Captures et collections repérées dans la journée"
+      : "Aucun Pal nommé ne ressort";
   dailyMetrics.innerHTML = [
     renderDailyMetric("Joueur du jour", leader?.name || "--", leader ? dailyPlayerReasons(leader) : "Aucune activité joueur", "events", "Score pondéré par niveaux, captures, fabrications, productions, bases et faits non routiniers."),
-    renderDailyMetric("Objets fabriqués", formatInteger(totals.craft), dailyTopAggregateLabel(topCraft, "Aucun objet dominant", { withDont: true }), "craft", "Somme des quantités ajoutées par les fabrications du jour."),
-    renderDailyMetric("Ressources produites", formatInteger(totals.production), dailyTopAggregateLabel(topProduction, "Aucune ressource dominante", { withDont: true }), "production", "Somme des ressources prêtes dans les productions du jour."),
-    renderDailyMetric("Pals détectés", formatInteger(totals.capture + totals.collection), topPal ? dailyTopAggregateLabel(topPal, "Aucun Pal dominant", { withDont: true }) : "Aucun Pal dominant", "capture", `${dailyPlural(totals.capture, "capture Paldex détectée", "captures Paldex détectées")} + ${dailyPlural(totals.collection, "Pal ajouté en collection", "Pals ajoutés en collection")}.`),
+    renderDailyMetric("Fabrications", formatInteger(totals.craft), dailyTopAggregateLabel(topCraft, "Rien ne domine les ateliers", { withDont: true }), "craft", "Objets terminés pendant la journée."),
+    renderDailyMetric("Productions", formatInteger(totals.production), dailyTopAggregateLabel(topProduction, "Aucune ressource ne domine", { withDont: true }), "production", "Ressources relevées dans les productions du jour."),
+    renderDailyMetric("Pals repérés", formatInteger(palSignals), palMetricDetail, "capture", "Captures et ajouts de collection reconnus par Pal."),
     renderDailyMetric("Niveaux gagnés", formatInteger(totals.levelUps), topLevelPlayer ? `dont ${topLevelPlayer.name} · ${dailyPlural(topLevelPlayer.metrics.levelUps, "niveau gagné", "niveaux gagnés")}` : "Aucune montée détectée", "level", "Montées de niveau détectées pendant la journée."),
-    renderDailyMetric("Structures", formatInteger(totals.build), `dont ${dailyPlural(totals.repair, "structure réparée", "structures réparées")}`, "base", "Structures ajoutées et réparations détectées dans les bases."),
-    renderDailyMetric("Faits divers", formatInteger(factTotal), `dont ${dailyPlural(totals.boss, "boss", "boss")} · ${dailyPlural(totals.discovery, "découverte")}`, "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres faits moins routiniers."),
+    renderDailyMetric("Bases", formatInteger(totals.build), totals.repair ? `dont ${dailyPlural(totals.repair, "réparation", "réparations")}` : "Aucune réparation relevée", "base", "Structures ajoutées et réparations visibles dans les bases."),
+    renderDailyMetric("Autres moments", formatInteger(factTotal), `dont ${dailyPlural(totals.boss, "boss", "boss")} · ${dailyPlural(totals.discovery, "découverte")}`, "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres moments moins routiniers."),
   ].join("");
   if (dailyBrief) dailyBrief.innerHTML = renderDailyBrief(summary);
   if (dailyHourly) dailyHourly.innerHTML = renderDailyHourly(summary);
@@ -4286,10 +6113,233 @@ function renderDailyDigest(summary) {
   if (dailyHighlights) dailyHighlights.innerHTML = renderDailyHighlights(summary);
 }
 
+function dailyV6Map(value) {
+  const rows = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.entries(value).map(([key, row]) => typeof row === "object" ? { key, ...row } : { key, name: key, quantity: row })
+      : [];
+  return new Map(rows.map((row, index) => {
+    const players = row?.players instanceof Map
+      ? row.players
+      : new Map(Object.entries(row?.players || {}));
+    const key = String(row?.key || row?.name || index);
+    const normalized = {
+      ...row,
+      key,
+      name: String(row?.name || row?.label || row?.species || row?.key || "Pal").trim() || "Pal",
+      quantity: Math.max(0, dailyNumber(row?.quantity ?? row?.count ?? row?.total ?? row?.captures ?? row?.added ?? 0)),
+      players,
+    };
+    return [key, normalized];
+  }).filter(([, row]) => row.quantity > 0 || row.name));
+}
+
+function normalizeDailyV6Digest(payload) {
+  const digest = payload?.digest;
+  if (!digest?.totals || !Array.isArray(digest.hourly) || !Array.isArray(digest.players)) return null;
+  const metricDefaults = {
+    craft: 0, production: 0, build: 0, repair: 0, capture: 0, collection: 0,
+    fishing: 0, levelUps: 0, boss: 0, discovery: 0, progress: 0, challenge: 0,
+    quest: 0, loot: 0, note: 0, mutation: 0, death: 0, recovery: 0, adventure: 0, rare: 0,
+  };
+  const players = digest.players.map((player) => {
+    const eventCount = Number(player.eventCount ?? player.echoes ?? 0);
+    return {
+      ...createDailyPlayerSummary(player),
+      ...player,
+      presenceAvailable: false,
+      eventCount,
+      score: Number(player.score ?? eventCount),
+      metrics: { ...metricDefaults, ...(player.metrics || {}) },
+      typeCounts: dailyV6Map(player.typeCounts || player.types),
+      craftedItems: dailyV6Map(player.craftedItems),
+      producedItems: dailyV6Map(player.producedItems),
+      palFinds: dailyV6Map(player.palFinds),
+      highlights: (Array.isArray(player.highlights) ? player.highlights : []).map((highlight) => ({
+        ...highlight,
+        time: highlight.time || formatTime(highlight.occurredAt),
+        timestamp: Number(highlight.timestamp || parseDate(highlight.occurredAt)?.getTime() || 0),
+      })),
+    };
+  });
+  const latestHighlights = sortEventsNewestFirst(
+    (payload.latest || []).filter(eventCanBePublished),
+    { canonical: true },
+  ).map((event) => {
+    const quantities = dailyEventQuantities(event);
+    return dailyHighlightFromEvent(event, quantities);
+  });
+  const digestHighlights = (digest.highlights || []).filter(eventCanBePublished).map((highlight) => ({
+    ...highlight,
+    time: highlight.time || formatTime(highlight.occurredAt),
+    timestamp: Number(highlight.timestamp || parseDate(highlight.occurredAt)?.getTime() || 0),
+    accent: highlight.accent || (highlight.player ? playerColor(highlight.player) : eventTypeMeta[highlight.type]?.color || "#77a7be"),
+    badge: highlight.badge || eventTypeMeta[highlight.type]?.label || "Écho",
+  }));
+  return {
+    dateKey: payload.date,
+    presenceAvailable: false,
+    events: [],
+    totals: {
+      eventCount: Number(payload.counts?.echoes || digest.totals.eventCount || 0),
+      activePlayers: Number(digest.totals.activePlayers || players.length),
+      onlineSeconds: 0,
+      presenceSessions: 0,
+      ...metricDefaults,
+      ...digest.totals,
+    },
+    typeCounts: dailyV6Map(digest.typeCounts || digest.types || payload.types),
+    craftedItems: dailyV6Map(digest.craftedItems),
+    producedItems: dailyV6Map(digest.producedItems),
+    palFinds: dailyV6Map(digest.palFinds),
+    hourly: digest.hourly.map((entry, hour) => ({ hour: Number(entry?.hour ?? hour), count: Number(entry?.count || 0) })),
+    players,
+    highlights: digestHighlights.length ? digestHighlights : latestHighlights,
+  };
+}
+
+function renderDailyV6Basic(payload) {
+  const types = payload?.types || payload?.digest?.types || {};
+  const players = Array.isArray(payload?.players) ? payload.players : [];
+  const echoes = Number(payload?.counts?.echoes || 0);
+  const represented = Number(payload?.counts?.representedEvents || 0);
+  const derived = Number(payload?.counts?.derivedEchoes || 0);
+  const typeRows = Object.entries(types)
+    .map(([type, count]) => ({ type, count: Number(typeof count === "object" ? count.count : count || 0) }))
+    .filter((entry) => entry.count > 0)
+    .sort((left, right) => right.count - left.count);
+  if (dailyStatus) dailyStatus.textContent = derived
+    ? `${dailyPlural(players.length, "joueur dans le journal", "joueurs dans le journal")} · quelques actions rattachées à la guilde`
+    : `${dailyPlural(players.length, "joueur dans le journal", "joueurs dans le journal")} · journée prête`;
+  if (dailyUpdatedAt) dailyUpdatedAt.textContent = `Journal actualisé ${formatRelativeAge(payload.sourceUpdatedAt || payload.generatedAt)}`;
+  if (dailyMetrics) dailyMetrics.innerHTML = [
+    renderDailyMetric("Moments du jour", formatInteger(echoes), derived ? `${dailyPlural(derived, "moment rattaché à la guilde", "moments rattachés à la guilde")}` : "Prêt à lire", "events"),
+    renderDailyMetric("Activité condensée", formatInteger(represented), "Les actions proches sont réunies pour alléger la lecture", "rare"),
+    renderDailyMetric("Aventuriers", formatInteger(players.length), "Joueurs présents dans le journal du jour", "capture"),
+    ...typeRows.slice(0, 4).map((entry) => renderDailyMetric(eventTypeMeta[entry.type]?.label || entry.type, formatInteger(entry.count), "Moments de cette catégorie", entry.type)),
+  ].join("");
+  if (dailyBrief) dailyBrief.innerHTML = `
+    <div class="daily-brief__lead"><strong>${escapeHtml(dailyDisplayDate(payload.date))}</strong><span>${dailyPlural(echoes, "moment retenu", "moments retenus")} · ${dailyPlural(represented, "action regroupée", "actions regroupées")}${derived ? ` · quelques rattachements à la guilde` : ""}</span></div>
+    <ul class="daily-brief__list">${typeRows.slice(0, 6).map((entry) => `<li><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><span>${dailyPlural(entry.count, "moment", "moments")}</span></li>`).join("") || "<li><span>Rien de notable publié pour cette journée.</span></li>"}</ul>`;
+  if (dailyHourly) dailyHourly.innerHTML = '<p class="daily-empty">Le rythme détaillé arrivera avec le prochain bilan complet.</p>';
+  if (dailyTypes) dailyTypes.innerHTML = typeRows.length
+    ? `<article class="daily-tangible-card" style="--tangible-color:#176d70"><header><span>Ce qui a bougé</span><strong>${formatInteger(echoes)}</strong></header><ol class="daily-item-list">${typeRows.slice(0, 10).map((entry) => `<li><span><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><small>Moments de la journée</small></span><strong>${formatInteger(entry.count)}</strong></li>`).join("")}</ol></article>`
+    : '<p class="daily-empty">Aucune catégorie notable pour cette journée.</p>';
+  if (dailyPlayers) dailyPlayers.innerHTML = players.length
+    ? players.map((player) => `<article class="daily-player-card" style="--player-color:${escapeHtml(playerColor(player.name))};--card-accent:${escapeHtml(playerColor(player.name))}"><header><span class="daily-player-card__avatar">${escapeHtml(playerInitials(player.name))}</span><span><strong>${escapeHtml(player.name)}</strong><small>${dailyPlural(Number(player.echoes || 0), "moment", "moments")}</small></span></header></article>`).join("")
+    : '<p class="daily-empty">Aucun joueur présent dans le journal de cette journée.</p>';
+  const latest = Array.isArray(payload.latest)
+    ? sortEventsNewestFirst(payload.latest.filter(eventCanBePublished), { canonical: true })
+    : [];
+  if (dailyHighlights) dailyHighlights.innerHTML = latest.length
+    ? latest.map((event) => {
+      const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
+      const badge = event.confidence === "derived" ? "Rattaché à la guilde" : meta.label;
+      const badgeTitle = event.confidence === "derived" ? ' title="Cet écho vient de la guilde; le joueur affiché est le meilleur repère disponible."' : "";
+      return `<li class="daily-highlight" style="--highlight-color:${escapeHtml(event.player ? playerColor(event.player) : meta.color)}"><time>${escapeHtml(formatTime(event.occurredAt))}</time><span><b>${escapeHtml(event.player || "Palpagos")}</b><strong>${escapeHtml(event.display?.headline || event.title || meta.label)}</strong><small>${escapeHtml(event.display?.body || event.message || "Moment publié")}</small></span><em${badgeTitle}>${escapeHtml(badge)}</em></li>`;
+    }).join("")
+    : '<li class="daily-empty">Aucun moment marquant publié pour cette journée.</li>';
+}
+
+async function loadDailyV6Payload(dateKey, manifest = eventsManifestV6) {
+  const entry = v6DayEntry(dateKey, manifest);
+  const generationId = String(entry?.dailyGenerationId || entry?.fragmentGenerationId || entry?.generationId || manifest?.generationId || "");
+  if (!generationId || !v6DateCanBeOpened(dateKey, manifest)) throw new Error("v6-daily-unavailable");
+  if (!entry) {
+    return {
+      schemaVersion: 6,
+      ok: true,
+      generationId,
+      date: dateKey,
+      generatedAt: manifest.generatedAt,
+      sourceUpdatedAt: manifest.sourceUpdatedAt,
+      freshness: manifest.freshness,
+      sourceStatus: manifest.sourceStatus,
+      cursor: { minId: 0, maxId: 0 },
+      counts: { echoes: 0, representedEvents: 0, confirmedEchoes: 0, derivedEchoes: 0 },
+      contentHash: `empty:${dateKey}`,
+      digest: {
+        totals: { eventCount: 0, activePlayers: 0, onlineSeconds: 0, presenceSessions: 0 },
+        hourly: Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 })),
+        types: {}, players: [], highlights: [], craftedItems: [], producedItems: [], palFinds: [],
+      },
+      latest: [],
+    };
+  }
+  const path = v6PublicDataPath(entry.dailyPath || `data/public-daily/${generationId}/${dateKey}.json`, "data/public-daily/");
+  if (!path) throw new Error("invalid-v6-daily-path");
+  const cacheKey = `${generationId}:${path}:${dateKey}`;
+  let payload = dailyV6Cache.get(cacheKey);
+  if (!payload) {
+    payload = await readJson(path, { immutable: true, expectedSha256: entry.dailySha256 });
+    if (!v6GenerationIsValid(payload, generationId) || payload.date !== dateKey || !payload.digest) {
+      throw new Error("mixed-v6-daily-generation");
+    }
+    dailyV6Cache.set(cacheKey, payload);
+  }
+  return payload;
+}
+
+async function renderDailyV6Candidate(candidate) {
+  const availableDateKeys = v6NavigableDates(candidate.manifest);
+  const requestedDate = dailySelectedDateKey || dailyRequestedDateKey();
+  const selectedDate = availableDateKeys.includes(requestedDate) ? requestedDate : availableDateKeys[0];
+  const { payload, state } = await stageAndCommitV6Candidate(
+    candidate,
+    () => loadDailyV6Payload(selectedDate, candidate.manifest),
+    commitEventsV6Candidate,
+  );
+  if (state.generationChanged) clearV6GenerationCaches();
+  dailyAvailableDateKeys = availableDateKeys;
+  dailySelectedDateKey = selectedDate;
+  renderDailyDateControls(selectedDate);
+  registerPayloadDataUpdate("events", payload);
+  const summary = normalizeDailyV6Digest(payload);
+  if (summary) renderDailyDigest(summary);
+  else renderDailyV6Basic(payload);
+  const signature = `${payload.generationId}|${selectedDate}|${payload.contentHash || payload.generatedAt || ""}`;
+  const changed = state.changed || signature !== dailyLastSignature;
+  dailyLastSignature = signature;
+  dailyRenderedGenerationId = String(candidate.manifest.generationId || "");
+  return { ok: true, changed, stale: state.stale, mode: "v6" };
+}
+
 async function loadDailyDigest(silent = false) {
   if (!isDailyDigestRoute()) return { ok: true, changed: false };
   try {
     if (!silent && dailyStatus) dailyStatus.textContent = "Compilation de la journée...";
+    const rollbackState = captureV6State();
+    const candidate = await fetchEventsV6Candidate(true, true);
+    if (candidate.ok) {
+      try {
+        return await renderDailyV6Candidate(candidate);
+      } catch {
+        const restored = restoreV6State(rollbackState);
+        const previousGeneration = String(eventsManifestV6?.generationId || "");
+        if (restored && dailyRenderedGenerationId && dailyRenderedGenerationId === previousGeneration) {
+          return { ok: true, changed: false, stale: true, mode: "v6" };
+        }
+        if (restored && previousGeneration) {
+          try {
+            return {
+              ...(await renderDailyV6Candidate({
+                ok: true,
+                manifest: eventsManifestV6,
+                head: eventsHeadV6,
+                generationId: previousGeneration,
+                stale: true,
+              })),
+              changed: false,
+              stale: true,
+            };
+          } catch {
+            // Le repli v5 reste disponible si l’ancienne génération n’est plus lisible.
+          }
+        }
+      }
+    }
+    eventsContractMode = "v5";
     const [indexResult] = await Promise.all([
       loadEventsIndex(true),
       loadDailyRoster(),
@@ -4313,6 +6363,7 @@ async function loadDailyDigest(silent = false) {
     ].join("|");
     const changed = signature !== dailyLastSignature;
     dailyLastSignature = signature;
+    dailyRenderedGenerationId = "";
     return { ok: true, changed };
   } catch {
     if (dailyStatus) dailyStatus.textContent = "Résumé quotidien momentanément indisponible";
@@ -4344,7 +6395,7 @@ function renderEventSummaryCards(payload) {
     }
     eventsState.dataset.state = "live";
   }
-  registerDataUpdate("events", payload.updatedAt);
+  registerPayloadDataUpdate("events", payload);
   renderWorldContractStatus();
 }
 
@@ -4412,10 +6463,16 @@ function switchDetailTab(name, updateRoute = true) {
   });
   if (!renderedPlayerTabs.has(name)) {
     if (name === "paldex") renderPaldexExplorer();
-    if (name === "pals") renderPalCollection();
+    if (name === "pals") {
+      renderPalCollection();
+      const playerAtRequest = selectedPlayer;
+      hydratePlayerFromPublicCatalogs(playerAtRequest).then((changed) => {
+        if (changed && selectedPlayer === playerAtRequest) renderPalCollection();
+      }).catch(() => {});
+    }
     if (name === "inventory") renderInventory(selectedPlayer);
     if (name === "bases") {
-      if (basesSnapshot) renderSelectedPlayerBases();
+      if (currentBasesSnapshot()) renderSelectedPlayerBases();
       else loadBases(true).then(() => renderSelectedPlayerBases());
     }
     renderedPlayerTabs.add(name);
@@ -4441,7 +6498,7 @@ function renderPlayerHeader(player) {
     ? portraits.map((pal) => gameImage(pal.icon, pal.name || pal.species || "Pal", "player-emblem-pal")).join("")
     : `<span class="player-emblem-fallback">${escapeHtml(playerInitials(player.name))}</span>`;
   expeditionPlayerMeta.textContent = player.provisional
-    ? `Niveau ${player.level == null ? "à confirmer" : Number(player.level)} · progression en cours de sauvegarde`
+      ? `Niveau ${player.level == null ? "à préciser" : Number(player.level)} · progression en cours de sauvegarde`
     : `Niveau ${Number(player.level || 0)} · ${Number(player.pals?.total || 0)} Pals · ${player.guild || "Sans guilde"}`;
 }
 
@@ -4677,7 +6734,7 @@ function renderPlayerDiscoveryProgress(progress) {
             <article><strong>${Number(records.raidBossDefeats || 0).toLocaleString("fr-CA")}</strong><span>boss de raid vaincus</span></article>
             <article><strong>${Number(records.towerBossDefeats || bosses.towerDefeated || 0).toLocaleString("fr-CA")}</strong><span>boss de tour vaincus</span></article>
             <article><strong>${Number(records.palRankups || 0).toLocaleString("fr-CA")}</strong><span>améliorations de Pals</span></article>
-            <article><strong>${Number(records.mutations || 0).toLocaleString("fr-CA")}</strong><span>mutations confirmées</span></article>
+        <article><strong>${Number(records.mutations || 0).toLocaleString("fr-CA")}</strong><span>mutations notées</span></article>
           </div>
           <section><h5>Quêtes en cours</h5><div class="journey-chip-grid">${activeQuests.length ? activeQuests.map((row) => `<span>${escapeHtml(row.name)}</span>`).join("") : "<p>Aucune quête active documentée.</p>"}</div></section>
           <section><h5>Quêtes terminées</h5><div class="journey-chip-grid">${completedQuests.length ? completedQuests.map((row) => `<span>${escapeHtml(row.name)}</span>`).join("") : "<p>Aucune quête publique documentée.</p>"}</div></section>
@@ -4737,6 +6794,7 @@ function renderPlayerPosition(position, pending = false) {
 
 function renderPlayerProfile(player) {
   const character = player.character || {};
+  const experienceProgress = character.experienceProgress || null;
   const progress = player.progress || {};
   const activity = getPlayerActivityValues(player);
   const position = player.position;
@@ -4785,7 +6843,7 @@ function renderPlayerProfile(player) {
       <header><div><span>Progression</span><h4>Parcours du personnage</h4></div><p>Les valeurs permanentes enregistrées dans la sauvegarde.</p></header>
       <div class="profile-stat-grid">
         <article class="profile-stat profile-stat--level"><span>Niveau du personnage</span><strong>${Number(player.level || 0)}</strong><small>Niveau atteint</small></article>
-        <article class="profile-stat profile-stat--xp"><span>Expérience enregistrée</span><strong>${Number(character.experience || 0).toLocaleString("fr-CA")}</strong><small>EXP dans la sauvegarde</small></article>
+        <article class="profile-stat profile-stat--xp"><span>Expérience enregistrée</span><strong>${Number(character.experience || 0).toLocaleString("fr-CA")}</strong><small>${experienceProgress ? `${Number(experienceProgress.remaining || 0).toLocaleString("fr-CA")} EXP avant le niveau ${Number(experienceProgress.nextLevel || player.level + 1)} · ${Number(experienceProgress.percent || 0).toLocaleString("fr-CA")} %` : "EXP dans la sauvegarde"}</small></article>
         <article class="profile-stat profile-stat--points"><span>Points disponibles</span><strong>${Number(character.unusedStatusPoints || 0)}</strong><small>Pas encore attribués</small></article>
       </div>
     </section>
@@ -4858,11 +6916,6 @@ function renderPlayerProfile(player) {
     .map((row) => gameImage(row.icon, row.species || row.name, className))
     .join("");
   expeditionShortcuts.innerHTML = `
-    <button class="profile-export-shortcut" type="button" data-player-export data-export-label="Exporter les données JSON">
-      <span class="shortcut-preview shortcut-preview--json" aria-hidden="true">JSON</span>
-      <span><small>Analyse personnelle</small><strong data-player-export-label>Exporter les données JSON</strong><small class="profile-export-shortcut__detail">Pals en équipe, Palbox, bases et constructions.</small></span>
-      <b>Télécharger →</b>
-    </button>
     <button type="button" data-shortcut-tab="paldex">
       <span class="shortcut-preview shortcut-preview--paldex" aria-hidden="true">PX</span>
       <span><small>Découvertes personnelles</small><strong>Ouvrir le Paldex</strong></span>
@@ -4891,12 +6944,14 @@ function renderInventory(player) {
   const sections = Array.isArray(player.inventory) ? player.inventory : [];
   const allItems = sections.flatMap((section) => section.items || []);
   const totalQuantity = allItems.reduce((sum, item) => sum + Number(item.count || 0), 0);
+  const totalWeight = allItems.reduce((sum, item) => sum + Number(item.totalWeight || 0), 0);
   const equippedItems = sections
     .filter((section) => ["weapons", "armor", "food"].includes(section.key))
     .flatMap((section) => (section.items || []).map((item) => ({ ...item, sectionLabel: section.label })));
   inventoryOverview.innerHTML = `
     <span><strong>${allItems.length}</strong> types d'objets</span>
     <span><strong>${totalQuantity.toLocaleString("fr-CA")}</strong> unités au total<small>Somme des quantités de toutes les piles</small></span>
+    ${totalWeight > 0 ? `<span><strong>${totalWeight.toLocaleString("fr-CA", { maximumFractionDigits: 1 })}</strong> poids estimé<small>D'après le catalogue du jeu</small></span>` : ""}
     <span><strong>${equippedItems.length}</strong> types équipés</span>
   `;
   inventoryEquipped.innerHTML = `
@@ -4998,6 +7053,9 @@ function renderPalCollection() {
         .join(" · ");
       return `<span><strong>${escapeHtml(skill.name)}</strong>${details ? `<small>${escapeHtml(details)}</small>` : ""}</span>`;
     }).join("");
+    const nextLearnedSkills = (pal.nextLearnedSkills || []).map((skill) => `
+      <span><strong>Niv. ${Number(skill.level || 0)} · ${escapeHtml(skill.name)}</strong><small>${escapeHtml([skill.element, skill.power ? `Puissance ${skill.power}` : ""].filter(Boolean).join(" · ") || "Compétence à venir")}</small></span>
+    `).join("");
     const workSuitabilities = (pal.workSuitabilityBonuses || []).map((work) => `
       <span><strong>${escapeHtml(work.name)}</strong><b>${Number(work.level || 0)}</b>${Number(work.bonus || 0) > 0 ? `<small>+${Number(work.bonus)} bonus</small>` : ""}</span>
     `).join("");
@@ -5013,6 +7071,8 @@ function renderPalCollection() {
     const containerLabel = pal.container === "party" ? "Équipe" : pal.container === "palbox" ? "Palbox" : "Monde";
     const gender = pal.gender === "Male" ? "Mâle" : pal.gender === "Female" ? "Femelle" : pal.gender || "-";
     const talentScore = Math.round(palTalentScore(pal));
+    const palExperience = pal.experienceProgress || null;
+    const friendshipProgress = pal.friendshipProgress || null;
     return `
       <article class="pal-detail-card">
         <div class="pal-detail-card__portrait">
@@ -5021,8 +7081,9 @@ function renderPalCollection() {
         </div>
         <div class="pal-detail-card__body">
           <header><div><small>${escapeHtml(pal.species)}</small><h3>${escapeHtml(pal.name)}</h3></div><b>Niv. ${Number(pal.level || 0)}</b></header>
-          ${badges.length || pal.rank != null ? `<div class="pal-badges">${badges.map((badge) => `<span>${badge}</span>`).join("")}${pal.rank != null ? `<span>Condensation ${Number(pal.rank)}</span>` : ""}</div>` : ""}
-          <div class="pal-vitals"><span>PV ${Number(pal.hp || 0).toLocaleString("fr-CA")}${pal.maxHp ? ` / ${Number(pal.maxHp).toLocaleString("fr-CA")}` : ""}</span><span>Amitié ${Number(pal.friendship || 0)}</span><span>${escapeHtml(gender)}</span>${pal.sanity != null ? `<span>SAN ${Math.round(Number(pal.sanity))}%</span>` : ""}</div>
+          ${badges.length || pal.rank != null || pal.rarity != null ? `<div class="pal-badges">${badges.map((badge) => `<span>${badge}</span>`).join("")}${pal.rank != null ? `<span>Condensation ${Number(pal.rank)}</span>` : ""}${pal.rarity != null ? `<span>Rareté ${Number(pal.rarity)}</span>` : ""}</div>` : ""}
+          <div class="pal-vitals"><span>PV ${Number(pal.hp || 0).toLocaleString("fr-CA")}${pal.maxHp ? ` / ${Number(pal.maxHp).toLocaleString("fr-CA")}` : ""}</span><span>Amitié ${Number(pal.friendship || 0).toLocaleString("fr-CA")}${friendshipProgress ? ` · rang ${Number(friendshipProgress.rank || 0)}` : ""}</span><span>${escapeHtml(gender)}</span>${pal.sanity != null ? `<span>SAN ${Math.round(Number(pal.sanity))}%</span>` : ""}</div>
+          ${palExperience ? `<div class="pal-progression"><span><small>Prochain niveau</small><strong>${Number(palExperience.remaining || 0).toLocaleString("fr-CA")} EXP</strong></span><i aria-label="${Number(palExperience.percent || 0)} % vers le niveau ${Number(palExperience.nextLevel || pal.level + 1)}"><em style="width:${Math.max(0, Math.min(100, Number(palExperience.percent || 0)))}%"></em></i></div>` : ""}
           <div class="pal-talent-score"><span>Potentiel</span><b>${talentScore}</b><i><em style="width:${talentScore}%"></em></i></div>
           <div class="talent-bars">
             <span style="--talent:${Number(pal.talents?.hp || 0)}%">Santé ${Number(pal.talents?.hp || 0)}</span>
@@ -5048,6 +7109,10 @@ function renderPalCollection() {
           </div>
           ${workSuitabilities ? `<div class="pal-work"><small>Aptitudes de travail</small><div>${workSuitabilities}</div></div>` : ""}
           ${learnedSkills ? `<details class="pal-learned"><summary>${(pal.learnedSkills || []).length} attaque${(pal.learnedSkills || []).length > 1 ? "s" : ""} apprise${(pal.learnedSkills || []).length > 1 ? "s" : ""}</summary><div>${learnedSkills}</div></details>` : ""}
+          ${nextLearnedSkills ? `<details class="pal-learned pal-learned--next"><summary>Prochaines compétences</summary><div>${nextLearnedSkills}</div></details>` : ""}
+          <div class="pal-breeding" data-breeding-result>
+            <button type="button" data-load-breeding data-species="${escapeHtml(pal.species)}">Voir des combinaisons d'élevage</button>
+          </div>
           ${(pal.healthStatus || pal.ownedAt) ? `<div class="pal-footnotes">${pal.healthStatus ? `<span>État: ${escapeHtml(pal.healthStatus)}</span>` : ""}${pal.ownedAt ? `<span>Acquis le ${escapeHtml(formatDateTime(pal.ownedAt))}</span>` : ""}</div>` : ""}
         </div>
       </article>
@@ -5055,44 +7120,239 @@ function renderPalCollection() {
   }).join("") : '<p class="detail-empty detail-empty--large">Aucun Pal ne correspond à cette recherche.</p>';
 }
 
+async function ensurePublicCatalogManifest() {
+  if (publicCatalogManifest) return publicCatalogManifest;
+  if (!publicCatalogManifestPromise) {
+    publicCatalogManifestPromise = readJson("data/public-catalogs-manifest.json", { revalidate: true })
+      .then((manifest) => {
+        if (!manifest?.ok || Number(manifest.schemaVersion) !== 1 || !/^[A-Za-z0-9._-]+$/.test(String(manifest.generationId || ""))) {
+          throw new Error("invalid-catalog-manifest");
+        }
+        publicCatalogManifest = manifest;
+        registerPayloadDataUpdate("catalog", manifest);
+        if ((manifest.provenance?.freshness || manifest.freshness || "current") === "current") {
+          registerSourceHealth(
+            "catalog",
+            manifest.provenance?.sourceStatus || manifest.sourceStatus || "available",
+            "stable",
+            `Catalogue ${manifest.generationId} disponible; aucune mise à jour du jeu détectée depuis cette version.`,
+          );
+        }
+        return manifest;
+      })
+      .catch((error) => {
+        registerSourceHealth("catalog", "transient-error", "stale");
+        throw error;
+      })
+      .finally(() => {
+        publicCatalogManifestPromise = null;
+      });
+  }
+  return publicCatalogManifestPromise;
+}
+
+async function ensurePublicCatalog(name) {
+  const manifest = await ensurePublicCatalogManifest();
+  const entry = manifest?.files?.[name];
+  const path = String(entry?.path || "");
+  const expectedPrefix = `public-catalogs/${manifest.generationId}/`;
+  if (!path.startsWith(expectedPrefix) || !new RegExp(`/${name}\\.json$`).test(path) || !v6Sha256IsValid(entry?.sha256)) {
+    throw new Error("invalid-catalog-entry");
+  }
+  const key = `${manifest.generationId}:${name}`;
+  if (!publicCatalogCache.has(key)) {
+    publicCatalogCache.set(key, readJson(`data/${path}`, {
+      immutable: true,
+      expectedSha256: entry.sha256,
+    }).then((payload) => {
+      if (
+        Number(payload?.schemaVersion) !== 1
+        || String(payload?.generationId || "") !== String(manifest.generationId)
+      ) throw new Error("mixed-catalog-generation");
+      return payload;
+    }).catch((error) => {
+      publicCatalogCache.delete(key);
+      throw error;
+    }));
+  }
+  return publicCatalogCache.get(key);
+}
+
+function catalogExperienceProgress(level, experience, table, pal = false) {
+  const current = table?.[String(Math.max(1, Number(level || 1)))];
+  const nextLevel = Math.max(1, Number(level || 1)) + 1;
+  const following = table?.[String(nextLevel)];
+  const totalKey = pal ? "PalTotalEXP" : "TotalEXP";
+  if (!current || !following) return null;
+  const currentTotal = Math.max(0, Number(current[totalKey] || 0));
+  const nextTotal = Math.max(currentTotal, Number(following[totalKey] || currentTotal));
+  const required = nextTotal - currentTotal;
+  if (required <= 0) return null;
+  const gained = Math.min(required, Math.max(0, Number(experience || 0) - currentTotal));
+  return {
+    level: Number(level || 1),
+    nextLevel,
+    gained,
+    required,
+    remaining: Math.max(0, nextTotal - Number(experience || 0)),
+    percent: Math.round((gained / required) * 1000) / 10,
+  };
+}
+
+function catalogFriendshipProgress(points, table) {
+  const rows = Object.values(table || {})
+    .filter((row) => row && Number.isFinite(Number(row.RequiredPoint)))
+    .sort((left, right) => Number(left.RequiredPoint) - Number(right.RequiredPoint));
+  if (!rows.length) return null;
+  const value = Number(points || 0);
+  const current = [...rows].reverse().find((row) => Number(row.RequiredPoint) <= value) || rows[0];
+  const following = rows.find((row) => Number(row.RequiredPoint) > value) || null;
+  const start = Number(current.RequiredPoint || 0);
+  const end = following ? Number(following.RequiredPoint || start) : start;
+  const span = Math.max(0, end - start);
+  return {
+    points: value,
+    rank: Number(current.FriendshipRank || 0),
+    nextRank: following ? Number(following.FriendshipRank || 0) : null,
+    remaining: following ? Math.max(0, end - value) : 0,
+    percent: span ? Math.round((Math.min(span, Math.max(0, value - start)) / span) * 1000) / 10 : 100,
+  };
+}
+
+async function hydratePlayerFromPublicCatalogs(player) {
+  if (!player || player.provisional || catalogHydratedPlayers.has(player)) return false;
+  await ensurePublicCatalogManifest();
+  const pals = Array.isArray(player.pals?.collection) ? player.pals.collection : [];
+  const needsProgression = !player.character?.experienceProgress
+    || pals.some((pal) => !pal.experienceProgress || !pal.friendshipProgress);
+  const needsLearnsets = pals.some((pal) => !Array.isArray(pal.nextLearnedSkills));
+  const [progression, learnsets] = await Promise.all([
+    needsProgression ? ensurePublicCatalog("progression") : null,
+    needsLearnsets ? ensurePublicCatalog("learnsets") : null,
+  ]);
+  let changed = false;
+  if (progression && player.character && !player.character.experienceProgress) {
+    player.character.experienceProgress = catalogExperienceProgress(
+      player.level,
+      player.character.experience,
+      progression.experience,
+    );
+    changed = Boolean(player.character.experienceProgress) || changed;
+  }
+  const skillIndex = new Map((learnsets?.skills || []).map((skill) => [String(skill.asset || "").toLocaleLowerCase("en-CA"), skill]));
+  pals.forEach((pal) => {
+    if (progression && !pal.experienceProgress) {
+      pal.experienceProgress = catalogExperienceProgress(pal.level, pal.experience, progression.experience, true);
+      changed = Boolean(pal.experienceProgress) || changed;
+    }
+    if (progression && !pal.friendshipProgress) {
+      pal.friendshipProgress = catalogFriendshipProgress(pal.friendship, progression.friendship);
+      changed = Boolean(pal.friendshipProgress) || changed;
+    }
+    if (learnsets && !Array.isArray(pal.nextLearnedSkills)) {
+      const rows = learnsets.learnset?.[pal.species] || [];
+      pal.nextLearnedSkills = rows
+        .filter((row) => Number(row.level || 0) > Number(pal.level || 0))
+        .sort((left, right) => Number(left.level || 0) - Number(right.level || 0))
+        .slice(0, 3)
+        .map((row) => {
+          const asset = String(row.WazaID || "").replace(/^EPalWazaID::/, "");
+          return { level: Number(row.level || 0), ...(skillIndex.get(asset.toLocaleLowerCase("en-CA")) || { name: asset }) };
+        });
+      changed = true;
+    }
+  });
+  catalogHydratedPlayers.add(player);
+  return changed;
+}
+
+async function renderBreedingOptions(button) {
+  const container = button.closest("[data-breeding-result]");
+  if (!container) return;
+  button.disabled = true;
+  button.textContent = "Chargement des combinaisons…";
+  try {
+    const catalog = await ensurePublicCatalog("breeding");
+    const species = String(button.dataset.species || "");
+    const palInfo = catalog.pal_info || {};
+    const asset = Object.entries(palInfo).find(([, info]) => String(info?.name || "").localeCompare(species, "fr-CA", { sensitivity: "base" }) === 0)?.[0];
+    const rows = asset ? [
+      ...(catalog.child_to_parents_unique?.[asset] || []),
+      ...(catalog.child_to_parents_formula?.[asset] || []),
+      ...(catalog.child_to_parents_ignore?.[asset] || []),
+    ] : [];
+    const seen = new Set();
+    const combinations = rows.filter((row) => {
+      const key = [row.parent_a, row.parent_b].sort().join("|");
+      if (!row.parent_a || !row.parent_b || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+    container.innerHTML = combinations.length ? `
+      <details open><summary>${combinations.length} combinaisons d'élevage</summary><ul>${combinations.map((row) => `
+        <li>${escapeHtml(palInfo[row.parent_a]?.name || row.parent_a)} <span>×</span> ${escapeHtml(palInfo[row.parent_b]?.name || row.parent_b)}</li>
+      `).join("")}</ul></details>
+    ` : "<p>Aucune combinaison documentée pour ce Pal.</p>";
+  } catch {
+    button.disabled = false;
+    button.textContent = "Réessayer les combinaisons d'élevage";
+  }
+}
+
 async function ensureFullSaveSnapshot() {
-  if (fullSaveSnapshot) return fullSaveSnapshot;
-  if (!fullSaveSnapshotPromise) {
-    fullSaveSnapshotPromise = readJson("data/public-save-snapshot.json")
+  const generationId = await ensureActiveSaveGeneration();
+  if (saveGenerationIsValid(fullSaveSnapshot, generationId)) return fullSaveSnapshot;
+  if (!fullSaveSnapshotPromise || fullSaveSnapshotPromiseGenerationId !== generationId) {
+    fullSaveSnapshotPromiseGenerationId = generationId;
+    const request = readJson("data/public-save-snapshot.json")
       .then((payload) => {
+        assertActiveSaveGeneration(payload, "snapshot", generationId);
         fullSaveSnapshot = payload;
         return payload;
       })
       .finally(() => {
-        fullSaveSnapshotPromise = null;
+        if (fullSaveSnapshotPromise === request) {
+          fullSaveSnapshotPromise = null;
+          fullSaveSnapshotPromiseGenerationId = "";
+        }
       });
+    fullSaveSnapshotPromise = request;
   }
   return fullSaveSnapshotPromise;
 }
 
 async function ensurePlayerSnapshot(indexedPlayer) {
   const slug = playerSlug(indexedPlayer?.name);
-  const revision = String(saveSnapshot?.updatedAt || "");
-  const cached = playerSnapshotCache.get(slug);
-  if (cached?.revision === revision) return cached.payload;
-  if (playerSnapshotPromises.has(slug)) return playerSnapshotPromises.get(slug);
+  const revision = await ensureActiveSaveGeneration();
+  const promiseKey = `${revision}:${slug}`;
+  const cached = playerSnapshotCache.get(promiseKey);
+  if (cached) return cached;
+  if (playerSnapshotPromises.has(promiseKey)) return playerSnapshotPromises.get(promiseKey);
 
   const promise = readJson(`data/players/${slug}.json`)
     .then((payload) => {
       if (!payload?.ok || !payload.player) throw new Error("Invalid player snapshot");
-      playerSnapshotCache.set(slug, { revision, payload });
+      assertActiveSaveGeneration(payload, "player", revision);
+      playerSnapshotCache.set(promiseKey, payload);
       return payload;
     })
     .catch(async () => {
       const payload = await ensureFullSaveSnapshot();
       const player = (payload?.players || []).find((row) => playerSlug(row.name) === slug);
       if (!player) throw new Error("Player profile unavailable");
-      const fallback = { ok: true, updatedAt: payload.updatedAt, player };
-      playerSnapshotCache.set(slug, { revision, payload: fallback });
+      const fallback = {
+        ok: true,
+        generationId: revision,
+        updatedAt: payload.updatedAt,
+        version: payload.version ?? null,
+        provenance: payload.provenance || null,
+        player,
+      };
+      playerSnapshotCache.set(promiseKey, fallback);
       return fallback;
     })
-    .finally(() => playerSnapshotPromises.delete(slug));
-  playerSnapshotPromises.set(slug, promise);
+    .finally(() => playerSnapshotPromises.delete(promiseKey));
+  playerSnapshotPromises.set(promiseKey, promise);
   return promise;
 }
 
@@ -5104,6 +7364,14 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
   let payload = null;
   if (indexedPlayer.provisional) {
     selectedPlayer = indexedPlayer;
+    selectedPlayerSnapshotPayload = {
+      ok: true,
+      generationId: activeSaveGenerationId(),
+      updatedAt: saveSnapshot?.updatedAt || statsSnapshot?.updatedAt || null,
+      version: saveSnapshot?.version ?? null,
+      provenance: saveSnapshot?.provenance || null,
+      player: indexedPlayer,
+    };
   } else {
     try {
       payload = await ensurePlayerSnapshot(indexedPlayer);
@@ -5112,6 +7380,7 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
       return;
     }
     selectedPlayer = payload.player;
+    selectedPlayerSnapshotPayload = payload;
     if (!selectedPlayer) return;
   }
   expeditionPlayerName.textContent = selectedPlayer.name || "Aventurier";
@@ -5156,9 +7425,15 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
   const activeTab = selectedPlayer.provisional ? "profile" : tab;
   switchDetailTab(activeTab, false);
   const willOpenDialog = !expeditionDialog.open;
-  if (willOpenDialog) lockPlayerView();
+  if (willOpenDialog) {
+    playerDialogReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    lockPlayerView();
+  }
   if (updateRoute) history.replaceState(null, "", playerRoute(selectedPlayer, activeTab));
-  if (willOpenDialog) expeditionDialog.showModal();
+  if (willOpenDialog) {
+    expeditionDialog.showModal();
+    window.requestAnimationFrame(() => expeditionBack?.focus({ preventScroll: true }));
+  }
   trackVirtualPageView();
 }
 
@@ -5208,10 +7483,16 @@ function openPlayerFromRoute() {
 function closePlayerDetails() {
   if (expeditionDialog?.open) expeditionDialog.close();
   selectedPlayer = null;
+  selectedPlayerSnapshotPayload = null;
   selectedPlayerBases = [];
   history.replaceState(null, "", playerReturnUrl || `${location.pathname}${location.search}`);
   trackVirtualPageView();
   unlockPlayerView();
+  const returnFocus = playerDialogReturnFocus;
+  playerDialogReturnFocus = null;
+  window.requestAnimationFrame(() => {
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+  });
 }
 
 let activeTooltipTarget = null;
@@ -5272,18 +7553,29 @@ function clearSearchOnEscape(event) {
   event.currentTarget.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-async function readJson(path) {
+async function readJson(path, options = {}) {
   const source = path.startsWith("/") ? path : `/${path}`;
-  const response = await fetch(`${source}?ts=${Date.now()}`, { cache: "no-store" });
+  const requestSource = options.revalidate || options.immutable
+    ? source
+    : `${source}${source.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+  const response = await fetch(requestSource, {
+    cache: options.immutable ? "force-cache" : options.revalidate ? "no-cache" : "no-store",
+  });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-
-  return response.json();
+  if (!options.expectedSha256) return response.json();
+  if (!window.crypto?.subtle) throw new Error("sha256-unavailable");
+  const bytes = await response.arrayBuffer();
+  const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+  const actual = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const expected = String(options.expectedSha256).replace(/^sha256:/i, "").toLocaleLowerCase("en-CA");
+  if (actual !== expected) throw new Error("sha256-mismatch");
+  return JSON.parse(new TextDecoder("utf-8").decode(bytes));
 }
 
 function isNewDataRevision(source, payload) {
-  const revision = String(payload?.revision || payload?.updatedAt || "");
+  const revision = String(payload?.revision || payload?.generationId || payload?.updatedAt || "");
   if (revision && dataRevisions[source] === revision) return false;
   dataRevisions[source] = revision;
   return true;
@@ -5296,6 +7588,7 @@ async function loadMetrics(silent = false) {
     if (changed) renderMetrics(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("metrics", "transient-error", "stale");
     if (!silent) {
       playersList.textContent = "Les données apparaîtront automatiquement au prochain passage du collecteur.";
       headerPlayers.dataset.tooltip = playersList.textContent;
@@ -5309,20 +7602,22 @@ async function loadStats(silent = false) {
     const payload = await readJson("data/public-stats.json");
     const changed = isNewDataRevision("stats", payload);
     if (changed) renderStats(payload);
-    return { ok: true, changed };
+    return { ok: payload?.ok !== false, changed };
   } catch {
-    if (!silent) statsSnapshot = null;
+    registerSourceHealth("stats", "transient-error", "stale");
     return { ok: false, changed: false };
   }
 }
 
 async function loadUptime(silent = false) {
   try {
-    const payload = await readJson("data/public-uptime.json");
+    const payload = await readUptimePayload();
     const changed = isNewDataRevision("uptime", payload);
     if (changed) renderUptime(payload);
+    else registerPayloadDataUpdate("uptime", payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("uptime", "transient-error", "stale");
     if (!silent) {
       uptimeSummary.textContent = "La disponibilité apparaîtra automatiquement après le prochain passage du collecteur.";
       uptimeBars.innerHTML = createPlaceholderBars();
@@ -5331,43 +7626,65 @@ async function loadUptime(silent = false) {
   }
 }
 
-async function loadSaveSnapshot(silent = false, syncRoute = true) {
+async function readUptimePayload() {
   try {
-    const payload = await readJson("data/public-save-index.json");
-    const changed = isNewDataRevision("save", payload);
-    if (changed) {
-      fullSaveSnapshot = null;
-      playerSnapshotCache.clear();
-      renderSaveSnapshot(payload, syncRoute);
-    }
-    return { ok: true, changed };
+    return await readJson("data/public-uptime.json");
   } catch {
-    if (!silent) {
-      if (saveState) saveState.textContent = "En attente";
-    }
-    return { ok: false, changed: false };
+    return readJson("data/public-availability.json");
   }
+}
+
+async function loadSaveSnapshot(silent = false, syncRoute = true) {
+  if (!saveIndexPromise) {
+    const request = readJson("data/public-save-index.json")
+      .then((payload) => {
+        const generationId = publicSaveGenerationId(payload);
+        if (!payload?.ok || !generationId) throw new Error("invalid-save-generation:index");
+        const changed = isNewDataRevision("save", payload);
+        if (changed) {
+          renderSaveSnapshot(payload, syncRoute);
+        }
+        return { ok: true, changed };
+      })
+      .catch(() => {
+        registerSourceHealth("save", "transient-error", "stale");
+        if (!silent && saveState) saveState.textContent = "En attente";
+        return { ok: false, changed: false };
+      })
+      .finally(() => {
+        if (saveIndexPromise === request) saveIndexPromise = null;
+      });
+    saveIndexPromise = request;
+  }
+  return saveIndexPromise;
 }
 
 async function loadSaveDiagnostics(silent = false) {
   try {
+    const generationId = await ensureActiveSaveGeneration();
     const payload = await readJson("data/public-save-diagnostics.json");
+    assertActiveSaveGeneration(payload, "diagnostics", generationId);
     const changed = isNewDataRevision("diagnostics", payload);
     if (changed) renderSaveDiagnostics(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("diagnostics", "transient-error", "stale");
     if (!silent && worldDataState) worldDataState.textContent = "En attente";
     return { ok: false, changed: false };
   }
 }
 
 async function loadBases(silent = false) {
+  basesGenerationRequested = true;
   try {
+    const generationId = await ensureActiveSaveGeneration();
     const payload = await readJson("data/public-save-bases.json");
+    assertActiveSaveGeneration(payload, "bases", generationId);
     const changed = isNewDataRevision("bases", payload);
     if (changed) renderBaseSnapshot(payload);
     return { ok: true, changed };
   } catch {
+    registerSourceHealth("bases", "transient-error", "stale");
     if (!silent) {
       if (basesState) basesState.textContent = "En attente";
       if (baseResultCount) baseResultCount.textContent = "Les données des bases arriveront au prochain passage du collecteur.";
@@ -5376,8 +7693,46 @@ async function loadBases(silent = false) {
   }
 }
 
+async function loadEventsFreshness(silent = true, force = false) {
+  try {
+    const candidate = await fetchEventsV6Candidate(silent, force);
+    if (candidate.ok) return commitEventsV6Candidate(candidate);
+    registerSourceHealth("events", "transient-error", "stale");
+    return { ok: false, changed: false };
+  } catch {
+    registerSourceHealth("events", "transient-error", "stale");
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadCatalogFreshness() {
+  try {
+    await ensurePublicCatalogManifest();
+    return { ok: true, changed: false };
+  } catch {
+    return { ok: false, changed: false };
+  }
+}
+
+async function loadPortalFreshnessSources(options = {}) {
+  const tasks = [
+    loadMetrics(true),
+    loadStats(true),
+    loadUptime(true),
+    loadSaveSnapshot(true, false),
+    loadSaveDiagnostics(true),
+    loadCatalogFreshness(),
+  ];
+  if (options.includeEvents !== false) tasks.push(loadEventsFreshness(true));
+  return Promise.all(tasks);
+}
+
+function flattenLoadResults(results) {
+  return results.flatMap((result) => Array.isArray(result) ? result : [result]);
+}
+
 function setupLazyBaseData() {
-  if (basesSnapshot) return;
+  if (currentBasesSnapshot()) return;
   const targets = [document.querySelector("#carte")].filter(Boolean);
   if (!("IntersectionObserver" in window)) {
     loadBases(true);
@@ -5393,8 +7748,11 @@ function setupLazyBaseData() {
 
 function renderEventIndexSnapshot(payload) {
   eventsIndexSnapshot = payload;
-  registerDataUpdate("events", payload?.updatedAt);
-  renderEventSyncStatus(new Date(), payload?.updatedAt);
+  const currentPayload = v5TailReplacementWindow(payload, eventsRecentSnapshot)
+    ? eventsRecentSnapshot
+    : payload;
+  registerPayloadDataUpdate("events", currentPayload);
+  renderEventSyncStatus(new Date(), currentPayload?.updatedAt);
   if (eventIndexTotalEvents()) void loadEventExportPage(1).catch(() => {});
   if (eventsDisclosure?.open) renderEventFiltersFromFacets(payload);
 }
@@ -5425,8 +7783,10 @@ async function loadEvents(silent = false) {
 }
 
 async function loadEventsIndex(silent = false) {
+  const recentSnapshot = loadEventsRecent(true, { snapshotOnly: true });
   try {
     const payload = await readJson("data/public-events-index.json");
+    const recentResult = await recentSnapshot;
     const previousIndex = eventsIndexSnapshot;
     const previousRevision = eventsIndexSnapshot?.revision || "";
     const changed = isNewDataRevision("eventsIndex", payload);
@@ -5434,8 +7794,9 @@ async function loadEventsIndex(silent = false) {
       invalidateChangedEventPages(previousIndex, payload);
     }
     renderEventIndexSnapshot(payload);
-    return { ok: true, changed };
+    return { ok: true, changed: changed || recentResult.changed };
   } catch {
+    await recentSnapshot;
     return loadEventsWithRecentOverlay(silent);
   }
 }
@@ -5444,11 +7805,12 @@ function mergeEventPayload(payload) {
   return mergeEventPayloads(eventsSnapshot || {}, payload);
 }
 
-async function loadEventsRecent(silent = true) {
+async function loadEventsRecent(silent = true, options = {}) {
   if (Date.now() - lastEventRecentRefreshAt < refreshEveryMs - 500 && eventsSnapshot) {
     return { ok: true, changed: false };
   }
   try {
+    const previousRecentRevision = String(eventsRecentSnapshot?.revision || "");
     const payload = await readJson("data/public-events-recent.json");
     const recentPayload = {
       ...payload,
@@ -5457,6 +7819,8 @@ async function loadEventsRecent(silent = true) {
     };
     eventsRecentSnapshot = recentPayload;
     lastEventRecentRefreshAt = Date.now();
+    const snapshotChanged = previousRecentRevision !== String(recentPayload.revision || "");
+    if (options.snapshotOnly) return { ok: true, changed: snapshotChanged };
     if (!eventsFullLoaded) {
       const changed = isNewDataRevision("events", recentPayload);
       if (changed) renderEventSnapshot(recentPayload);
@@ -5500,21 +7864,24 @@ async function refreshDataInBackground() {
   refreshPending = true;
   renderNextUpdate();
   if (isHeaderOnlyRoute()) {
-    const result = await loadMetrics(true);
+    const results = flattenLoadResults(await loadPortalFreshnessSources());
+    const synchronizedSources = results.filter((result) => result.ok).length;
+    const changedSources = results.filter((result) => result.changed).length;
     nextRefreshAt = Date.now() + refreshEveryMs;
     refreshPending = false;
-    refreshMessageState = result.ok ? "updated" : "error";
+    refreshMessageState = synchronizedSources ? "updated" : "error";
     const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
-    refreshMessage = result.ok ? (result.changed ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`) : "Nouvel essai bientôt";
+    refreshMessage = synchronizedSources ? `À jour · ${refreshTime}` : "Nouvel essai bientôt";
+    if (changedSources) announceDataUpdate("Les données du portail ont été actualisées.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
   }
   if (isDailyDigestRoute()) {
-    const results = await Promise.all([
-      loadMetrics(true),
+    const results = flattenLoadResults(await Promise.all([
+      loadPortalFreshnessSources({ includeEvents: false }),
       loadDailyDigest(true),
-    ]);
+    ]));
     const synchronizedSources = results.filter((result) => result.ok).length;
     const changedSources = results.filter((result) => result.changed).length;
     nextRefreshAt = Date.now() + refreshEveryMs;
@@ -5522,27 +7889,19 @@ async function refreshDataInBackground() {
     refreshMessageState = synchronizedSources ? "updated" : "error";
     const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
     refreshMessage = synchronizedSources
-      ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
+      ? `À jour · ${refreshTime}`
       : "Nouvel essai bientôt";
+    if (changedSources) announceDataUpdate("Le résumé quotidien a été actualisé.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
   }
   if (isTerminalRoute()) {
-    const eventRefresh = eventFiltersRequireFullHistory() && !eventsFullLoaded
-      ? loadEventsWithRecentOverlay(true)
-      : eventsFullLoaded
-      ? loadEventsRecent(true)
-      : loadEventsIndex(true).then(async (result) => {
-        if (result.ok && !eventsFullLoaded) {
-          await renderPagedTerminalEvents(false, { preserveDom: true, preserveViewport: true });
-        }
-        return result;
-      });
-    const results = await Promise.all([
-      loadMetrics(true),
+    const eventRefresh = loadTerminalEventsPreferred(true);
+    const results = flattenLoadResults(await Promise.all([
+      loadPortalFreshnessSources({ includeEvents: false }),
       eventRefresh,
-    ]);
+    ]));
     const synchronizedSources = results.filter((result) => result.ok).length;
     const changedSources = results.filter((result) => result.changed).length;
     nextRefreshAt = Date.now() + refreshEveryMs;
@@ -5550,21 +7909,18 @@ async function refreshDataInBackground() {
     refreshMessageState = synchronizedSources ? "updated" : "error";
     const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
     refreshMessage = synchronizedSources
-      ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
+      ? `À jour · ${refreshTime}`
       : "Nouvel essai bientôt";
+    if (changedSources) announceDataUpdate("De nouveaux échos sont disponibles.");
     refreshMessageUntil = Date.now() + 6500;
     renderNextUpdate();
     return;
   }
-  const results = await Promise.all([
-    loadMetrics(true),
-    loadStats(true),
-    loadUptime(true),
-    loadSaveSnapshot(true, false),
-    basesSnapshot ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
-    loadSaveDiagnostics(true),
-    loadEventsRecent(true),
-  ]);
+  const results = flattenLoadResults(await Promise.all([
+    loadPortalFreshnessSources({ includeEvents: false }),
+    basesGenerationRequested ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
+    loadHomeEchoes(true),
+  ]));
   const synchronizedSources = results.filter((result) => result.ok).length;
   const changedSources = results.filter((result) => result.changed).length;
 
@@ -5573,8 +7929,9 @@ async function refreshDataInBackground() {
   refreshMessageState = synchronizedSources ? "updated" : "error";
   const refreshTime = new Date().toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" });
   refreshMessage = synchronizedSources
-    ? (changedSources ? `À jour · ${refreshTime}` : `Vérifié · ${refreshTime}`)
+      ? `À jour · ${refreshTime}`
     : "Nouvel essai bientôt";
+  if (changedSources) announceDataUpdate("Les données du portail ont été actualisées.");
   refreshMessageUntil = Date.now() + 6500;
   renderNextUpdate();
 }
@@ -5583,18 +7940,21 @@ readTerminalState();
 syncTerminalView();
 if (isTerminalRoute()) {
   if (eventsDisclosure) eventsDisclosure.open = true;
-  const terminalEventsLoad = eventFiltersRequireFullHistory()
-    ? loadEventsWithRecentOverlay()
-    : loadEventsIndex().then(async (result) => {
-      if (result.ok && !eventsFullLoaded) await renderPagedTerminalEvents();
-      return result;
-    });
+  const terminalEventsLoad = loadTerminalEventsPreferred();
   Promise.all([
-    loadMetrics(),
+    loadPortalFreshnessSources({ includeEvents: false }),
     terminalEventsLoad,
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
-    if (eventsFullLoaded && eventsSnapshot) {
+    if (eventsContractMode === "v6" && eventsSnapshot) {
+      renderEventFiltersFromFacets(eventsIndexSnapshot);
+      if (!eventFiltersRequireFullHistory() && !eventsFullLoaded && eventCurrentPage > 1) {
+        void renderPagedTerminalEventsV6().then(() => writeTerminalState());
+      } else {
+        renderEvents();
+        writeTerminalState();
+      }
+    } else if (eventsFullLoaded && eventsSnapshot) {
       renderEventFilters(eventsSnapshot.events || []);
       renderEvents();
       writeTerminalState();
@@ -5605,24 +7965,18 @@ if (isTerminalRoute()) {
   });
 } else if (isDailyDigestRoute()) {
   Promise.all([
-    loadMetrics(),
+    loadPortalFreshnessSources({ includeEvents: false }),
     loadDailyDigest(),
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
   });
 } else if (isLeaderboardRoute()) {
-  Promise.all([
-    loadMetrics(),
-    loadStats(),
-    loadSaveSnapshot(false, false),
-  ]).then(() => {
+  loadPortalFreshnessSources().then(() => {
     document.documentElement.classList.add("data-loaded");
   });
 } else if (isMapRoute()) {
   Promise.all([
-    loadMetrics(),
-    loadStats(),
-    loadSaveSnapshot(false, false),
+    loadPortalFreshnessSources(),
     loadBases(true),
   ]).then(() => {
     loadDeferredImage(globalMapImage);
@@ -5630,7 +7984,7 @@ if (isTerminalRoute()) {
     document.documentElement.classList.add("data-loaded");
   });
 } else if (isHeaderOnlyRoute()) {
-  loadMetrics().then(() => {
+  loadPortalFreshnessSources().then(() => {
     document.documentElement.classList.add("data-loaded");
   });
 } else {
@@ -5641,9 +7995,9 @@ if (isTerminalRoute()) {
   const initialBaseLoad = location.hash === "#carte"
     ? loadBases()
     : Promise.resolve({ ok: true, changed: false });
-  const initialEventsLoad = eventsDisclosure ? loadEventsRecent(true) : Promise.resolve({ ok: true, changed: false });
+  const initialEventsLoad = loadHomeEchoes(true);
 
-  Promise.all([loadMetrics(), loadStats(), loadUptime(), loadSaveSnapshot(), initialBaseLoad, loadSaveDiagnostics(), initialEventsLoad]).then(() => {
+  Promise.all([loadPortalFreshnessSources({ includeEvents: false }), initialBaseLoad, initialEventsLoad]).then(() => {
     document.documentElement.classList.add("data-loaded");
     setupLazyBaseData();
     const initialSection = ["chroniques", "classements", "carte", "evenements"]
@@ -5679,9 +8033,16 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 
-window.addEventListener("pagehide", () => window.clearInterval(clockTimer));
+window.addEventListener("pagehide", () => {
+  window.clearInterval(clockTimer);
+  if (isTerminalRoute() && eventsContractMode === "v6") markTerminalEchoesSeen();
+});
 
 if (isDashboardRoute()) {
+playerVisibilityToggle?.addEventListener("click", () => {
+  showInactivePlayers = !showInactivePlayers;
+  syncPlayerVisibilityToggle(Boolean(savePlayers?.querySelector('[data-player-visibility="inactive"]')));
+});
 savePlayers.addEventListener("click", (event) => {
   const link = event.target.closest("[data-player-index]");
   if (link) {
@@ -5722,6 +8083,20 @@ eventsDisclosure?.addEventListener("toggle", () => {
     return;
   }
   if (!eventsDisclosure.open) return;
+  if (eventsContractMode === "v6") {
+    if (eventFiltersRequireFullHistory() && !terminalV6HistoryCoversActiveFilters() && !eventsFullLoaded) {
+      void loadTerminalHistoryForFiltersV6().then(() => {
+        if (!eventsDisclosure.open || !eventsSnapshot) return;
+        renderEventFiltersFromFacets(eventsIndexSnapshot);
+        renderEvents();
+      });
+      return;
+    }
+    if (!eventsSnapshot) return;
+    renderEventFiltersFromFacets(eventsIndexSnapshot);
+    void updateTerminalEvents(false);
+    return;
+  }
   if (eventFiltersRequireFullHistory() && !eventsFullLoaded) {
     if (eventResultCount) eventResultCount.textContent = "Chargement de l'historique complet...";
     void loadEventsWithRecentOverlay(true).then(() => {
@@ -5774,22 +8149,22 @@ leaderboardHead?.addEventListener("click", (event) => {
 document.querySelectorAll('a[href="#carte"]').forEach((link) => {
   link.addEventListener("click", () => {
     if (mapDisclosure) mapDisclosure.open = true;
-    if (!basesSnapshot) loadBases(true);
+    if (!currentBasesSnapshot()) loadBases(true);
   });
 });
 
 mapDisclosure?.addEventListener("toggle", () => {
   if (!mapDisclosure.open) return;
   loadDeferredImage(globalMapImage);
-  if (!basesSnapshot) loadBases(true);
+  if (!currentBasesSnapshot()) loadBases(true);
   window.requestAnimationFrame(restoreGlobalMapView);
 });
 
 mapBaseToggle?.addEventListener("click", async () => {
   const shouldShow = !showMapBases;
-  if (shouldShow && !basesSnapshot) await loadBases(true);
+  if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
   showMapBases = shouldShow;
-  renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+  renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
 });
 
 baseSearch?.addEventListener("input", filterBases);
@@ -5888,10 +8263,6 @@ expeditionDialog.addEventListener("cancel", (event) => {
 expeditionClose.addEventListener("click", closePlayerDetails);
 expeditionBack.addEventListener("click", closePlayerDetails);
 expeditionShortcuts.addEventListener("click", (event) => {
-  if (event.target.closest("[data-player-export]")) {
-    void exportSelectedPlayerAnalysisJson();
-    return;
-  }
   const shortcut = event.target.closest("[data-shortcut-tab]");
   if (shortcut) switchDetailTab(shortcut.dataset.shortcutTab);
 });
@@ -5923,6 +8294,10 @@ palSearch.addEventListener("input", () => { palVisibleLimit = 24; renderPalColle
 palContainerFilter.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palSort.addEventListener("change", () => { palVisibleLimit = 24; renderPalCollection(); });
 palLoadMore.addEventListener("click", () => { palVisibleLimit += 24; renderPalCollection(); });
+expeditionPals?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-load-breeding]");
+  if (button) renderBreedingOptions(button);
+});
 inventorySearch.addEventListener("input", () => renderInventory(selectedPlayer));
 }
 
@@ -5951,35 +8326,76 @@ if (isLeaderboardRoute()) {
 if (isMapRoute()) {
   mapPlayerToggle?.addEventListener("click", () => {
     showMapPlayers = !showMapPlayers;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
   mapBaseToggle?.addEventListener("click", async () => {
     const shouldShow = !showMapBases;
-    if (shouldShow && !basesSnapshot) await loadBases(true);
+    if (shouldShow && !currentBasesSnapshot()) await loadBases(true);
     showMapBases = shouldShow;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
   mapLegendToggle?.addEventListener("click", () => {
     showMapLegend = !showMapLegend;
-    renderGlobalPlayerMap(saveSnapshot?.players || [], basesSnapshot?.bases || []);
+    renderGlobalPlayerMap(saveSnapshot?.players || [], currentBasesSnapshot()?.bases || []);
   });
 }
 
-eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
-eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
-eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; syncEventControlsState(); void updateTerminalEvents(); });
+eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
+eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
+eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
 eventControls?.addEventListener("toggle", () => {
-  if (isTerminalRoute() && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
+  if (isTerminalRoute() && eventsContractMode !== "v6" && (eventsSnapshot || eventsIndexSnapshot) && updateTerminalPageSize(true)) {
     void updateTerminalEvents(false);
   }
 });
 eventPagination?.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-event-page]");
+  const button = event.target.closest("[data-event-page], [data-event-cursor]");
   if (!button || button.disabled) return;
-  eventCurrentPage = Number(button.dataset.eventPage) || 1;
+  if (eventsContractMode === "v6") {
+    eventCursor = button.dataset.eventCursor || "";
+    eventCurrentPage = Number(button.dataset.eventPage) || 1;
+  } else {
+    eventCurrentPage = Number(button.dataset.eventPage) || 1;
+  }
   void updateTerminalEvents().then(() => {
     document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
   });
+});
+eventPagination?.addEventListener("change", (event) => {
+  const input = event.target.closest(".event-pagination__page-input");
+  if (!input) return;
+  const max = Math.max(1, Number(input.max || 1));
+  const nextPage = clamp(Number(input.value || 1), 1, max);
+  input.value = String(nextPage);
+  if (nextPage === eventCurrentPage) return;
+  eventCurrentPage = nextPage;
+  eventCursor = "";
+  void updateTerminalEvents().then(() => {
+    document.querySelector("#event-stream").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
+  });
+});
+eventPagination?.addEventListener("keydown", (event) => {
+  const input = event.target.closest(".event-pagination__page-input");
+  if (!input || event.key !== "Enter") return;
+  event.preventDefault();
+  input.blur();
+});
+eventDateInput?.addEventListener("change", () => {
+  void selectEventDate(eventDateInput.value);
+});
+eventDatePrevious?.addEventListener("click", () => {
+  const dates = v6NavigableDates();
+  const index = dates.indexOf(eventSelectedDateKey);
+  if (index >= 0 && dates[index + 1]) void selectEventDate(dates[index + 1]);
+});
+eventDateNext?.addEventListener("click", () => {
+  const dates = v6NavigableDates();
+  const index = dates.indexOf(eventSelectedDateKey);
+  if (index > 0) void selectEventDate(dates[index - 1]);
+});
+eventDateToday?.addEventListener("click", () => {
+  const today = dailyDateKeyFromDate(new Date());
+  if (today) void selectEventDate(today);
 });
 dailyDateInput?.addEventListener("change", () => {
   void selectDailyDate(dailyDateInput.value);
@@ -5993,6 +8409,30 @@ dailyNext?.addEventListener("click", () => {
   const index = dailyAvailableDateKeys.indexOf(dailySelectedDateKey);
   const nextKey = index > 0 ? dailyAvailableDateKeys[index - 1] : "";
   if (nextKey) void selectDailyDate(nextKey);
+});
+dailyToday?.addEventListener("click", () => {
+  const today = dailyDateKeyFromDate(new Date());
+  if (today) void selectDailyDate(today);
+});
+dailyTypes?.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-daily-type-filter]");
+  if (!card || !dailyCurrentSummary) return;
+  dailyHighlightTypeFilter = dailyHighlightTypeFilter === card.dataset.dailyTypeFilter ? "" : card.dataset.dailyTypeFilter;
+  dailyTypes.innerHTML = renderDailyTypes(dailyCurrentSummary);
+  if (dailyHighlights) dailyHighlights.innerHTML = renderDailyHighlights(dailyCurrentSummary);
+});
+dailyTypes?.addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  const card = event.target.closest("[data-daily-type-filter]");
+  if (!card) return;
+  event.preventDefault();
+  card.click();
+});
+dailyHighlights?.addEventListener("click", (event) => {
+  if (!event.target.closest("[data-daily-filter-reset]") || !dailyCurrentSummary) return;
+  dailyHighlightTypeFilter = "";
+  if (dailyTypes) dailyTypes.innerHTML = renderDailyTypes(dailyCurrentSummary);
+  dailyHighlights.innerHTML = renderDailyHighlights(dailyCurrentSummary);
 });
 palSearch?.addEventListener("keydown", clearSearchOnEscape);
 inventorySearch?.addEventListener("keydown", clearSearchOnEscape);
@@ -6061,7 +8501,7 @@ window.addEventListener("hashchange", () => {
   if (location.hash === "#evenements" && eventsDisclosure) eventsDisclosure.open = true;
   if (location.hash === "#carte" && mapDisclosure) {
     mapDisclosure.open = true;
-    if (!basesSnapshot) loadBases(true);
+    if (!currentBasesSnapshot()) loadBases(true);
   }
   openPlayerFromRoute();
   trackVirtualPageView();

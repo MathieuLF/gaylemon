@@ -7,6 +7,7 @@ User=steam
 Group=steam
 Nice=19
 IOSchedulingClass=idle
+CPUQuota=20%
 CPUWeight=10
 IOWeight=10
 EnvironmentFile=-/etc/palworld/palworld.env

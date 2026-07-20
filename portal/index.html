@@ -33,8 +33,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/styles.css?v=20260718.2">
-  <script src="assets/app.js?v=20260718.4" defer></script>
+  <link rel="stylesheet" href="assets/styles.css?v=20260719.14">
+  <script src="assets/app.js?v=20260719.11" defer></script>
 
     <script type="application/ld+json">
       {
@@ -96,11 +96,11 @@
             <strong data-metric="players-current">--</strong>
             <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
             <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
-            <span class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
+            <div class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
               <span class="site-header__players-tooltip-kicker">Présences en direct</span>
               <strong>Aucun joueur connecté</strong>
               <p>Le serveur ne détecte personne en ligne pour le moment.</p>
-            </span>
+            </div>
           </div>
           <div class="site-header__updated">
             <small>Dernières données</small>
@@ -119,7 +119,7 @@
         <p class="eyebrow">Tableau de bord Palworld</p>
         <h1 id="site-title">Gaylémon Palworld</h1>
         <p class="lede">
-          Les métriques du serveur, les specs publiques et les fiches des joueurs sont réunies ici. Les vues lourdes ont maintenant leurs pages dédiées.
+          Retrouve l’état du serveur, les dernières aventures et la progression de chaque joueur, puis explore Palpagos à ton rythme.
         </p>
         <div class="dashboard-hero__routes" aria-label="Pages dédiées">
           <a class="dashboard-hero__route dashboard-hero__route--terminal" href="/terminal" aria-label="Ouvrir le terminal des échos">
@@ -156,7 +156,7 @@
             <span class="uptime-inline__pulse" aria-hidden="true"></span>
             <span><small>Disponibilité</small></span>
           </div>
-          <p id="uptime-summary">On vérifie l'état du serveur en direct.</p>
+          <p id="uptime-summary">On suit l'état du serveur en direct.</p>
           <div class="uptime-bars" id="uptime-bars" role="img" aria-label="Historique de disponibilité">
             <span class="uptime-segment uptime-segment--unknown"></span>
             <span class="uptime-segment uptime-segment--unknown"></span>
@@ -238,7 +238,7 @@
             <article><span>Durée d'analyse</span><strong data-world-data="duration">--</strong><small data-world-data-note="freshness">Fraîcheur inconnue</small></article>
             <article data-world-data-card="events"><span>Chroniques</span><strong data-world-data="events">--</strong><small data-world-data-note="events">Échos</small></article>
             <article data-world-data-card="last-event"><span>Dernier écho</span><strong data-world-data="last-event">--</strong><small data-world-data-note="last-event">Journal public</small></article>
-            <article data-world-data-card="contracts"><span>Contrats publics</span><strong data-world-data="contracts">--</strong><small data-world-data-note="contracts">Versions chargées</small></article>
+            <article data-world-data-card="contracts"><span>Données publiques</span><strong data-world-data="contracts">--</strong><small data-world-data-note="contracts">Exports chargés</small></article>
             <article data-world-data-card="footprint"><span>Poids publié</span><strong data-world-data="footprint">--</strong><small data-world-data-note="footprint">Données, microsite, assets, scripts et serveur</small></article>
             <article><span>Carte visuelle</span><strong data-world-data="map">--</strong><small>Image interactive de Palpagos</small></article>
             <article><span>Analyseur</span><strong data-world-data="parser">--</strong><small data-world-data-note="parser">PalworldSaveTools</small></article>
@@ -271,12 +271,27 @@
             <p class="eyebrow">Fiches publiques</p>
             <h3>Les joueurs au premier plan</h3>
           </div>
-          <p>Chaque fiche ouvre les Pals, le Paldex, l'inventaire, les bases et l'export JSON d'analyse personnelle.</p>
+          <p>Ouvre une fiche pour découvrir les Pals, le Paldex, l’inventaire et les campements de chaque aventurier.</p>
         </div>
 
         <div class="adventurer-grid adventurer-grid--home" id="save-players">
           <p class="save-empty">Les chroniques apparaîtront après la prochaine sauvegarde du monde.</p>
         </div>
+        <button class="player-visibility-toggle" id="player-visibility-toggle" type="button" aria-expanded="false" hidden>
+          Voir les aventuriers moins récents
+        </button>
+      </section>
+
+      <section class="panel home-echoes" id="latest-echoes" aria-labelledby="latest-echoes-title">
+        <div class="panel__header home-echoes__heading">
+          <div>
+            <p class="eyebrow">En direct de Palpagos</p>
+            <h2 id="latest-echoes-title">Les échos les plus récents</h2>
+          </div>
+          <a class="home-echoes__terminal-link" href="/terminal">Explorer le journal</a>
+        </div>
+        <p class="home-echoes__status" id="home-echoes-status" role="status">Les derniers échos arrivent…</p>
+        <ol class="home-echoes__list" id="home-latest-echoes" aria-label="Échos les plus récents"></ol>
       </section>
 
       <section class="dashboard-pages" aria-labelledby="dashboard-pages-title">
@@ -309,7 +324,7 @@
       </section>
     </main>
 
-    <dialog class="expedition-dialog" id="expedition-dialog" aria-labelledby="expedition-player-name">
+    <dialog class="expedition-dialog" id="expedition-dialog" aria-modal="true" aria-labelledby="expedition-player-name">
       <div class="expedition-dialog__shell">
         <header class="expedition-dialog__header">
           <div class="player-page-heading">

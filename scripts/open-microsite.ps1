@@ -169,6 +169,13 @@ try {
 }
 catch {
     Write-Warning "L'audit de reprise initial sera retenté par le watcher: $($_.Exception.Message)"
+    try {
+        & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") | Out-Null
+        Write-Host "Snapshot joueurs resynchronisé après l'audit de reprise incomplet."
+    }
+    catch {
+        Write-Warning "Snapshot joueurs non resynchronisé au démarrage: $($_.Exception.Message)"
+    }
 }
 
 $watcherScript = Join-Path $PSScriptRoot "watch-microsite-metrics.ps1"
