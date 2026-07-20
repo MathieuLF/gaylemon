@@ -8,6 +8,7 @@ User=gaylemon
 Group=gaylemon
 Nice=19
 IOSchedulingClass=idle
+CPUQuota=20%
 CPUWeight=10
 IOWeight=10
 MemoryMax=768M

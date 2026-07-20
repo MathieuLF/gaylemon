@@ -7614,6 +7614,7 @@ async function loadUptime(silent = false) {
     const payload = await readUptimePayload();
     const changed = isNewDataRevision("uptime", payload);
     if (changed) renderUptime(payload);
+    else registerPayloadDataUpdate("uptime", payload);
     return { ok: true, changed };
   } catch {
     registerSourceHealth("uptime", "transient-error", "stale");
