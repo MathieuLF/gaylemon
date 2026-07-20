@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 6,
+  "ok": true,
+  "generationId": "example-20260718T120000Z",
+  "date": "2026-07-18",
+  "generatedAt": "2026-07-18T12:00:00-04:00",
+  "observedAt": "2026-07-18T11:59:58-04:00",
+  "sourceUpdatedAt": "2026-07-18T11:59:55-04:00",
+  "gameVersion": "v0.6.8.81234",
+  "steamBuildId": "24181105",
+  "parserCommit": "example-parser",
+  "catalogCommit": "example-catalog",
+  "freshness": "current",
+  "sourceStatus": "available",
+  "cursor": { "minId": 41, "maxId": 42 },
+  "counts": { "echoes": 2, "representedEvents": 3 },
+  "facets": {
+    "types": [
+      { "value": "capture", "count": 1 },
+      { "value": "level", "count": 1 }
+    ],
+    "players": [
+      { "value": "Mathieu", "count": 2 }
+    ],
+    "guilds": [],
+    "bases": []
+  },
+  "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "events": [
+    {
+      "key": "level:mathieu:36",
+      "id": 42,
+      "occurredAt": "2026-07-18T11:55:00-04:00",
+      "type": "level",
+      "player": "Mathieu",
+      "title": "Niveau supérieur",
+      "message": "Mathieu atteint le niveau 36.",
+      "display": { "headline": "Mathieu atteint le niveau 36", "body": "Une nouvelle étape de progression est confirmée.", "bullets": [] },
+      "details": { "level": 36 },
+      "confidence": "confirmed",
+      "source": "save"
+    },
+    {
+      "key": "capture:mathieu:chilletex:1",
+      "id": 41,
+      "occurredAt": "2026-07-18T10:42:00-04:00",
+      "type": "capture",
+      "player": "Mathieu",
+      "title": "Nouvelle capture",
+      "message": "Mathieu ajoute Chillet à son Paldex.",
+      "display": { "headline": "Mathieu découvre Chillet", "body": "La capture est confirmée dans la sauvegarde.", "bullets": ["+1 Chillet"] },
+      "details": { "pals": [{ "name": "Chillet", "count": 1 }] },
+      "confidence": "confirmed",
+      "source": "save"
+    }
+  ]
+}

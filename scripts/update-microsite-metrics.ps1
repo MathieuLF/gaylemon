@@ -1,7 +1,7 @@
 ﻿param(
     [string]$OutputPath = (Join-Path $PSScriptRoot "..\portal\data\metrics.json"),
     [int]$UptimeHistoryIntervalMinutes = 10,
-    [int]$SaveSnapshotIntervalMinutes = 15,
+    [int]$SaveSnapshotIntervalMinutes = 1,
     [int]$DiagnosticsRefreshIntervalHours = 2,
     [int]$DiagnosticsRefreshAnchorHour = 1,
     [int]$DiagnosticsRefreshWindowMinutes = 15,

@@ -1,10 +1,19 @@
 {
   "version": 5,
+  "schemaVersion": 5,
   "ok": true,
   "revision": "5:2:5",
+  "projectionRevision": 43,
   "updatedAt": "2026-07-12T12:00:00-04:00",
   "recent": true,
   "truncated": false,
+  "projectionWindow": {
+    "mode": "replace-tail",
+    "replaceFrom": "2026-07-12T11:45:00-04:00",
+    "complete": true,
+    "fromProjectionRevision": 42,
+    "throughProjectionRevision": 43
+  },
   "summary": {
     "events": 2,
     "totalEvents": 5,

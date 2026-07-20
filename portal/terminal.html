@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260718.2">
-    <script src="/assets/app.js?v=20260718.4" defer></script>
+  <link rel="stylesheet" href="/assets/styles.css?v=20260719.14">
+  <script src="/assets/app.js?v=20260719.11" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -69,11 +69,11 @@
             <strong data-metric="players-current">--</strong>
             <span class="site-header__players-total"><span aria-hidden="true">/</span> <b data-metric="players-max">--</b><span class="site-header__players-label"> en ligne</span></span>
             <span class="visually-hidden" id="players-list">Aucun joueur connecté.</span>
-            <span class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
+            <div class="site-header__players-tooltip" id="players-tooltip" role="tooltip">
               <span class="site-header__players-tooltip-kicker">Présences en direct</span>
               <strong>Aucun joueur connecté</strong>
               <p>Le serveur ne détecte personne en ligne pour le moment.</p>
-            </span>
+            </div>
           </div>
           <div class="site-header__updated">
             <small>Dernières données</small>
@@ -104,6 +104,7 @@
             <div class="event-console__topbar">
               <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
               <strong>palpagos://journal/public</strong>
+              <nav class="event-pagination event-pagination--top" id="event-pagination" aria-label="Navigation chronologique des échos" hidden></nav>
             </div>
             <details class="event-controls" id="event-controls">
               <summary>
@@ -132,10 +133,9 @@
               <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
               <time id="event-sync-status">Synchronisation en attente</time>
             </div>
-            <ol class="event-stream" id="event-stream" aria-live="polite">
+            <ol class="event-stream" id="event-stream" aria-live="off">
               <li class="event-stream__empty">Les premiers échos arrivent...</li>
             </ol>
-            <nav class="event-pagination" id="event-pagination" aria-label="Pages de l'historique" hidden></nav>
           </div>
         </div>
       </section>

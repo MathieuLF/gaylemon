@@ -8,6 +8,7 @@ User=steam
 Group=steam
 Nice=15
 IOSchedulingClass=idle
+CPUQuota=10%
 CPUWeight=10
 IOWeight=10
 ExecStart=/srv/storage/steam/bin/palworld-stats-collect.py

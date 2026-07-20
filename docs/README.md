@@ -28,6 +28,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 
 - [Snapshot public v3](SAVE-SNAPSHOT-V3.md): contrat des données joueurs, fiches, Pals et export JSON.
 - [Bases publiques v1](SAVE-BASES-V1.md): contrat des bases, constructions, stockages et libellés publics.
+- [Échos publics v6](EVENEMENTS-PUBLICS-V6.md): projection canonique, fragments journaliers, publication atomique et bascule progressive.
 - [Plan d'enrichissement](PLAN-ENRICHISSEMENT-SAUVEGARDES.md): état du journal enrichi, terminal et limites volontaires.
 - [Publication du dépôt](PUBLIC-REPOSITORY.md): quoi publier, quoi garder local.
 

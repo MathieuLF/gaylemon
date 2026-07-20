@@ -98,7 +98,7 @@ function Get-GaylemonConfig {
     $metricInterval = ConvertTo-GaylemonInt "GAYLEMON_METRIC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_INTERVAL_SECONDS" "20") 5 3600
     $eventSyncInterval = ConvertTo-GaylemonInt "GAYLEMON_EVENT_SYNC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_EVENT_SYNC_INTERVAL_SECONDS" "20") 5 3600
     $eventSyncTimeout = ConvertTo-GaylemonInt "GAYLEMON_EVENT_SYNC_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_EVENT_SYNC_TIMEOUT_SECONDS" "60") 15 3600
-    $saveSnapshotSyncInterval = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" "60") 15 3600
+    $saveSnapshotSyncInterval = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" "45") 15 3600
     $saveSnapshotSyncTimeout = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_TIMEOUT_SECONDS" "180") 60 3600
     $metricUpdateTimeout = ConvertTo-GaylemonInt "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" "120") 30 3600
     $uptimeKumaMonitorId = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_KUMA_MONITOR_ID" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_MONITOR_ID" "1") 1 ([int]::MaxValue)

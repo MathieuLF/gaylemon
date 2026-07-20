@@ -1,11 +1,24 @@
 ﻿param(
     [string]$StatsPath = (Join-Path $PSScriptRoot "..\portal\data\stats.json"),
     [int]$MaxIntervalSeconds = 300,
-    [int]$GameDataIntervalMinutes = 5
+    [int]$GameDataIntervalMinutes = 5,
+    [int]$GameDataRetryHours = 6,
+    [int]$SettingsIntervalHours = 6
 )
 
 $ErrorActionPreference = "Stop"
 $MaxSessionHistory = 200
+$MaxSettingsChanges = 50
+$StatsSchemaVersion = 2
+$PublicSettingsFields = @(
+    "Difficulty", "DayTimeSpeedRate", "NightTimeSpeedRate", "ExpRate", "PalCaptureRate",
+    "PalSpawnNumRate", "PalDamageRateAttack", "PalDamageRateDefense", "PlayerDamageRateAttack",
+    "PlayerDamageRateDefense", "CollectionDropRate", "CollectionObjectHpRate",
+    "CollectionObjectRespawnSpeedRate", "EnemyDropItemRate", "DeathPenalty", "BaseCampMaxNum",
+    "BaseCampWorkerMaxNum", "GuildPlayerMaxNum", "PalEggDefaultHatchingTime", "WorkSpeedRate",
+    "AutoSaveSpan", "bIsPvP", "bEnablePlayerToPlayerDamage", "bEnableFriendlyFire",
+    "bEnableInvaderEnemy", "bEnableFastTravel", "bUseBackupSaveData", "CrossplayPlatforms"
+)
 
 try {
     [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -29,7 +42,7 @@ function Convert-Uptime {
 }
 
 function Read-PalworldJson {
-    param([ValidateSet("info", "players", "metrics", "game-data")] [string]$Endpoint)
+    param([ValidateSet("info", "players", "metrics", "settings", "game-data")] [string]$Endpoint)
 
     $raw = & (Join-Path $PSScriptRoot "palworld-api.ps1") $Endpoint 2>&1
     $text = ($raw | Out-String).Trim()
@@ -74,24 +87,116 @@ function ConvertTo-Hashtable {
     return $InputObject
 }
 
+function Get-CanonicalDigest {
+    param($Payload)
+
+    $json = $Payload | ConvertTo-Json -Depth 20 -Compress
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha256.ComputeHash($bytes)
+    }
+    finally {
+        $sha256.Dispose()
+    }
+    return -join ($hash | ForEach-Object { $_.ToString("x2") })
+}
+
+function Get-PublicSettings {
+    param($Payload)
+
+    if ($Payload -and $Payload.PSObject.Properties.Name -contains "settings" -and $Payload.settings) {
+        $Payload = $Payload.settings
+    }
+    $settings = [ordered]@{}
+    foreach ($field in $PublicSettingsFields | Sort-Object) {
+        if ($Payload -and $Payload.PSObject.Properties.Name -contains $field -and $null -ne $Payload.$field) {
+            $settings[$field] = $Payload.$field
+        }
+    }
+    return $settings
+}
+
+function Update-SettingsProjection {
+    param(
+        [System.Collections.IDictionary]$Stats,
+        $Payload,
+        [datetime]$Now
+    )
+
+    $current = Get-PublicSettings -Payload $Payload
+    $digest = Get-CanonicalDigest -Payload $current
+    $previous = if ($Stats.settings.current) { $Stats.settings.current } else { [ordered]@{} }
+    $previousDigest = [string]$Stats.settings.digest
+
+    if ($previousDigest -and $previousDigest -ne $digest) {
+        $fields = [ordered]@{}
+        $keys = @($previous.Keys) + @($current.Keys) | Sort-Object -Unique
+        foreach ($key in $keys) {
+            $before = if ($previous.Contains($key)) { $previous[$key] } else { $null }
+            $after = if ($current.Contains($key)) { $current[$key] } else { $null }
+            if (($before | ConvertTo-Json -Compress) -ne ($after | ConvertTo-Json -Compress)) {
+                $fields[$key] = [ordered]@{ before = $before; after = $after }
+            }
+        }
+        $changeDigest = Get-CanonicalDigest -Payload ([ordered]@{
+            before = $previousDigest
+            after = $digest
+            fields = $fields
+        })
+        $changes = @($Stats.settings.changes)
+        if (-not @($changes | Where-Object { $_.digest -eq $changeDigest }).Count) {
+            $changes += [ordered]@{
+                observedAt = $Now.ToString("o")
+                digest = $changeDigest
+                fields = $fields
+            }
+        }
+        $Stats.settings.changes = @($changes | Select-Object -Last $MaxSettingsChanges)
+    }
+
+    $Stats.settings.status = "available"
+    $Stats.settings.updatedAt = $Now.ToString("o")
+    $Stats.settings.nextAttemptAt = $Now.AddHours($SettingsIntervalHours).ToString("o")
+    $Stats.settings.digest = $digest
+    $Stats.settings.current = $current
+    $Stats.settings.error = $null
+}
+
 function New-StatsDocument {
     param([datetime]$Now)
 
     return [ordered]@{
-        version = 1
+        version = 2
+        schemaVersion = $StatsSchemaVersion
         ok = $true
         updatedAt = $Now.ToString("o")
         updatedAtLocal = $Now.ToString("yyyy-MM-dd HH:mm:ss")
+        provenance = [ordered]@{
+            observedAt = $Now.ToString("o")
+            sourceUpdatedAt = $Now.ToString("o")
+            gameVersion = $null
+            steamBuildId = $null
+            parserCommit = $null
+            catalogCommit = $null
+            schemaVersion = $StatsSchemaVersion
+            freshness = "current"
+            sourceStatus = "available"
+        }
         collection = [ordered]@{
             firstSampleAt = $Now.ToString("o")
             lastSampleAt = $null
             lastGameDataAt = $null
+            lastGameDataAttemptAt = $null
             nextGameDataAttemptAt = $null
             sampleCount = 0
             gameDataStatus = "unknown"
             gameDataDisabledAt = $null
             gameDataAvailable = $false
             gameDataError = $null
+            gameDataCapabilityKey = $null
+            gameDataRestartGeneration = 0
+            lastServerRestartDetectedAt = $null
             note = "Les temps et connexions sont estimés par échantillonnage local."
         }
         server = [ordered]@{
@@ -126,10 +231,20 @@ function New-StatsDocument {
             wildPals = 0
             npcs = 0
         }
+        settings = [ordered]@{
+            status = "unknown"
+            updatedAt = $null
+            nextAttemptAt = $null
+            digest = $null
+            current = [ordered]@{}
+            changes = @()
+            error = $null
+        }
+        sources = [ordered]@{}
     }
 }
 
-function Test-GameDataDisabledError {
+function Test-GameDataDocumentedUnavailableError {
     param([string]$Message)
 
     return $Message -match "HTTP 40[45]" -or
@@ -140,7 +255,7 @@ function Test-GameDataDisabledError {
 
 function Ensure-CollectionDefaults {
     param(
-        [hashtable]$Stats,
+        [System.Collections.IDictionary]$Stats,
         [datetime]$Now
     )
 
@@ -148,18 +263,68 @@ function Ensure-CollectionDefaults {
         $Stats.collection = [ordered]@{}
     }
 
+    if (-not $Stats.Contains("provenance") -or -not $Stats.provenance) {
+        $Stats.provenance = [ordered]@{}
+    }
+    foreach ($entry in @{
+        observedAt = $Now.ToString("o")
+        sourceUpdatedAt = $Now.ToString("o")
+        gameVersion = $null
+        steamBuildId = $null
+        parserCommit = $null
+        catalogCommit = $null
+        schemaVersion = $StatsSchemaVersion
+        freshness = "current"
+        sourceStatus = "available"
+    }.GetEnumerator()) {
+        if (-not $Stats.provenance.Contains($entry.Key)) { $Stats.provenance[$entry.Key] = $entry.Value }
+    }
+    if (-not $Stats.Contains("sources")) { $Stats.sources = [ordered]@{} }
+
+    $Stats.version = 2
+    $Stats.schemaVersion = $StatsSchemaVersion
     if (-not $Stats.collection.Contains("lastGameDataAt")) { $Stats.collection.lastGameDataAt = $null }
+    if (-not $Stats.collection.Contains("lastGameDataAttemptAt")) { $Stats.collection.lastGameDataAttemptAt = $null }
     if (-not $Stats.collection.Contains("nextGameDataAttemptAt")) { $Stats.collection.nextGameDataAttemptAt = $null }
     if (-not $Stats.collection.Contains("gameDataStatus")) { $Stats.collection.gameDataStatus = "unknown" }
     if (-not $Stats.collection.Contains("gameDataDisabledAt")) { $Stats.collection.gameDataDisabledAt = $null }
     if (-not $Stats.collection.Contains("gameDataAvailable")) { $Stats.collection.gameDataAvailable = $false }
     if (-not $Stats.collection.Contains("gameDataError")) { $Stats.collection.gameDataError = $null }
+    if (-not $Stats.collection.Contains("gameDataCapabilityKey")) { $Stats.collection.gameDataCapabilityKey = $null }
+    if (-not $Stats.collection.Contains("gameDataRestartGeneration")) { $Stats.collection.gameDataRestartGeneration = 0 }
+    if (-not $Stats.collection.Contains("lastServerRestartDetectedAt")) { $Stats.collection.lastServerRestartDetectedAt = $null }
 
-    if ($Stats.collection.gameDataStatus -ne "disabled" -and (Test-GameDataDisabledError -Message ([string]$Stats.collection.gameDataError))) {
-        $Stats.collection.gameDataStatus = "disabled"
+    if ($Stats.collection.gameDataStatus -eq "disabled" -or (Test-GameDataDocumentedUnavailableError -Message ([string]$Stats.collection.gameDataError))) {
+        $Stats.collection.gameDataStatus = "documented-but-unavailable"
         $Stats.collection.gameDataDisabledAt = if ($Stats.collection.lastGameDataAt) { $Stats.collection.lastGameDataAt } else { $Now.ToString("o") }
-        $Stats.collection.nextGameDataAttemptAt = $null
+        if (-not $Stats.collection.nextGameDataAttemptAt) {
+            $Stats.collection.nextGameDataAttemptAt = $Now.AddHours($GameDataRetryHours).ToString("o")
+        }
     }
+    elseif (Test-GameDataUnsupportedError -Message ([string]$Stats.collection.gameDataError)) {
+        $Stats.collection.gameDataStatus = "unsupported"
+        if (-not $Stats.collection.nextGameDataAttemptAt) {
+            $Stats.collection.nextGameDataAttemptAt = $Now.AddHours($GameDataRetryHours).ToString("o")
+        }
+    }
+
+    if (-not $Stats.Contains("settings") -or -not $Stats.settings) {
+        $Stats.settings = [ordered]@{}
+    }
+    if (-not $Stats.settings.Contains("status")) { $Stats.settings.status = "unknown" }
+    if (-not $Stats.settings.Contains("updatedAt")) { $Stats.settings.updatedAt = $null }
+    if (-not $Stats.settings.Contains("nextAttemptAt")) { $Stats.settings.nextAttemptAt = $null }
+    if (-not $Stats.settings.Contains("digest")) { $Stats.settings.digest = $null }
+    if (-not $Stats.settings.Contains("current")) { $Stats.settings.current = [ordered]@{} }
+    if (-not $Stats.settings.Contains("changes")) { $Stats.settings.changes = @() }
+    if (-not $Stats.settings.Contains("error")) { $Stats.settings.error = $null }
+}
+
+function Test-GameDataUnsupportedError {
+    param([string]$Message)
+
+    return $Message -match "HTTP (?:400|501)" -or
+        $Message -match "\b(?:400|501)\b"
 }
 
 function Get-PlayerKey {
@@ -176,7 +341,7 @@ function Get-PlayerKey {
 
 function Ensure-PlayerRecord {
     param(
-        [hashtable]$Stats,
+        [System.Collections.IDictionary]$Stats,
         [string]$Key,
         [datetime]$Now
     )
@@ -234,7 +399,7 @@ function Ensure-PlayerRecord {
 
 function Start-PlayerSession {
     param(
-        [hashtable]$Record,
+        [System.Collections.IDictionary]$Record,
         [Parameter(Mandatory)] [string]$StartedAt
     )
 
@@ -254,7 +419,7 @@ function Start-PlayerSession {
 
 function Stop-PlayerSession {
     param(
-        [hashtable]$Record,
+        [System.Collections.IDictionary]$Record,
         [Parameter(Mandatory)] [string]$EndedAt
     )
 
@@ -271,7 +436,7 @@ function Stop-PlayerSession {
 
 function Update-PlayerFromOnlineList {
     param(
-        [hashtable]$Stats,
+        [System.Collections.IDictionary]$Stats,
         $Player,
         [datetime]$Now,
         [int]$IntervalSeconds
@@ -319,16 +484,17 @@ function Update-PlayerFromOnlineList {
 
 function Update-StatsFromGameData {
     param(
-        [hashtable]$Stats,
+        [System.Collections.IDictionary]$Stats,
         $GameData,
         [datetime]$Now
     )
 
-    $actors = @($GameData.ActorData)
+    $actors = if ($GameData.ActorData) { @($GameData.ActorData) } elseif ($GameData.actorData) { @($GameData.actorData) } else { @() }
     $Stats.collection.gameDataAvailable = $true
     $Stats.collection.gameDataError = $null
     $Stats.collection.lastGameDataAt = $Now.ToString("o")
-    $Stats.collection.nextGameDataAttemptAt = $null
+    $Stats.collection.lastGameDataAttemptAt = $Now.ToString("o")
+    $Stats.collection.nextGameDataAttemptAt = $Now.AddMinutes($GameDataIntervalMinutes).ToString("o")
     $Stats.collection.gameDataStatus = "available"
     $Stats.collection.gameDataDisabledAt = $null
     $Stats.actors.lastSnapshotAt = $Now.ToString("o")
@@ -388,7 +554,7 @@ function Update-StatsFromGameData {
                 }
             }
             $guilds[$guildId].playerCount = [int]$guilds[$guildId].playerCount + 1
-            if ($actor.IsActive -eq "true") {
+            if ($actor.IsActive -eq $true -or [string]$actor.IsActive -eq "true") {
                 $guilds[$guildId].activePlayerCount = [int]$guilds[$guildId].activePlayerCount + 1
             }
         }
@@ -444,8 +610,53 @@ if (-not $stats) {
 Ensure-CollectionDefaults -Stats $stats -Now $now
 
 try {
+    $info = Read-PalworldJson -Endpoint info
     $metrics = Read-PalworldJson -Endpoint metrics
     $playersPayload = Read-PalworldJson -Endpoint players
+
+    $gameVersion = if ($info.version) { [string]$info.version } elseif ($info.Version) { [string]$info.Version } else { $null }
+    $currentUptimeSeconds = [int]$metrics.uptime
+    $previousUptimeSeconds = [int]$stats.server.lastUptimeSeconds
+    $restartGeneration = [int]$stats.collection.gameDataRestartGeneration
+    if ($previousUptimeSeconds -ge 60 -and ($currentUptimeSeconds + 30) -lt $previousUptimeSeconds) {
+        $restartGeneration++
+        $stats.collection.lastServerRestartDetectedAt = $now.ToString("o")
+    }
+    $stats.collection.gameDataRestartGeneration = $restartGeneration
+    $capabilityKey = Get-CanonicalDigest -Payload ([ordered]@{
+        gameVersion = $gameVersion
+        steamBuildId = $null
+        restartGeneration = $restartGeneration
+    })
+    if ($stats.collection.gameDataCapabilityKey -and $stats.collection.gameDataCapabilityKey -ne $capabilityKey) {
+        $stats.collection.gameDataStatus = "unknown"
+        $stats.collection.gameDataAvailable = $false
+        $stats.collection.gameDataError = $null
+        $stats.collection.nextGameDataAttemptAt = $null
+    }
+    $stats.collection.gameDataCapabilityKey = $capabilityKey
+    $stats.provenance.observedAt = $now.ToString("o")
+    $stats.provenance.sourceUpdatedAt = $now.ToString("o")
+    $stats.provenance.gameVersion = $gameVersion
+    $stats.provenance.schemaVersion = $StatsSchemaVersion
+    $stats.provenance.freshness = "current"
+    $stats.provenance.sourceStatus = "available"
+
+    $shouldReadSettings = -not $stats.settings.nextAttemptAt
+    if ($stats.settings.nextAttemptAt) {
+        try { $shouldReadSettings = $now -ge [datetime]::Parse($stats.settings.nextAttemptAt) }
+        catch { $shouldReadSettings = $true }
+    }
+    if ($shouldReadSettings) {
+        try {
+            Update-SettingsProjection -Stats $stats -Payload (Read-PalworldJson -Endpoint settings) -Now $now
+        }
+        catch {
+            $stats.settings.status = "transient-error"
+            $stats.settings.error = $_.Exception.Message
+            $stats.settings.nextAttemptAt = $now.AddHours(1).ToString("o")
+        }
+    }
 
     $lastSampleAt = $null
     if ($stats.collection.lastSampleAt) {
@@ -489,8 +700,8 @@ try {
     $stats.server.lastFrameMs = [Math]::Round([double]$metrics.serverframetime, 1)
     $stats.server.lastBaseCamps = [int]$metrics.basecampnum
     $stats.server.lastDays = [int]$metrics.days
-    $stats.server.lastUptimeSeconds = [int]$metrics.uptime
-    $stats.server.lastUptime = Convert-Uptime -Seconds ([int]$metrics.uptime)
+    $stats.server.lastUptimeSeconds = $currentUptimeSeconds
+    $stats.server.lastUptime = Convert-Uptime -Seconds $currentUptimeSeconds
     $stats.server.totalObservedSeconds = [int]$stats.server.totalObservedSeconds + $intervalSeconds
     $stats.server.totalObserved = Convert-Uptime -Seconds ([int]$stats.server.totalObservedSeconds)
     $stats.server.playerSamples = [int]$stats.server.playerSamples + 1
@@ -506,18 +717,20 @@ try {
     }
 
     $shouldReadGameData = $false
-    if ($stats.collection.gameDataStatus -eq "disabled") {
-        $shouldReadGameData = $false
+    if ($stats.collection.nextGameDataAttemptAt) {
+        try { $shouldReadGameData = $now -ge [datetime]::Parse($stats.collection.nextGameDataAttemptAt) }
+        catch { $shouldReadGameData = $true }
     }
-    elseif (-not $stats.collection.lastGameDataAt) {
+    elseif (-not $stats.collection.lastGameDataAttemptAt -and -not $stats.collection.lastGameDataAt) {
         $shouldReadGameData = $true
     }
     else {
-        $lastGameDataAt = [datetime]::Parse($stats.collection.lastGameDataAt)
+        $lastGameDataAt = [datetime]::Parse($(if ($stats.collection.lastGameDataAttemptAt) { $stats.collection.lastGameDataAttemptAt } else { $stats.collection.lastGameDataAt }))
         $shouldReadGameData = ($now - $lastGameDataAt).TotalMinutes -ge $GameDataIntervalMinutes
     }
 
     if ($shouldReadGameData) {
+        $stats.collection.lastGameDataAttemptAt = $now.ToString("o")
         try {
             $gameData = Read-PalworldJson -Endpoint "game-data"
             if ($gameData) {
@@ -527,14 +740,18 @@ try {
         catch {
             $stats.collection.gameDataAvailable = $false
             $stats.collection.gameDataError = $_.Exception.Message
-            $stats.collection.lastGameDataAt = $now.ToString("o")
-            if (Test-GameDataDisabledError -Message $_.Exception.Message) {
-                $stats.collection.gameDataStatus = "disabled"
+            if (Test-GameDataDocumentedUnavailableError -Message $_.Exception.Message) {
+                $stats.collection.gameDataStatus = "documented-but-unavailable"
                 $stats.collection.gameDataDisabledAt = $now.ToString("o")
-                $stats.collection.nextGameDataAttemptAt = $null
+                $stats.collection.nextGameDataAttemptAt = $now.AddHours($GameDataRetryHours).ToString("o")
+            }
+            elseif (Test-GameDataUnsupportedError -Message $_.Exception.Message) {
+                $stats.collection.gameDataStatus = "unsupported"
+                $stats.collection.nextGameDataAttemptAt = $now.AddHours($GameDataRetryHours).ToString("o")
             }
             else {
-                $stats.collection.gameDataStatus = "error"
+                $stats.collection.gameDataStatus = "transient-error"
+                $stats.collection.nextGameDataAttemptAt = $now.AddHours(1).ToString("o")
             }
         }
     }

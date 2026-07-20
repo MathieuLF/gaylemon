@@ -10,11 +10,15 @@ $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 . (Join-Path $PSScriptRoot "lib\Gaylemon.Config.ps1")
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 $LocalEventsPath = Join-Path $ProjectRoot "portal\data\public-events.json"
+$LocalRecentEventsPath = Join-Path $ProjectRoot "portal\data\public-events-recent.json"
 $LocalEventsIndexPath = Join-Path $ProjectRoot "portal\data\public-events-index.json"
 $LocalSnapshotPath = Join-Path $ProjectRoot "portal\data\public-save-snapshot.json"
+$LocalSnapshotIndexPath = Join-Path $ProjectRoot "portal\data\public-save-index.json"
 $LocalAvailabilityPath = Join-Path $ProjectRoot "portal\data\public-availability.json"
 $RemoteEventsPath = "$($config.RemoteProjectRoot)/runtime/public-events.json"
+$RemoteRecentEventsPath = "$($config.RemoteProjectRoot)/runtime/public-events-recent.json"
 $RemoteRecoveryPath = "$($config.RemoteProjectRoot)/runtime/events/palworld-events-recovery.json"
+$RemoteSnapshotPath = "$($config.RemoteProjectRoot)/runtime/public-save-snapshot.json"
 $LatestReportPath = Join-Path $ReportRoot "microsite-recovery-latest.json"
 $HistoryReportPath = Join-Path $ReportRoot "microsite-recovery-history.jsonl"
 
@@ -66,10 +70,25 @@ function Read-RemoteJson {
     }
 }
 
+function Read-RemoteJsonIfPresent {
+    param([Parameter(Mandatory)] [string]$Path)
+
+    try {
+        return Read-RemoteJson -Path $Path
+    }
+    catch {
+        return $null
+    }
+}
+
 function Convert-ToDate {
     param($Value)
 
     if (-not $Value) { return $null }
+    if ($Value -is [DateTimeOffset]) { return $Value }
+    if ($Value -is [datetime]) {
+        return [DateTimeOffset]::new($Value.ToUniversalTime(), [TimeSpan]::Zero)
+    }
     $parsed = [DateTimeOffset]::MinValue
     if ([DateTimeOffset]::TryParse([string]$Value, [ref]$parsed)) { return $parsed }
     return $null
@@ -96,6 +115,18 @@ function Convert-ToIsoArray {
     return @($Values | Where-Object { $null -ne $_ } | ForEach-Object { Convert-ToIsoString $_ })
 }
 
+function Get-JsonProperty {
+    param(
+        $Object,
+        [Parameter(Mandatory)] [string]$Name
+    )
+
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
 function Get-EventRevisionLastId {
     param($Revision)
 
@@ -114,6 +145,12 @@ function Get-EventSummaryCount {
     param($Payload)
 
     if (-not $Payload -or -not $Payload.summary) { return 0L }
+    if ($Payload.summary.PSObject.Properties.Name -contains "totalEchoes" -and $null -ne $Payload.summary.totalEchoes) {
+        return [long]$Payload.summary.totalEchoes
+    }
+    if ($Payload.summary.PSObject.Properties.Name -contains "echoes" -and $null -ne $Payload.summary.echoes) {
+        return [long]$Payload.summary.echoes
+    }
     if ($Payload.summary.PSObject.Properties.Name -contains "totalEvents" -and $null -ne $Payload.summary.totalEvents) {
         return [long]$Payload.summary.totalEvents
     }
@@ -161,24 +198,56 @@ function Get-DateLagSeconds {
 }
 
 function Get-RecoveryState {
-    $remoteEvents = Read-RemoteJson -Path $RemoteEventsPath
+    $remoteFullEvents = Read-RemoteJson -Path $RemoteEventsPath
+    $remoteRecentEvents = Read-RemoteJsonIfPresent -Path $RemoteRecentEventsPath
+    $remoteEvents = if ($remoteRecentEvents) { $remoteRecentEvents } else { $remoteFullEvents }
+    $remoteEventsSource = if ($remoteRecentEvents) { "recent" } else { "full" }
     $remoteRecovery = Read-RemoteJson -Path $RemoteRecoveryPath
+    $remoteSnapshot = Read-RemoteJsonIfPresent -Path $RemoteSnapshotPath
     $localFullEvents = Read-JsonFile -Path $LocalEventsPath
     $localIndexEvents = Read-JsonFileIfPresent -Path $LocalEventsIndexPath
+    $localRecentEvents = Read-JsonFileIfPresent -Path $LocalRecentEventsPath
     $localEvents = Select-FreshestLocalEvents -FullEvents $localFullEvents -IndexEvents $localIndexEvents
     $localEventsSource = if ($localEvents -eq $localIndexEvents) { "index" } else { "full" }
-    $localSnapshot = Read-JsonFile -Path $LocalSnapshotPath
+    if ($localRecentEvents) {
+        $freshestLocalEvents = Select-FreshestLocalEvents -FullEvents $localEvents -IndexEvents $localRecentEvents
+        if ($freshestLocalEvents -eq $localRecentEvents) {
+            $localEventsSource = "recent"
+        }
+        $localEvents = $freshestLocalEvents
+    }
+    $localSnapshot = Read-JsonFileIfPresent -Path $LocalSnapshotIndexPath
+    $localSnapshotSource = if ($localSnapshot) { "public-save-index" } else { "public-save-snapshot" }
+    if (-not $localSnapshot) {
+        $localSnapshot = Read-JsonFile -Path $LocalSnapshotPath
+    }
     $catchUpToleranceSeconds = [Math]::Max($config.RecoveryStaleSeconds, $config.MetricIntervalSeconds * 6)
 
     $remoteEventCount = Get-EventSummaryCount -Payload $remoteEvents
     $localEventCount = Get-EventSummaryCount -Payload $localEvents
     $remoteLastEventAt = Convert-ToDate $remoteEvents.summary.lastAt
     $localLastEventAt = Convert-ToDate $localEvents.summary.lastAt
-    $remoteSnapshotAt = Convert-ToDate $remoteRecovery.currentSnapshotAt
+    $remoteSnapshotSource = "recovery"
+    $remoteSnapshotAt = $null
+    if ($remoteSnapshot) {
+        $remoteSnapshotAt = Convert-ToDate $remoteSnapshot.provenance.sourceUpdatedAt
+        if ($null -eq $remoteSnapshotAt) {
+            $remoteSnapshotAt = Convert-ToDate $remoteSnapshot.updatedAt
+        }
+        if ($null -ne $remoteSnapshotAt) {
+            $remoteSnapshotSource = "public-save-snapshot"
+        }
+    }
+    if ($null -eq $remoteSnapshotAt) {
+        $remoteSnapshotAt = Convert-ToDate $remoteRecovery.currentSnapshotAt
+    }
     if ($null -eq $remoteSnapshotAt) {
         $remoteSnapshotAt = Convert-ToDate $remoteRecovery.lastSaveAt
     }
-    $localSnapshotAt = Convert-ToDate $localSnapshot.updatedAt
+    $localSnapshotAt = Convert-ToDate $localSnapshot.provenance.sourceUpdatedAt
+    if ($null -eq $localSnapshotAt) {
+        $localSnapshotAt = Convert-ToDate $localSnapshot.updatedAt
+    }
     $remoteRevisionLastId = Get-EventRevisionLastId $remoteEvents.revision
     $localRevisionLastId = Get-EventRevisionLastId $localEvents.revision
     $eventLagSeconds = Get-DateLagSeconds -LocalValue $localLastEventAt -RemoteValue $remoteLastEventAt
@@ -200,12 +269,19 @@ function Get-RecoveryState {
 
     return [pscustomobject]@{
         RemoteEvents = $remoteEvents
+        RemoteFullEvents = $remoteFullEvents
+        RemoteRecentEvents = $remoteRecentEvents
+        RemoteEventsSource = $remoteEventsSource
         RemoteRecovery = $remoteRecovery
+        RemoteSnapshot = $remoteSnapshot
+        RemoteSnapshotSource = $remoteSnapshotSource
         LocalEvents = $localEvents
         LocalFullEvents = $localFullEvents
         LocalIndexEvents = $localIndexEvents
+        LocalRecentEvents = $localRecentEvents
         LocalEventsSource = $localEventsSource
         LocalSnapshot = $localSnapshot
+        LocalSnapshotSource = $localSnapshotSource
         RemoteEventCount = $remoteEventCount
         LocalEventCount = $localEventCount
         RemoteRevisionLastId = $remoteRevisionLastId
@@ -228,6 +304,7 @@ function Repair-RecoveryState {
 }
 
 function Refresh-AvailabilityState {
+    & (Join-Path $PSScriptRoot "update-microsite-metrics.ps1") -FastOnly -SkipEvents | Out-Null
     & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null
     return (Read-JsonFile -Path $LocalAvailabilityPath)
 }
@@ -356,7 +433,12 @@ $report = [ordered]@{
         snapshotCaughtUp = if ($state) { $state.SnapshotCaughtUp } else { $false }
         remoteEventRevision = if ($state) { [string]$state.RemoteEvents.revision } else { $null }
         localEventRevision = if ($state) { [string]$state.LocalEvents.revision } else { $null }
+        remoteEventsSource = if ($state) { [string]$state.RemoteEventsSource } else { $null }
         localEventsSource = if ($state) { [string]$state.LocalEventsSource } else { $null }
+        remoteSnapshotSource = if ($state) { [string]$state.RemoteSnapshotSource } else { $null }
+        localSnapshotSource = if ($state) { [string]$state.LocalSnapshotSource } else { $null }
+        remoteSnapshotGenerationId = if ($state) { [string](Get-JsonProperty -Object $state.RemoteSnapshot -Name "generationId") } else { $null }
+        localSnapshotGenerationId = if ($state) { [string](Get-JsonProperty -Object $state.LocalSnapshot -Name "generationId") } else { $null }
         remoteEventCount = if ($state) { $state.RemoteEventCount } else { $null }
         localEventCount = if ($state) { $state.LocalEventCount } else { $null }
         remoteRevisionLastId = if ($state) { $state.RemoteRevisionLastId } else { $null }

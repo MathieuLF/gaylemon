@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 6,
+  "ok": true,
+  "generationId": "example-20260718T120000Z",
+  "date": "2026-07-18",
+  "generatedAt": "2026-07-18T12:00:00-04:00",
+  "observedAt": "2026-07-18T11:59:58-04:00",
+  "sourceUpdatedAt": "2026-07-18T11:59:55-04:00",
+  "gameVersion": "v0.6.8.81234",
+  "steamBuildId": "24181105",
+  "parserCommit": "example-parser",
+  "catalogCommit": "example-catalog",
+  "freshness": "current",
+  "sourceStatus": "available",
+  "cursor": { "minId": 41, "maxId": 42 },
+  "counts": { "echoes": 2, "representedEvents": 3 },
+  "contentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "types": { "capture": 1, "level": 1 },
+  "players": [{ "name": "Mathieu", "echoes": 2 }],
+  "digest": {
+    "totals": {
+      "eventCount": 2,
+      "activePlayers": 1,
+      "craft": 0,
+      "production": 0,
+      "build": 0,
+      "repair": 0,
+      "capture": 1,
+      "collection": 0,
+      "fishing": 0,
+      "levelUps": 1,
+      "boss": 0,
+      "discovery": 0,
+      "progress": 0,
+      "challenge": 0,
+      "quest": 0,
+      "loot": 0,
+      "note": 0,
+      "mutation": 0,
+      "death": 0,
+      "recovery": 0,
+      "adventure": 0,
+      "rare": 0,
+      "onlineSeconds": 0,
+      "presenceSessions": 0
+    },
+    "hourly": [
+      { "hour": 0, "count": 0 }, { "hour": 1, "count": 0 }, { "hour": 2, "count": 0 }, { "hour": 3, "count": 0 },
+      { "hour": 4, "count": 0 }, { "hour": 5, "count": 0 }, { "hour": 6, "count": 0 }, { "hour": 7, "count": 0 },
+      { "hour": 8, "count": 0 }, { "hour": 9, "count": 0 }, { "hour": 10, "count": 1 }, { "hour": 11, "count": 1 },
+      { "hour": 12, "count": 0 }, { "hour": 13, "count": 0 }, { "hour": 14, "count": 0 }, { "hour": 15, "count": 0 },
+      { "hour": 16, "count": 0 }, { "hour": 17, "count": 0 }, { "hour": 18, "count": 0 }, { "hour": 19, "count": 0 },
+      { "hour": 20, "count": 0 }, { "hour": 21, "count": 0 }, { "hour": 22, "count": 0 }, { "hour": 23, "count": 0 }
+    ],
+    "types": { "capture": 1, "level": 1 },
+    "players": [
+      {
+        "name": "Mathieu",
+        "eventCount": 2,
+        "firstAt": "2026-07-18T10:42:00-04:00",
+        "lastAt": "2026-07-18T11:55:00-04:00",
+        "metrics": { "capture": 1, "levelUps": 1 },
+        "typeCounts": { "capture": 1, "level": 1 },
+        "highlights": []
+      }
+    ],
+    "craftedItems": [],
+    "producedItems": [],
+    "palFinds": [{ "key": "capture:chilletex", "type": "capture", "name": "Chillet", "quantity": 1 }],
+    "highlights": [
+      {
+        "key": "level:mathieu:36",
+        "type": "level",
+        "player": "Mathieu",
+        "base": null,
+        "occurredAt": "2026-07-18T11:55:00-04:00",
+        "headline": "Mathieu atteint le niveau 36",
+        "body": "Une nouvelle étape de progression est confirmée.",
+        "score": 90
+      }
+    ]
+  },
+  "latest": [
+    {
+      "key": "level:mathieu:36",
+      "id": 42,
+      "occurredAt": "2026-07-18T11:55:00-04:00",
+      "type": "level",
+      "player": "Mathieu",
+      "title": "Niveau supérieur",
+      "message": "Mathieu atteint le niveau 36.",
+      "display": { "headline": "Mathieu atteint le niveau 36", "body": "Une nouvelle étape de progression est confirmée.", "bullets": [] },
+      "confidence": "confirmed",
+      "source": "save"
+    }
+  ]
+}

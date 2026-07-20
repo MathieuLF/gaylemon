@@ -52,7 +52,8 @@ Principaux contrats:
 - sessions et statistiques: `public-stats.json`;
 - snapshots joueurs: `public-save-index.json`, `public-save-snapshot.json`, `players/{slug}.json`;
 - bases et constructions: `public-save-bases.json`;
-- échos: `public-events.json`, `public-events-recent.json`, `public-events-index.json`, `public-events-page-*.json`;
+- échos v6: `public-events-manifest-v6.json`, `public-events-head-v6.json`, `public-events-v6/`, `public-daily/`;
+- compatibilité v5: `public-events.json`, `public-events-recent.json`, `public-events-index.json`, `public-events-page-*.json`;
 - disponibilité: `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`.
 
 Git versionne seulement les exemples `*.example.json`. Quand un contrat change, mettre à jour le producteur, la synchronisation Windows, le microsite, les tests et l'exemple correspondant.
@@ -61,7 +62,7 @@ Git versionne seulement les exemples `*.example.json`. Quand un contrat change, 
 
 Les routes canoniques publiques sont `/`, `/terminal`, `/resume`, `/classements`, `/carte` et `/github`.
 
-`docker/microsite/default.conf` garde les pages et les JSON dynamiques en `no-store`, et les assets versionnés en cache long `immutable`. Toute modification à cette règle doit conserver le blocage de `/data/` hors fichiers publics explicitement autorisés.
+`docker/microsite/default.conf` garde les pages et les JSON v5 dynamiques en `no-store`, revalide le pointeur actif et le manifeste de compatibilité v6 avec ETag et sert les manifestes, têtes et fragments versionnés en `immutable`. Toute modification à cette règle doit conserver le blocage de `/data/` hors fichiers publics explicitement autorisés.
 
 ## Audit
 

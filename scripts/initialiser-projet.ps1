@@ -18,6 +18,9 @@ else {
 $directories = @(
     "config\local",
     "portal\assets\game",
+    "portal\data\public-catalogs",
+    "portal\data\public-daily",
+    "portal\data\public-events-v6",
     "portal\data\players",
     "portal\joueur",
     "runtime\backups",

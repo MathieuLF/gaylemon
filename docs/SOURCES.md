@@ -8,6 +8,8 @@ Références utilisées pour la configuration et l'exploitation:
 - REST API `/players`: https://docs.palworldgame.com/api/rest-api/players/
 - REST API `/metrics`: https://docs.palworldgame.com/api/rest-api/metrics/
 - REST API `/game-data`: https://docs.palworldgame.com/api/rest-api/game-data/
+- REST API `/settings`: https://docs.palworldgame.com/api/rest-api/settings/
+- RCON déprécié: https://docs.palworldgame.com/api/rcon/
 - Arguments du serveur 1.0: https://docs.palworldgame.com/settings-and-operation/arguments/
 - Point de terminaison REST `/announce`: https://docs.palworldgame.com/api/rest-api/announce/
 - Point de terminaison REST `/info`: https://docs.palworldgame.com/api/rest-api/info/
@@ -25,5 +27,9 @@ Notes importantes:
 - Le fichier actif sur Linux SteamCMD est `Pal/Saved/Config/LinuxServer/PalWorldSettings.ini`.
 - La REST API doit rester locale ou limitée au réseau de confiance. Ici, Palworld écoute sur `8212/tcp`, mais UFW bloque explicitement ce port en entrée et les scripts passent par SSH ou par des appels locaux.
 - Les statistiques historiques locales utilisent `/metrics` et `/players`. Le point de terminaison `/game-data` est tenté pour l'enrichissement, mais le serveur actuel répond `404` avec `PalGameDataBridge GameData API is not enabled`; le collecteur doit donc fonctionner sans ce point de terminaison.
+- La disponibilité de `/game-data` est réévaluée après une temporisation et lors d'un changement de version ou de build; un `404` observé ne devient pas une désactivation définitive.
+- `/settings` est collecté à cadence lente avec une liste blanche publique stricte. Les adresses, ports, URL et champs inconnus ne quittent pas les données privées.
+- La configuration officielle prévoit les journaux texte et JSON. Le parseur accepte les deux formats, mais un changement du serveur réel doit rester une expérience contrôlée et réversible.
+- RCON est déprécié par Palworld et reste volontairement désactivé.
 - Le binaire Palworld 1.0 contient des chaînes comme `EnableGameDataAPI`, `SetGameDataAPIEnabled` et `GameDataKey`, mais la documentation officielle de configuration ne liste aucun paramètre public pour activer ce pont.
 - Pour un message de bienvenue automatique, Palworld ne fournit pas un simple paramètre de configuration dédié: on utilise donc un watcher local basé sur `/players` et `/announce`.
