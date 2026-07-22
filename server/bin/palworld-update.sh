@@ -8,7 +8,6 @@ PALWORLD_DIR="$ROOT/servers/palworld"
 GAME_DIR="$PALWORLD_DIR/game"
 MANIFEST_FILE="$GAME_DIR/steamapps/appmanifest_2394010.acf"
 BACKUP_SCRIPT="$ROOT/bin/palworld-backup.sh"
-KUMA_SCRIPT="$ROOT/bin/palworld-kuma-push.sh"
 API_BIN="$ROOT/bin/palworld-api.sh"
 ANNOUNCE_SCRIPT="$ROOT/bin/palworld-announce.sh"
 SERVICE_NAME="palworld.service"
@@ -122,14 +121,6 @@ public_build() {
   '
 }
 
-push_maintenance_down() {
-  local message="$1"
-
-  if [ -x "$KUMA_SCRIPT" ]; then
-    runuser -u steam -- "$KUMA_SCRIPT" down "$message" || log "Unable to push maintenance state to Uptime Kuma."
-  fi
-}
-
 wait_for_api() {
   local attempt
 
@@ -141,12 +132,6 @@ wait_for_api() {
   done
 
   return 1
-}
-
-push_recovered_up() {
-  if [ -x "$KUMA_SCRIPT" ]; then
-    runuser -u steam -- "$KUMA_SCRIPT" || log "Palworld recovered, but the UP state could not be pushed to Uptime Kuma."
-  fi
 }
 
 start_welcome_service() {
@@ -313,11 +298,9 @@ recover_service_on_failure() {
   if [ "$UPDATE_WAS_ACTIVE" -eq 1 ] && ! systemctl is-active --quiet "$SERVICE_NAME"; then
     log "Update interrupted while Palworld was stopped; attempting automatic recovery."
     if systemctl start "$SERVICE_NAME" && wait_for_api; then
-      push_recovered_up
       emit_event "maintenance" "Aventure rétablie" "Palworld a été redémarré automatiquement après l'échec de la mise à jour."
       log "Palworld recovered after the failed update."
     else
-      push_maintenance_down "Échec de mise à jour: Palworld n'a pas pu être rétabli automatiquement"
       emit_event "maintenance" "Intervention requise" "Palworld n'a pas pu être rétabli automatiquement après l'échec de la mise à jour."
       log "Automatic Palworld recovery failed."
     fi
@@ -430,7 +413,6 @@ main() {
     log "Stopping $SERVICE_NAME for build $public."
     systemctl stop "$SERVICE_NAME"
     emit_event "maintenance" "Maintenance en cours" "Palworld est arrêté brièvement pour installer la build ${public}."
-    push_maintenance_down "Maintenance Palworld planifiée - mise à jour ${installed} vers ${public}"
   fi
 
   log "Installing Palworld build $public via SteamCMD."
@@ -446,9 +428,7 @@ main() {
     systemctl start "$SERVICE_NAME"
     if wait_for_api; then
       start_welcome_service
-      push_recovered_up
     else
-      push_maintenance_down "Palworld redémarré, mais son API reste indisponible après la mise à jour"
       log "Palworld started, but its REST API did not recover within the expected window."
       exit 1
     fi

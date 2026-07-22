@@ -15,7 +15,6 @@
         "Update",
         "Restart",
         "RestartWelcome",
-        "PushKuma",
         "ApiTunnelStatus",
         "StartApiTunnel",
         "StopApiTunnel",
@@ -25,7 +24,6 @@
         "InstallWindowsStartup",
         "UninstallWindowsStartup",
         "OpenMicrosite",
-        "OpenStatus",
         "RefreshMetrics",
         "ValidateRepository",
         "DiagnoseIntegrations",
@@ -37,7 +35,7 @@
     )]
     [string]$Action = "Menu",
 
-    [ValidateSet("service", "game", "update", "backup", "welcome", "kuma")]
+    [ValidateSet("service", "game", "update", "backup", "welcome")]
     [string]$LogMode = "service",
 
     [int]$Lines = 120,

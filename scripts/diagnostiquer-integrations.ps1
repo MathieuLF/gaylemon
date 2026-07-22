@@ -104,7 +104,7 @@ function Test-IPv4InCidr {
 }
 
 Write-Host "Diagnostic en lecture seule des integrations Gaylemon" -ForegroundColor Cyan
-Write-Host "Uptime Kuma et cloudflared restent externes au projet." -ForegroundColor DarkGray
+Write-Host "cloudflared reste externe au projet; l'uptime Palworld est sonde par l'API REST locale." -ForegroundColor DarkGray
 Write-Host ""
 
 $windowsApiTunnelProcesses = @(Get-WindowsApiTunnelProcesses)
@@ -161,7 +161,7 @@ if ($docker) {
                 Add-DiagnosticResult "Tunnel API Docker" "skipped" "conteneur non actif; mode SSH Windows detecte"
             }
             else {
-                Add-DiagnosticResult "Tunnel API Docker" "warning" "conteneur non detecte; le bot Discord ne pourra pas lire l'API REST Palworld"
+                Add-DiagnosticResult "Tunnel API Docker" "skipped" "conteneur non detecte; requis seulement pour annonces Discord ou repli local de l'API REST"
             }
         }
 
@@ -224,11 +224,12 @@ $botEnvExamplePath = Join-Path $ProjectRoot "config\exemples\bot.env.example"
 if (Test-Path -LiteralPath $botEnvExamplePath) {
     $botEnvExample = Get-Content -LiteralPath $botEnvExamplePath -Raw -Encoding UTF8
     if (
-        $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=http://127\.0\.0\.1:8212/v1/api$' -and
-        $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=admin$' -and
-        $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=REMPLACER_PAR_LE_MOT_DE_PASSE_ADMIN$'
+        $botEnvExample -match '(?m)^GAYLEMON_PUBLIC_BASE_URL=https://gaylemon\.mathieu\.pro/?$' -and
+        $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=$' -and
+        $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=$' -and
+        $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=$'
     ) {
-        Add-DiagnosticResult "Config bot Discord" "ok" "exemple local sans secret reel"
+        Add-DiagnosticResult "Config bot Discord" "ok" "JSON publics par defaut; REST annonce optionnelle"
     }
     else {
         Add-DiagnosticResult "Config bot Discord" "warning" "exemple incomplet ou non conforme"
@@ -241,31 +242,31 @@ else {
 if (Test-LocalTcpPort -Port $config.ApiLocalPort) {
     try {
         $apiResponse = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$($config.ApiLocalPort)/v1/api/info" -TimeoutSec 5
-        Add-DiagnosticResult "API REST locale bot" "ok" "HTTP $($apiResponse.StatusCode) sans secret"
+        Add-DiagnosticResult "API REST locale annonces" "ok" "HTTP $($apiResponse.StatusCode) sans secret"
     }
     catch {
         if ($_.Exception.Response) {
             $statusCode = [int]$_.Exception.Response.StatusCode
             if ($statusCode -in @(401, 403)) {
-                Add-DiagnosticResult "API REST locale bot" "ok" "HTTP $statusCode attendu sans identifiants"
+                Add-DiagnosticResult "API REST locale annonces" "ok" "HTTP $statusCode attendu sans identifiants"
             }
             else {
-                Add-DiagnosticResult "API REST locale bot" "warning" "HTTP $statusCode inattendu"
+                Add-DiagnosticResult "API REST locale annonces" "warning" "HTTP $statusCode inattendu"
             }
         }
         else {
-            Add-DiagnosticResult "API REST locale bot" "warning" "port ouvert, mais sonde HTTP en echec"
+            Add-DiagnosticResult "API REST locale annonces" "warning" "port ouvert, mais sonde HTTP en echec"
         }
     }
 }
 else {
-    Add-DiagnosticResult "API REST locale bot" "warning" "port 127.0.0.1:$($config.ApiLocalPort) ferme"
+    Add-DiagnosticResult "API REST locale annonces" "skipped" "port 127.0.0.1:$($config.ApiLocalPort) ferme; normal si les annonces bot sont desactivees"
 }
 
 if ($SansReseau) {
     Add-DiagnosticResult "SSH Ubuntu" "skipped" "verification reseau desactivee"
     Add-DiagnosticResult "Microsite public" "skipped" "verification reseau desactivee"
-    Add-DiagnosticResult "Uptime Kuma externe" "skipped" "verification reseau desactivee"
+    Add-DiagnosticResult "Sonde uptime REST Palworld" "skipped" "verification reseau desactivee"
 }
 else {
     $ssh = Get-Command ssh.exe -ErrorAction SilentlyContinue
@@ -300,18 +301,18 @@ else {
         }
     }
 
-    if ($config.UptimeKumaBaseUrl) {
-        $kumaUrl = "$($config.UptimeKumaBaseUrl)/api/status-page/$($config.UptimeKumaStatusSlug)"
-        try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri $kumaUrl -TimeoutSec 8
-            Add-DiagnosticResult "Uptime Kuma externe" "ok" "API publique HTTP $($response.StatusCode)"
+    try {
+        $metricsRaw = & (Join-Path $PSScriptRoot "palworld-api.ps1") metrics 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Add-DiagnosticResult "Sonde uptime REST Palworld" "warning" "appel metrics refuse ou indisponible"
         }
-        catch {
-            Add-DiagnosticResult "Uptime Kuma externe" "warning" "API publique inaccessible; aucun parametre Kuma n'a ete modifie"
+        else {
+            $metrics = (($metricsRaw | Out-String).Trim() | ConvertFrom-Json)
+            Add-DiagnosticResult "Sonde uptime REST Palworld" "ok" ("metrics OK: {0}/{1} joueur(s), {2} FPS" -f $metrics.currentplayernum, $metrics.maxplayernum, $metrics.serverfps)
         }
     }
-    else {
-        Add-DiagnosticResult "Uptime Kuma externe" "skipped" "URL locale non configuree"
+    catch {
+        Add-DiagnosticResult "Sonde uptime REST Palworld" "warning" "metrics illisible: $($_.Exception.Message)"
     }
 }
 

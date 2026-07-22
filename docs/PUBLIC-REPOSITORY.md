@@ -41,7 +41,6 @@ Relire surtout la dernière commande. Elle montre ce qui peut entrer dans Git.
 Vérifier qu'il n'y a pas:
 
 - mot de passe Palworld;
-- URL Push Kuma avec jeton;
 - jeton Cloudflare;
 - clé SSH;
 - sauvegarde ou profil réel;
@@ -83,7 +82,7 @@ Contrats servis en production:
 - `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables;
 - `public-daily/{génération}/{jour}.json`: résumés précalculés;
 - les contrats `public-events*.json` v5 durant la période de compatibilité;
-- `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: état Kuma filtré.
+- `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: disponibilité calculée depuis l'API REST Palworld.
 
 `public-events-sync-state.json` est un état local de synchronisation, ignoré comme les autres données réelles et refusé explicitement par le serveur web. Il ne fait pas partie des contrats publics versionnés.
 

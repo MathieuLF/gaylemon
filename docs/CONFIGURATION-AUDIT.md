@@ -29,7 +29,7 @@ Aucun changement urgent n'est requis.
 |---|---:|---:|---|
 | `ServerPlayerMaxNum` | `32` | `12` | groupe privé |
 | `bAllowClientMod` | `True` | `False` | éviter les clients moddés |
-| `RESTAPIEnabled` | `False` | `True` | annonces et monitoring |
+| `RESTAPIEnabled` | `False` | `True` | annonces et sondes locales |
 | `bShowPlayerList` | `False` | `True` | confort joueurs |
 | `BaseCampWorkerMaxNum` | `15` | `18` | bases plus vivantes |
 | `BaseCampMaxNumInGuild` | `4` | `5` | marge pour le groupe |

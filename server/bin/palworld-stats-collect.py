@@ -417,6 +417,34 @@ def player_key(player):
     return None
 
 
+def is_technical_player_name(name, *records):
+    normalized = str(name or "").strip().casefold()
+    if not normalized:
+        return False
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for field in ("accountName", "playerId", "userId", "userid", "id"):
+            value = str(record.get(field) or "").strip().casefold()
+            if value and value == normalized:
+                return True
+    return False
+
+
+def preferred_online_player_name(record, player):
+    candidate = str(player.get("name") or "").strip()
+    current = str(record.get("name") or "").strip()
+    if not candidate:
+        return current
+    if (
+        is_technical_player_name(candidate, record, player)
+        and current
+        and not is_technical_player_name(current, record, player)
+    ):
+        return current
+    return candidate
+
+
 def ensure_player(stats, key, ts):
     players = stats.setdefault("players", {})
     if key not in players:
@@ -496,7 +524,7 @@ def update_player_from_online(stats, player, ts, interval):
         start_player_session(record, ts)
     if interval > 0:
         record["totalOnlineSeconds"] = int(record.get("totalOnlineSeconds") or 0) + interval
-    record["name"] = player.get("name") or record.get("name")
+    record["name"] = preferred_online_player_name(record, player)
     record["accountName"] = player.get("accountName") or record.get("accountName")
     record["playerId"] = player.get("playerId") or record.get("playerId")
     record["userId"] = player.get("userId") or record.get("userId")

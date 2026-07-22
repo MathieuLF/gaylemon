@@ -1,6 +1,6 @@
 # Opérations
 
-Le dépôt gère le microsite, les scripts d'exploitation et les projections publiques. Uptime Kuma et cloudflared restent externes: ne pas les arrêter, les recréer ou les déployer depuis ce projet.
+Le dépôt gère le microsite, les scripts d'exploitation et les projections publiques. cloudflared reste externe: ne pas l'arrêter, le recréer ou le déployer depuis ce projet. La disponibilité Palworld est calculée par des sondes REST locales.
 
 ## Console
 
@@ -31,7 +31,6 @@ Si une commande bloque, commencer par `CheckAccess`.
 .\scripts\palworld-console.ps1 -Action Logs -LogMode backup
 .\scripts\palworld-console.ps1 -Action Logs -LogMode update
 .\scripts\palworld-console.ps1 -Action Logs -LogMode welcome
-.\scripts\palworld-console.ps1 -Action Logs -LogMode kuma
 ```
 
 `Ctrl+C` quitte le suivi live.
@@ -81,7 +80,6 @@ Ces unités doivent rester `enabled`:
 - `palworld-welcome.service`
 - `palworld-backup.timer`
 - `palworld-update.timer`
-- `palworld-kuma-push.timer`
 - `palworld-stats.timer`
 - `palworld-save-snapshot.timer`
 - `palworld-events.timer`
@@ -124,7 +122,9 @@ Ce PC héberge aussi les helpers locaux: tunnel API Docker, microsite Docker et 
 .\scripts\palworld-console.ps1 -Action UninstallWindowsStartup
 ```
 
-Le tunnel API est un service Docker Compose avec `restart: unless-stopped`; Docker Desktop le relance quand son moteur redémarre. L'autostart Windows reste utile pour la synchronisation des données publiques et le watcher du microsite.
+L'installation privilégie une tâche planifiée. Si Windows la refuse sans élévation, elle installe plutôt une entrée de démarrage pour l'utilisateur courant et retire l'ancien lanceur Startup afin d'éviter deux lancements concurrents. `StartupStatus` indique le mécanisme actif.
+
+En mode `docker`, le tunnel API utilise le service Compose avec `restart: unless-stopped`. En mode `windows-ssh`, ce conteneur reste volontairement arrêté et l'autostart Windows relance le tunnel SSH, la synchronisation des données publiques et le watcher du microsite.
 
 Audit de reprise:
 
@@ -141,18 +141,11 @@ runtime/recovery/
 Apres une panne electrique, Internet ou un redemarrage force, lancer:
 
 ```powershell
-.\scripts\export-uptime-kuma-history.ps1
+.\scripts\export-palworld-uptime.ps1
 .\scripts\verify-microsite-recovery.ps1
-.\scripts\register-kuma-downtime.ps1
 ```
 
-Si le rapport `register-kuma-downtime.ps1` liste des candidats valides, appliquer explicitement:
-
-```powershell
-.\scripts\register-kuma-downtime.ps1 -Apply
-```
-
-Cette commande corrige l'historique Kuma pour les trous ou Kuma etait lui-meme indisponible. Elle cree d'abord une sauvegarde SQLite dans le volume Kuma.
+`export-palworld-uptime.ps1` ajoute une sonde locale, recalcule les fenêtres d'indisponibilité et régénère `public-uptime.json`, `public-uptime-history.json` et `public-availability.json`.
 
 ## Updates et backups
 
@@ -181,7 +174,7 @@ Rappels:
 - update automatique à 05:00 seulement si Steam publie une nouvelle build;
 - update reportée si des joueurs sont connectés;
 - sauvegarde obligatoire avant arrêt technique;
-- push Uptime Kuma `down` puis `up` pendant une vraie maintenance.
+- reprise confirmée par l'API REST avant de déclarer la maintenance terminée.
 
 ## API Palworld
 
@@ -213,7 +206,7 @@ La règle `server/sudoers/palworld-api` autorise seulement ces lectures:
 
 Elle ne donne pas accès à `bash`, `python`, `systemctl` ou une commande arbitraire. Pour `Update`, `Backup` ou les annonces, garder les permissions alignées avec le groupe `steam` ou ajouter un wrapper aussi borné que celui-ci.
 
-Pour le robot Discord, le tunnel local est géré par Docker Desktop:
+Pour les annonces Discord et les sondes d'exploitation, le tunnel local est géré par Docker Desktop:
 
 ```powershell
 .\scripts\palworld-api-tunnel.ps1 start
@@ -236,7 +229,7 @@ Configuration privée du bot:
 Copy-Item .\config\exemples\bot.env.example C:\chemin\du\bot\.env
 ```
 
-Le fichier rempli ne doit pas revenir dans Git. Le bot doit appeler `http://127.0.0.1:8212/v1/api` depuis cette même machine, avec des délais courts et sans publier dans Discord les erreurs contenant l'URL complète, les en-têtes ou le mot de passe.
+Le fichier rempli ne doit pas revenir dans Git. Le bot lit les JSON publics par défaut. Il doit appeler `http://127.0.0.1:8212/v1/api` depuis cette même machine seulement pour `/announce`, avec des délais courts et sans publier dans Discord les erreurs contenant l'URL complète, les en-têtes ou le mot de passe.
 
 Si le conteneur reste `unhealthy` alors que SSH fonctionne depuis Windows, vérifier les réseaux Docker inutilisés qui recouvrent le LAN. Un bridge Docker comme `192.168.80.0/20` capture une adresse `192.168.86.x` avant qu'elle sorte vers le réseau local; supprimer le réseau Docker vide ou déplacer son subnet.
 
@@ -272,7 +265,7 @@ Synchronisations utiles:
 
 ```powershell
 .\scripts\sync-palworld-stats.ps1
-.\scripts\export-uptime-kuma-history.ps1
+.\scripts\export-palworld-uptime.ps1
 .\scripts\sync-palworld-save-snapshot.ps1
 .\scripts\sync-palworld-events.ps1
 .\scripts\sync-palworld-game-assets.ps1

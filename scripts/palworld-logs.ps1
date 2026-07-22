@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("service", "game", "update", "backup", "welcome", "kuma")]
+    [ValidateSet("service", "game", "update", "backup", "welcome")]
     [string]$Mode = "service",
 
     [int]$Lines = 120,
@@ -61,9 +61,6 @@ case "`$mode" in
     ;;
   welcome)
     show_journal palworld-welcome.service
-    ;;
-  kuma)
-    show_journal palworld-kuma-push.service
     ;;
 esac
 "@

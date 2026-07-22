@@ -43,12 +43,12 @@ Sur Windows:
 
 ## Ce qui reste externe
 
-Uptime Kuma et cloudflared peuvent exister sur la même machine ou dans la même infra, mais Gaylémon ne les gère pas.
+cloudflared peut exister sur la même machine ou dans la même infra, mais Gaylémon ne le gère pas. La disponibilité Palworld est calculée localement à partir de l'API REST déjà utilisée par la console et le microsite.
 
 Le dépôt ne doit pas:
 
 - ajouter cloudflared au Compose;
-- monter un jeton Cloudflare ou une base Kuma;
+- monter un jeton Cloudflare;
 - recréer un conteneur partagé;
 - exposer l'API REST Palworld sur Internet.
 
@@ -85,7 +85,7 @@ Contrats principaux:
 - `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables du journal public;
 - `public-daily/{génération}/{jour}.json`: résumés quotidiens précalculés;
 - `public-events.json`, `public-events-recent.json`, `public-events-index.json` et `public-events-page-*.json`: contrats v5 conservés durant la transition;
-- `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: état Uptime Kuma filtré.
+- `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: disponibilité et historique calculés depuis les sondes REST Palworld.
 
 `public-events-sync-state.json` peut exister localement dans `portal/data/`; il est ignoré, refusé par Nginx et sert seulement à retenir la dernière révision distante déjà synchronisée. Le détail du contrat et de sa publication atomique est décrit dans [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
 

@@ -397,6 +397,55 @@ function Ensure-PlayerRecord {
     return $record
 }
 
+function Test-TechnicalPlayerName {
+    param(
+        [string]$Name,
+        $Record,
+        $Player
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $false
+    }
+
+    foreach ($source in @($Record, $Player)) {
+        if ($null -eq $source) { continue }
+        foreach ($field in @("accountName", "playerId", "userId", "userid", "id")) {
+            $property = $source.PSObject.Properties[$field]
+            if (
+                $property -and
+                -not [string]::IsNullOrWhiteSpace([string]$property.Value) -and
+                [string]$property.Value -eq $Name
+            ) {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Get-PreferredOnlinePlayerName {
+    param(
+        $Record,
+        $Player
+    )
+
+    $candidate = [string]$Player.name
+    $current = [string]$Record.name
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $current
+    }
+    if (
+        (Test-TechnicalPlayerName -Name $candidate -Record $Record -Player $Player) -and
+        -not [string]::IsNullOrWhiteSpace($current) -and
+        -not (Test-TechnicalPlayerName -Name $current -Record $Record -Player $Player)
+    ) {
+        return $current
+    }
+    return $candidate
+}
+
 function Start-PlayerSession {
     param(
         [System.Collections.IDictionary]$Record,
@@ -459,7 +508,7 @@ function Update-PlayerFromOnlineList {
         $record.totalOnlineSeconds = [int]$record.totalOnlineSeconds + $IntervalSeconds
     }
 
-    $record.name = if ($Player.name) { [string]$Player.name } else { $record.name }
+    $record.name = Get-PreferredOnlinePlayerName -Record $record -Player $Player
     $record.accountName = if ($Player.accountName) { [string]$Player.accountName } else { $record.accountName }
     $record.playerId = if ($Player.playerId) { [string]$Player.playerId } else { $record.playerId }
     $record.userId = if ($Player.userId) { [string]$Player.userId } else { $record.userId }

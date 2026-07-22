@@ -7261,7 +7261,8 @@ body.terminal-view .event-line__content > span:last-child:not(.event-line__meta)
   white-space: nowrap;
 }
 
-.event-line__meta .event-line__player {
+.event-line__meta .event-line__player,
+.event-line__meta .event-line__guild {
   color: color-mix(in srgb, var(--event-accent) 82%, white);
   background: color-mix(in srgb, var(--event-accent) 18%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--event-accent) 28%, transparent);
@@ -11112,7 +11113,8 @@ body.terminal-view .event-line__meta em {
   background: rgba(255, 255, 255, .05);
 }
 
-body.terminal-view .event-line__meta .event-line__player {
+body.terminal-view .event-line__meta .event-line__player,
+body.terminal-view .event-line__meta .event-line__guild {
   color: color-mix(in srgb, var(--event-accent) 82%, white);
   background: color-mix(in srgb, var(--event-accent) 18%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--event-accent) 28%, transparent);
@@ -12707,7 +12709,8 @@ body.terminal-view .event-line__meta em {
   background: rgba(255, 255, 255, .05);
 }
 
-body.terminal-view .event-line__meta .event-line__player {
+body.terminal-view .event-line__meta .event-line__player,
+body.terminal-view .event-line__meta .event-line__guild {
   color: color-mix(in srgb, var(--event-accent) 82%, white);
   background: color-mix(in srgb, var(--event-accent) 18%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--event-accent) 28%, transparent);
@@ -14617,10 +14620,11 @@ body.terminal-view .event-line__content {
 }
 
 body.terminal-view .event-line__content {
-  padding-inline-end: 78px;
+  padding-inline-end: 0;
 }
 
 body.terminal-view .event-line__meta {
+  display: flex;
   flex-wrap: nowrap;
   max-inline-size: 100%;
   overflow: hidden;
@@ -14669,30 +14673,40 @@ body.terminal-view .event-line__bullets li {
 }
 
 body.terminal-view .event-line__more {
+  appearance: none;
   position: absolute;
   right: 2px;
   bottom: 7px;
+  display: none;
   min-inline-size: 62px;
   border: 1px solid rgba(126, 238, 205, .18);
   border-radius: 999px;
   padding: 2px 7px;
   background: rgba(6, 22, 28, .82);
   color: rgba(222, 250, 242, .62);
+  cursor: pointer;
+  font-family: inherit;
   font-size: .55rem;
   font-weight: 850;
   letter-spacing: .03em;
+  line-height: 1;
   opacity: .58;
-  pointer-events: none;
   text-transform: uppercase;
   text-align: center;
   transition: opacity .16s ease, transform .16s ease;
 }
 
-body.terminal-view .event-line:hover .event-line__more,
-body.terminal-view .event-line:focus .event-line__more,
-body.terminal-view .event-line:focus-within .event-line__more {
+body.terminal-view .event-line:focus-visible .event-line__more,
+body.terminal-view .event-line.is-detail-open .event-line__more {
   opacity: 1;
   transform: translateY(-1px);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  body.terminal-view .event-line:hover .event-line__more {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
 }
 
 body.terminal-view .event-line__tooltip {
@@ -14732,13 +14746,21 @@ body.terminal-view .event-line:nth-last-child(-n+2) .event-line__tooltip {
   transform-origin: 18% 100%;
 }
 
-body.terminal-view .event-line:hover .event-line__tooltip,
-body.terminal-view .event-line:focus .event-line__tooltip,
-body.terminal-view .event-line:focus-within .event-line__tooltip {
+body.terminal-view .event-line:focus-visible .event-line__tooltip,
+body.terminal-view .event-line.is-detail-open .event-line__tooltip {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);
   visibility: visible;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  body.terminal-view .event-line:hover .event-line__tooltip {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+    visibility: visible;
+  }
 }
 
 body.terminal-view .event-line__tooltip-kicker {
@@ -14843,6 +14865,9 @@ body.terminal-view .event-line__tooltip-items li {
   }
 
   body.terminal-view .event-line__more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     right: 0;
     bottom: 5px;
     min-inline-size: 48px;
