@@ -88,6 +88,22 @@ function Test-LocalTcpPort {
     }
 }
 
+function Get-LocalRestStatusCode {
+    try {
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri "http://127.0.0.1:${LocalPort}/v1/api/info" `
+            -TimeoutSec 4
+        return [int]$response.StatusCode
+    }
+    catch {
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            return [int]$_.Exception.Response.StatusCode
+        }
+        return 0
+    }
+}
+
 function Start-DockerDesktopIfAvailable {
     $dockerDesktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
     if (Test-Path -LiteralPath $dockerDesktop) {
@@ -250,11 +266,14 @@ function Show-TunnelStatus {
     $containerLine = Get-TunnelContainerLine
     if ($containerLine) {
         $parts = $containerLine -split "\|", 3
-        $dockerColor = if ($parts.Count -gt 1 -and $parts[1] -like "Up*") { "Green" } else { "Yellow" }
-        $dockerPrefix = if ($dockerColor -eq "Green") { "OK" } else { "WARN" }
+        $dockerRunning = $parts.Count -gt 1 -and $parts[1] -like "Up*"
+        $dockerStoppedByMode = $Mode -eq "windows-ssh" -and -not $dockerRunning
+        $dockerColor = if ($dockerRunning) { "Green" } elseif ($dockerStoppedByMode) { "DarkGray" } else { "Yellow" }
+        $dockerPrefix = if ($dockerRunning) { "OK" } elseif ($dockerStoppedByMode) { "INFO" } else { "WARN" }
         Write-Host "$dockerPrefix Conteneur Docker: $($parts[0])" -ForegroundColor $dockerColor
         if ($parts.Count -gt 1) {
-            Write-Host "Etat: $($parts[1])"
+            $dockerState = if ($dockerStoppedByMode) { "arrete, mode windows-ssh actif" } else { $parts[1] }
+            Write-Host "Etat: $dockerState"
         }
         if ($parts.Count -gt 2 -and $parts[2]) {
             Write-Host "Ports: $($parts[2])"
@@ -286,8 +305,15 @@ function Show-TunnelStatus {
     }
 
     if (Test-LocalTcpPort -Port $LocalPort) {
-        Write-Host "OK Port local 127.0.0.1:${LocalPort}: ouvert" -ForegroundColor Green
-        Write-Host "URL REST locale: http://127.0.0.1:${LocalPort}/v1/api" -ForegroundColor Cyan
+        $restStatusCode = Get-LocalRestStatusCode
+        if ($restStatusCode -eq 401) {
+            Write-Host "OK API REST locale: joignable (HTTP 401 attendu sans identifiants)" -ForegroundColor Green
+            Write-Host "URL REST locale: http://127.0.0.1:${LocalPort}/v1/api" -ForegroundColor Cyan
+        }
+        else {
+            $restStatus = if ($restStatusCode -gt 0) { "HTTP $restStatusCode" } else { "aucune reponse HTTP" }
+            Write-Host "WARN Port local ouvert, mais API REST non confirmee: $restStatus" -ForegroundColor Yellow
+        }
     }
     else {
         Write-Host "WARN Port local 127.0.0.1:${LocalPort}: ferme" -ForegroundColor Yellow

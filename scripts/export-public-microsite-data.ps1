@@ -205,11 +205,16 @@ function Get-PublicDisplayName {
     param($Player)
 
     $name = Get-ObjectPropertyValue -InputObject $Player -Name "name"
-    if (-not [string]::IsNullOrWhiteSpace([string]$name)) {
-        return [string]$name
+    $displayName = if ($null -ne $name) { ([string]$name).Trim() } else { "" }
+    $placeholderNames = @("joueur", "player", "unknown", "inconnu", "joueur inconnu")
+    if (
+        -not [string]::IsNullOrWhiteSpace($displayName) -and
+        $placeholderNames -notcontains $displayName.ToLowerInvariant()
+    ) {
+        return $displayName
     }
 
-    return "Joueur"
+    return $null
 }
 
 function Convert-PublicSessionHistory {
@@ -232,6 +237,9 @@ function Convert-PublicPlayer {
     param($Player)
 
     $displayName = Get-PublicDisplayName -Player $Player
+    if ([string]::IsNullOrWhiteSpace([string]$displayName)) {
+        return $null
+    }
     $isOnline = [bool](Get-ObjectPropertyValue -InputObject $Player -Name "isOnline")
     $currentSessionStartedAt = if ($isOnline) { Get-ObjectPropertyValue -InputObject $Player -Name "currentSessionStartedAt" } else { $null }
 
@@ -296,14 +304,17 @@ if ($metrics) {
         }
         metrics = Get-ObjectPropertyValue -InputObject $metrics -Name "metrics"
         players = @(Convert-ToObjectArray -Value (Get-ObjectPropertyValue -InputObject $metrics -Name "players") | ForEach-Object {
-            $statsPlayer = Find-PlayerLookupRecord -Player $_ -Lookup $statsPlayerLookup
-            $isOnline = $statsPlayer -and [bool](Get-ObjectPropertyValue -InputObject $statsPlayer -Name "isOnline")
-            $currentSessionStartedAt = if ($isOnline) { Get-ObjectPropertyValue -InputObject $statsPlayer -Name "currentSessionStartedAt" } else { $null }
-            [ordered]@{
-                name = Get-PublicDisplayName -Player $_
-                currentSessionStartedAt = $currentSessionStartedAt
-                onlineSinceAt = $currentSessionStartedAt
-                lastOnlineAt = if ($statsPlayer) { Get-ObjectPropertyValue -InputObject $statsPlayer -Name "lastOnlineAt" } else { $null }
+            $displayName = Get-PublicDisplayName -Player $_
+            if (-not [string]::IsNullOrWhiteSpace([string]$displayName)) {
+                $statsPlayer = Find-PlayerLookupRecord -Player $_ -Lookup $statsPlayerLookup
+                $isOnline = $statsPlayer -and [bool](Get-ObjectPropertyValue -InputObject $statsPlayer -Name "isOnline")
+                $currentSessionStartedAt = if ($isOnline) { Get-ObjectPropertyValue -InputObject $statsPlayer -Name "currentSessionStartedAt" } else { $null }
+                [ordered]@{
+                    name = $displayName
+                    currentSessionStartedAt = $currentSessionStartedAt
+                    onlineSinceAt = $currentSessionStartedAt
+                    lastOnlineAt = if ($statsPlayer) { Get-ObjectPropertyValue -InputObject $statsPlayer -Name "lastOnlineAt" } else { $null }
+                }
             }
         })
     }
@@ -390,7 +401,12 @@ if ($stats) {
                 activePlayerCount = [int](Get-ValueOrDefault -Value (Get-ObjectPropertyValue -InputObject $_ -Name "activePlayerCount") -Default 0)
             }
         })
-        players = @($rawPlayers | ForEach-Object { Convert-PublicPlayer -Player $_ })
+        players = @($rawPlayers | ForEach-Object {
+            $publicPlayer = Convert-PublicPlayer -Player $_
+            if ($null -ne $publicPlayer) {
+                $publicPlayer
+            }
+        })
     }
 
     if (-not $statsOk) {
