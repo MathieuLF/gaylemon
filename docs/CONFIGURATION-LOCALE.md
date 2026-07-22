@@ -35,7 +35,8 @@ Le modèle complet est [.env.example](../.env.example).
 | `GAYLEMON_API_TUNNEL_MODE` | mode du tunnel REST: `docker` ou `windows-ssh` |
 | `GAYLEMON_API_LOCAL_PORT` | port local du tunnel REST |
 | `GAYLEMON_API_REMOTE_PORT` | port REST Palworld sur Ubuntu |
-| `GAYLEMON_UPTIME_KUMA_*` | lecture de la page Kuma publique |
+| `GAYLEMON_UPTIME_HISTORY_DAYS` | durée conservée pour les stats d'uptime REST |
+| `GAYLEMON_RECOVERY_STALE_SECONDS` | âge maximum d'une sonde avant de considérer une rupture de disponibilité |
 | `GAYLEMON_GAME_HOST` / `GAYLEMON_GAME_PORT` | adresse publique du serveur de jeu |
 
 ## Secrets
@@ -43,9 +44,8 @@ Le modèle complet est [.env.example](../.env.example).
 Le `.env` du dépôt ne doit pas contenir de secrets durables.
 
 - Clé SSH: `~/.ssh`.
-- Clé SSH dédiée au tunnel Discord: dossier indiqué par `GAYLEMON_SSH_DIR`, si configuré.
+- Clé SSH dédiée au tunnel REST local: dossier indiqué par `GAYLEMON_SSH_DIR`, si configuré.
 - Mot de passe admin Palworld: configuration Palworld sur Ubuntu.
-- Push Uptime Kuma: `/etc/palworld/kuma.env`.
 - Jetons DNS ou tunnel Cloudflare: fichiers d'infrastructure, hors dépôt.
 
 Ne pas copier ces valeurs dans une issue, une capture ou un rapport.
@@ -60,7 +60,7 @@ Test SSH rapide:
 ssh gaylemon "hostname"
 ```
 
-Le tunnel REST utilisé par le robot Discord est lancé par Docker Desktop:
+Le tunnel REST local utilisé par les annonces Discord et les sondes d'exploitation est lancé par Docker Desktop:
 
 ```powershell
 .\scripts\palworld-api-tunnel.ps1 start

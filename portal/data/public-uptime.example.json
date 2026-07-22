@@ -1,18 +1,19 @@
 {
-  "version": 1,
+  "version": 2,
   "ok": true,
-  "source": "uptime-kuma",
+  "source": "palworld-rest-api",
   "updatedAt": "2026-01-01T12:00:00Z",
   "updatedAtLocal": "2026-01-01 07:00:00",
   "title": "Palworld",
   "monitors": [
     {
-      "id": 1,
+      "id": "palworld-rest-api",
       "name": "Serveur Palworld",
-      "type": "push",
+      "type": "rest-api",
       "status": "up",
       "statusCode": 1,
       "lastHeartbeatAt": "2026-01-01T12:00:00Z",
+      "lastProbeAt": "2026-01-01T12:00:00Z",
       "ping": 16.7,
       "uptime24h": 100,
       "beats": [
@@ -21,7 +22,7 @@
           "statusCode": 1,
           "time": "2026-01-01T12:00:00Z",
           "ping": 16.7,
-          "message": null
+          "message": "Palworld OK"
         }
       ]
     }
@@ -32,6 +33,19 @@
     "down": 0,
     "maintenance": 0,
     "status": "up",
-    "uptime24hAverage": 100
+    "monitorStatus": "up",
+    "probeFresh": true,
+    "probeAgeSeconds": 12,
+    "heartbeatAgeSeconds": 12,
+    "uptime24hAverage": 100,
+    "uptimeLast24h": 100,
+    "unavailableSecondsLast24h": 0,
+    "averagePing": 16.7,
+    "players": 2,
+    "maxPlayers": 32,
+    "fps": 60,
+    "fpsAverage": 59.8,
+    "frameMs": 16.7,
+    "gameUptimeSeconds": 7200
   }
 }

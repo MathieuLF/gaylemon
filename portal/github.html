@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260719.14">
-  <script src="/assets/app.js?v=20260719.11" defer></script>
+  <link rel="stylesheet" href="/assets/styles.css?v=20260721.6">
+  <script src="/assets/app.js?v=20260721.6" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -113,7 +113,7 @@
           <h2>La console d'exploitation</h2>
           <ul class="github-check-list">
             <li><code>Gaylemon Ops Console.ps1</code> est l'entrée locale.</li>
-            <li><code>scripts/palworld-console.ps1</code> porte les actions: statut, métriques, joueurs, logs, backups, updates, Kuma, tunnel API et maintenance Ubuntu.</li>
+            <li><code>scripts/palworld-console.ps1</code> porte les actions: statut, métriques, joueurs, logs, backups, updates, tunnel API, disponibilité REST et maintenance Ubuntu.</li>
             <li><code>Gaylemon Ops Local Services</code> peut démarrer les helpers Windows: microsite Docker, tunnel API local et rafraîchissement des métriques.</li>
             <li>Les appels REST Palworld restent locaux. Le sudoers <code>palworld-api</code> autorise seulement quelques lectures précises par <code>palworld-api.sh</code>, pas un accès root général.</li>
             <li>Les actions sensibles demandent confirmation et passent par SSH ou <code>systemctl</code>, jamais par une commande implicite cachée.</li>
@@ -155,7 +155,7 @@
           <h2>Contrats publics servis</h2>
           <ul class="github-tech-list">
             <li><code>public-metrics.json</code>: joueurs, FPS, camps, uptime, présences affichables et <code>onlineSinceAt</code>.</li>
-            <li><code>public-uptime.json</code>: résumé filtré de la page Uptime Kuma externe.</li>
+            <li><code>public-uptime.json</code>: résumé de disponibilité calculé depuis l'API REST Palworld.</li>
             <li><code>public-stats.json</code>: sessions et agrégats joueurs publiables.</li>
             <li><code>public-save-*.json</code>: index, profils, bases, diagnostics et projections v3.</li>
             <li><code>players/{slug}.json</code>: détails publics d'un joueur, utilisés par les fiches et l'export JSON d'analyse.</li>
@@ -173,14 +173,14 @@
           <ul class="github-check-list">
             <li>Pas de <code>Level.sav</code>, <code>Players/*.sav</code>, base SQLite runtime, export privé ou assets extraits du jeu.</li>
             <li>Pas de Steam ID, GUID Unreal, conteneur, chemin système, adresse IP, coordonnée brute ou détail exact de coffre.</li>
-            <li>Pas de mot de passe admin Palworld, jeton Cloudflare, URL Push Kuma ou secret SSH.</li>
+            <li>Pas de mot de passe admin Palworld, jeton Cloudflare ou secret SSH.</li>
             <li>Pas d'attribution supposée pour les récoltes, transferts, destructions, butins aléatoires ou événements ambigus.</li>
           </ul>
         </article>
         <article class="github-card">
           <p class="eyebrow">Unités Ubuntu</p>
           <h2>Ce que le manifeste pilote</h2>
-          <p>Les unités suivies couvrent <code>palworld.service</code>, <code>palworld-backup.timer</code>, <code>palworld-update.timer</code>, <code>palworld-kuma-push.timer</code>, <code>palworld-stats.timer</code>, <code>palworld-save-snapshot.timer</code>, <code>palworld-events.timer</code>, <code>palworld-welcome.service</code> et <code>palworld-performance.service</code>. Les sudoers suivis couvrent aussi le déploiement, la console, les stats et l'API Palworld bornée.</p>
+          <p>Les unités suivies couvrent <code>palworld.service</code>, <code>palworld-backup.timer</code>, <code>palworld-update.timer</code>, <code>palworld-stats.timer</code>, <code>palworld-save-snapshot.timer</code>, <code>palworld-events.timer</code>, <code>palworld-welcome.service</code> et <code>palworld-performance.service</code>. Les sudoers suivis couvrent aussi le déploiement, la console, les stats et l'API Palworld bornée.</p>
           <p>Le manifeste distingue les redémarrages <code>none</code>, <code>recommended</code> et <code>game</code>. Les changements qui touchent <code>palworld.service</code> sont visibles comme tels; le dépôt ne redémarre pas le jeu par surprise.</p>
         </article>
       </section>

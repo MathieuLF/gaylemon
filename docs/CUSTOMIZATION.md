@@ -8,7 +8,7 @@ Le profil actuel vise un serveur privé PvE, assez calme pour jouer entre amis, 
 - PvP désactivé.
 - Mods client refusés.
 - Liste des joueurs activée.
-- REST API locale activée pour les annonces et la surveillance.
+- REST API locale activée pour les annonces et les sondes locales.
 - Messages d'arrivée/départ Palworld actifs.
 - Watcher de bienvenue via `palworld-welcome.service`.
 

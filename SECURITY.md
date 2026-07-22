@@ -52,7 +52,7 @@ Le wrapper de déploiement accepte seulement une zone de stage sous `/tmp/gaylem
 
 Les changements touchant ces zones doivent être revus avec les risques d'exploitation en tête: redémarrage implicite, élargissement d'une permission, publication d'un identifiant privé, exposition d'un endpoint ou relâchement d'un filtre public.
 
-Uptime Kuma, Cloudflare, Palworld et PalworldSaveTools restent des projets ou services externes. Les failles qui les concernent doivent aussi être signalées chez eux.
+Cloudflare, Palworld et PalworldSaveTools restent des projets ou services externes. Les failles qui les concernent doivent aussi être signalées chez eux.
 
 ## Secret publié par erreur
 

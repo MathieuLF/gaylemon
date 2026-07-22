@@ -18,7 +18,7 @@ docker compose up -d microsite
 docker compose ps
 ```
 
-Le Compose du projet contient les services locaux possédés par Gaylémon: `microsite` et `palworld-api-tunnel`. Ne pas y ajouter Uptime Kuma ou cloudflared.
+Le Compose du projet contient les services locaux possédés par Gaylémon: `microsite` et `palworld-api-tunnel`. Ne pas y ajouter cloudflared ni un service de monitoring externe.
 
 Le tunnel API reste local:
 

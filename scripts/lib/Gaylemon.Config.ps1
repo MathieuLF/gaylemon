@@ -101,7 +101,6 @@ function Get-GaylemonConfig {
     $saveSnapshotSyncInterval = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_INTERVAL_SECONDS" "45") 15 3600
     $saveSnapshotSyncTimeout = ConvertTo-GaylemonInt "GAYLEMON_SAVE_SNAPSHOT_SYNC_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_SAVE_SNAPSHOT_SYNC_TIMEOUT_SECONDS" "180") 60 3600
     $metricUpdateTimeout = ConvertTo-GaylemonInt "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_METRIC_UPDATE_TIMEOUT_SECONDS" "120") 30 3600
-    $uptimeKumaMonitorId = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_KUMA_MONITOR_ID" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_MONITOR_ID" "1") 1 ([int]::MaxValue)
     $uptimeHistoryDays = ConvertTo-GaylemonInt "GAYLEMON_UPTIME_HISTORY_DAYS" (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_HISTORY_DAYS" "90") 1 3650
     $recoveryStaleSeconds = ConvertTo-GaylemonInt "GAYLEMON_RECOVERY_STALE_SECONDS" (Get-GaylemonSetting $fileValues "GAYLEMON_RECOVERY_STALE_SECONDS" "90") 30 86400
 
@@ -128,13 +127,6 @@ function Get-GaylemonConfig {
         ApiRemotePort = $apiRemotePort
         ApiTunnelMode = $apiTunnelMode
         MetricUpdateTimeoutSeconds = $metricUpdateTimeout
-        UptimeKumaBaseUrl = (Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_BASE_URL" "").TrimEnd("/")
-        UptimeKumaStatusSlug = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_STATUS_SLUG" "palworld"
-        UptimeKumaPublicUrl = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_PUBLIC_URL" ""
-        UptimeKumaApiKey = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_API_KEY" ""
-        UptimeKumaContainer = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_CONTAINER" "uptime-kuma"
-        UptimeKumaDbPath = Get-GaylemonSetting $fileValues "GAYLEMON_UPTIME_KUMA_DB_PATH" "/app/data/kuma.db"
-        UptimeKumaMonitorId = $uptimeKumaMonitorId
         UptimeHistoryDays = $uptimeHistoryDays
         RecoveryStaleSeconds = $recoveryStaleSeconds
         CloudflaredContainerPattern = Get-GaylemonSetting $fileValues "GAYLEMON_CLOUDFLARED_CONTAINER_PATTERN" "cloudflared"

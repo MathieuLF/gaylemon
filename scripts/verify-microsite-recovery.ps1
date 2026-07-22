@@ -305,7 +305,7 @@ function Repair-RecoveryState {
 
 function Refresh-AvailabilityState {
     & (Join-Path $PSScriptRoot "update-microsite-metrics.ps1") -FastOnly -SkipEvents | Out-Null
-    & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null
+    & (Join-Path $PSScriptRoot "export-palworld-uptime.ps1") | Out-Null
     return (Read-JsonFile -Path $LocalAvailabilityPath)
 }
 
@@ -362,7 +362,7 @@ try {
 }
 catch {
     $availabilityFailure = $_.Exception.Message
-    $messages.Add("Disponibilité Kuma non rafraîchie: $availabilityFailure")
+    $messages.Add("Disponibilité REST Palworld non rafraîchie: $availabilityFailure")
     if (Test-Path -LiteralPath $LocalAvailabilityPath) {
         try {
             $availability = Read-JsonFile -Path $LocalAvailabilityPath
@@ -411,7 +411,7 @@ if (-not $hardFailure) {
     }
 }
 if ($availabilityHardFailure) {
-    $messages.Add("Uptime Kuma indique une indisponibilité active.")
+    $messages.Add("La sonde REST Palworld indique une indisponibilité active.")
 }
 elseif ($availabilityWarning) {
     $messages.Add("La disponibilité publique est dégradée ou incomplète; consulter public-availability.json.")

@@ -130,6 +130,7 @@ let saveDiagnosticsSnapshot = null;
 let statsSnapshot = null;
 let headerPresencePlayers = [];
 let headerPresenceMaxPlayers = null;
+let headerPresencePlayerCount = null;
 let headerPresenceUpdatedAt = "";
 let nextPresenceTooltipRefreshAt = 0;
 let fullSaveSnapshot = null;
@@ -1148,17 +1149,23 @@ function normalizePlayerNameKey(value) {
   return String(value || "").trim().toLocaleLowerCase("fr-CA");
 }
 
+function isPlaceholderPlayerName(value) {
+  const normalized = normalizePlayerNameKey(value);
+  return !normalized || ["joueur", "player", "unknown", "inconnu", "joueur inconnu"].includes(normalized);
+}
+
 function mergeHeaderPresencePlayers() {
   const playersByName = new Map();
   const mergePlayer = (player) => {
     const name = String(player?.name || "").trim();
+    if (isPlaceholderPlayerName(name)) return;
     const key = normalizePlayerNameKey(name);
     if (!key) return;
     const previous = playersByName.get(key) || {};
     playersByName.set(key, {
       ...previous,
       ...player,
-      name: name || previous.name || "Joueur",
+      name: name || previous.name,
     });
   };
 
@@ -1176,14 +1183,19 @@ function renderHeaderPlayersTooltip() {
 
   const players = mergeHeaderPresencePlayers();
   const now = new Date();
-  const count = players.length;
+  const reportedCount = Number(headerPresencePlayerCount);
+  const count = Math.max(players.length, Number.isFinite(reportedCount) ? Math.max(0, reportedCount) : 0);
+  const anonymousCount = Math.max(0, count - players.length);
   const maxPlayers = headerPresenceMaxPlayers ?? "--";
   const accessibleLabel = count
-    ? players.map((player) => {
+    ? [
+      ...players.map((player) => {
       const startedAt = presenceStartedAt(player);
       const arrival = startedAt ? formatTime(startedAt) : "heure d'arrivée inconnue";
       return `${player.name || "Joueur"}, arrivée ${arrival}, ${formatPresenceDurationSince(startedAt, now)}`;
-    }).join("; ")
+      }),
+      anonymousCount ? `${anonymousCount} présence${anonymousCount > 1 ? "s" : ""} sans nom public` : "",
+    ].filter(Boolean).join("; ")
     : "Aucun joueur connecté.";
 
   if (playersList) playersList.textContent = accessibleLabel;
@@ -1206,6 +1218,11 @@ function renderHeaderPlayersTooltip() {
     return;
   }
 
+  const anonymousRows = Array.from({ length: anonymousCount }, (_, index) => `
+        <li style="--player-color:${escapeHtml(playerColor(`presence-${index}`))}">
+          <span class="site-header__players-tooltip-avatar">?</span>
+          <span><b>Présence détectée</b><small>Nom public non disponible</small></span>
+        </li>`);
   playersTooltip.innerHTML = `
     <span class="site-header__players-tooltip-head">
       <span><span class="site-header__players-tooltip-kicker">Présences en direct</span><strong>${count}/${escapeHtml(maxPlayers)} en ligne</strong></span>
@@ -1221,7 +1238,7 @@ function renderHeaderPlayersTooltip() {
           <span class="site-header__players-tooltip-avatar">${escapeHtml(playerInitials(player.name))}</span>
           <span><b>${escapeHtml(player.name || "Joueur")}</b><small>Arrivée ${escapeHtml(arrival)} · ${escapeHtml(durationText)}</small></span>
         </li>`;
-    }).join("")}
+    }).concat(anonymousRows).join("")}
     </ul>
     `;
 }
@@ -1731,6 +1748,7 @@ function renderMetrics(payload) {
   if (!payload?.ok) {
     const message = payload?.error || "Les données du serveur ne sont pas encore disponibles.";
     headerPresencePlayers = [];
+    headerPresencePlayerCount = null;
     headerPresenceUpdatedAt = payload?.updatedAt || "";
     if (playersList) playersList.textContent = message;
     if (headerPlayers) {
@@ -1761,6 +1779,7 @@ function renderMetrics(payload) {
   const players = Array.isArray(payload.players) ? payload.players : [];
   headerPresencePlayers = players;
   headerPresenceMaxPlayers = metrics.maxPlayers ?? null;
+  headerPresencePlayerCount = Number.isFinite(Number(metrics.players)) ? Number(metrics.players) : players.length;
   headerPresenceUpdatedAt = payload.updatedAt || "";
   renderHeaderPlayersTooltip();
 }
@@ -4253,6 +4272,7 @@ function eventRenderSignature(event) {
     event?.occurredAt || "",
     event?.type || "",
     event?.player || "",
+    event?.guild || "",
     event?.base || "",
     event?.icon || "",
     event?.title || "",
@@ -4307,15 +4327,81 @@ function renderEventStreamItems(visible, terminal, refinePageSize, options = {})
   return Boolean(terminal && eventsContractMode !== "v6" && refinePageSize && refineRenderedTerminalPageSize());
 }
 
+function closeOpenEventDetails(exceptLine = null) {
+  document.querySelectorAll(".event-line.is-detail-open").forEach((line) => {
+    if (line === exceptLine) return;
+    line.classList.remove("is-detail-open");
+    line.querySelector(".event-line__more")?.setAttribute("aria-expanded", "false");
+    if (line.contains(document.activeElement) && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  });
+}
+
+function toggleEventDetail(line) {
+  const button = line?.querySelector(".event-line__more");
+  if (!line || !button) return;
+  const shouldOpen = !line.classList.contains("is-detail-open");
+  closeOpenEventDetails(shouldOpen ? line : null);
+  line.classList.toggle("is-detail-open", shouldOpen);
+  button.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+}
+
+function terminalEventHasHiddenDetails(event, bullets) {
+  const hiddenDetailTypes = ["activity", "craft", "production", "fishing", "build", "repair", "base", "loot", "collection"];
+  return hiddenDetailTypes.includes(event.type) && (bullets.length || eventAggregationWindowMinutes(event) || Array.isArray(event.details?.items));
+}
+
+function terminalEventPreviewHeadline(event, detailHeadline, bullets) {
+  return terminalEventHasHiddenDetails(event, bullets) ? "Écho relevé" : detailHeadline;
+}
+
+function terminalEventPreviewBody(event, detailBody, bullets) {
+  if (!terminalEventHasHiddenDetails(event, bullets)) return detailBody;
+  const player = String(event.player || "").trim();
+  const base = String(event.base || "").trim();
+  if (player && base) return `${player} laisse une nouvelle trace à ${base}.`;
+  if (player) return `${player} laisse une nouvelle trace.`;
+  if (base) return `Nouvelle trace à ${base}.`;
+  return "Nouvelle trace dans le journal.";
+}
+
+function publicEventGuildName(event) {
+  const guild = String(event?.guild || "").trim();
+  if (!guild || guild.toLocaleLowerCase("fr-CA") === "guilde anonyme") return "";
+  return guild;
+}
+
+function eventLineIdentityBadges(event) {
+  const player = String(event?.player || "").trim();
+  const base = String(event?.base || "").trim();
+  const guild = publicEventGuildName(event);
+  const attribution = String(event?.details?.attribution || "").toLocaleLowerCase("fr-CA");
+  const badges = [];
+  if (player) {
+    badges.push(`<em class="event-line__player">${escapeHtml(player)}</em>`);
+  } else if (guild) {
+    badges.push(`<em class="event-line__guild">Guilde ${escapeHtml(guild)}</em>`);
+  } else if (event?.type === "research" || attribution.includes("guilde")) {
+    badges.push('<em class="event-line__guild">Guilde</em>');
+  }
+  if (base) badges.push(`<em class="event-line__base">${escapeHtml(base)}</em>`);
+  return badges.join("");
+}
+
 function renderEventLineHtml(event, index = 0) {
     const meta = eventTypeMeta[event.type] || eventTypeMeta.server;
+    const terminalRoute = isTerminalRoute();
     const timestamp = formatEventTime(event.occurredAt);
     const accent = event.player ? playerColor(event.player) : meta.color;
     const playerClass = event.player ? " event-line--player" : "";
-    const headline = compactEventHeadline(event, event.display?.headline || event.title);
+    const detailHeadline = compactEventHeadline(event, event.display?.headline || event.title);
     const bullets = Array.isArray(event.display?.bullets) ? event.display.bullets : [];
-    const body = compactItemizedEventBody(event, event.display?.body || event.message, bullets);
-    const detailClass = bullets.length ? " event-line--with-bullets" : "";
+    const detailBody = compactItemizedEventBody(event, event.display?.body || event.message, bullets);
+    const headline = terminalRoute ? terminalEventPreviewHeadline(event, detailHeadline, bullets) : detailHeadline;
+    const body = terminalRoute ? terminalEventPreviewBody(event, detailBody, bullets) : detailBody;
+    const visibleBullets = terminalRoute ? [] : bullets;
+    const detailClass = visibleBullets.length ? " event-line--with-bullets" : "";
     const visual = event.icon
       ? gameImage(event.icon, "", "event-line__portrait")
       : `<span class="event-line__token" aria-hidden="true">${escapeHtml(meta.token)}</span>`;
@@ -4328,10 +4414,11 @@ function renderEventLineHtml(event, index = 0) {
     const windowBadge = windowMinutes
       ? `<em class="event-line__window" aria-label="Tranche de ${windowMinutes} minutes">Tranche de ${windowMinutes} min</em>`
       : "";
+    const inlineMeta = `<span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${windowBadge}${eventLineIdentityBadges(event)}${confidenceBadge}</span>`;
     const tooltip = renderTerminalEventTooltip(event, {
-      body,
+      body: detailBody,
       bullets,
-      headline,
+      headline: detailHeadline,
       index,
       key,
       meta,
@@ -4344,10 +4431,10 @@ function renderEventLineHtml(event, index = 0) {
         <span class="event-line__rail" aria-hidden="true"><i></i></span>
         <span class="event-line__visual">${visual}</span>
         <span class="event-line__content">
-          <span class="event-line__meta"><b>${escapeHtml(meta.label)}</b>${windowBadge}${event.player ? `<em class="event-line__player">${escapeHtml(event.player)}</em>` : ""}${event.base ? `<em class="event-line__base">${escapeHtml(event.base)}</em>` : ""}${confidenceBadge}</span>
+          ${inlineMeta}
           <strong>${escapeHtml(headline)}</strong>
           <span class="event-line__body">${escapeHtml(body)}</span>
-          ${bullets.length ? `<ul class="event-line__bullets">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
+          ${visibleBullets.length ? `<ul class="event-line__bullets">${visibleBullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>` : ""}
         </span>
         ${tooltip.html}
       </li>`;
@@ -4369,7 +4456,7 @@ function renderTerminalEventTooltip(event, context) {
   const timestamp = `${context.timestamp.time} · ${context.timestamp.date}`;
   const ariaLabel = [timestamp, headline, body, ...bullets].filter(Boolean).join(". ");
   const html = `
-        <span class="event-line__more" aria-hidden="true">Voir tout</span>
+        <button class="event-line__more" type="button" aria-label="Voir le détail complet de cet écho" aria-controls="${escapeHtml(tooltipId)}" aria-expanded="false">Voir tout</button>
         <span class="event-line__tooltip" id="${escapeHtml(tooltipId)}" role="tooltip">
           <span class="event-line__tooltip-kicker">${escapeHtml(timestamp)}</span>
           <span class="event-line__tooltip-meta">${metaItems.map((item) => `<em>${escapeHtml(item)}</em>`).join("")}</span>
@@ -8348,6 +8435,15 @@ eventControls?.addEventListener("toggle", () => {
     void updateTerminalEvents(false);
   }
 });
+eventStream?.addEventListener("click", (event) => {
+  const button = event.target.closest(".event-line__more");
+  if (!button) return;
+  const line = button.closest(".event-line");
+  if (!line) return;
+  event.preventDefault();
+  event.stopPropagation();
+  toggleEventDetail(line);
+});
 eventPagination?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-event-page], [data-event-cursor]");
   if (!button || button.disabled) return;
@@ -8396,6 +8492,15 @@ eventDateNext?.addEventListener("click", () => {
 eventDateToday?.addEventListener("click", () => {
   const today = dailyDateKeyFromDate(new Date());
   if (today) void selectEventDate(today);
+});
+document.addEventListener("click", (event) => {
+  if (!isTerminalRoute()) return;
+  if (event.target.closest(".event-line.is-detail-open")) return;
+  closeOpenEventDetails();
+});
+document.addEventListener("keydown", (event) => {
+  if (!isTerminalRoute() || event.key !== "Escape") return;
+  closeOpenEventDetails();
 });
 dailyDateInput?.addEventListener("change", () => {
   void selectDailyDate(dailyDateInput.value);

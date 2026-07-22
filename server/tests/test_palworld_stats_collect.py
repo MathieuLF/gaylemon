@@ -57,6 +57,31 @@ class PlayerSessionHistoryTests(unittest.TestCase):
         self.assertEqual(len(record["sessionHistory"]), STATS.MAX_SESSION_HISTORY)
         self.assertEqual(record["sessionHistory"][-1]["startedAt"], "latest")
 
+    def test_account_name_does_not_replace_known_display_name(self):
+        stats = {"players": {
+            "steam_1": {
+                "id": "steam_1",
+                "name": "Galyk",
+                "accountName": "gregorymercier97",
+                "userId": "steam_1",
+                "isOnline": False,
+                "sessionCount": 1,
+                "sessionHistory": [],
+                "totalOnlineSeconds": 0,
+            },
+        }}
+        payload = {
+            "name": "gregorymercier97",
+            "accountName": "gregorymercier97",
+            "userId": "steam_1",
+        }
+
+        STATS.update_player_from_online(
+            stats, payload, "2026-07-13T10:00:00-04:00", 0
+        )
+
+        self.assertEqual(stats["players"]["steam_1"]["name"], "Galyk")
+
 
 class SourceCapabilityTests(unittest.TestCase):
     def test_primary_endpoint_failure_is_persisted_before_exit(self):

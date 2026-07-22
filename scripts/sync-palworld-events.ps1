@@ -40,6 +40,7 @@ $allowedTypes = @(
 $allowedSources = @("journal", "players", "save", "update", "server")
 $remotePath = "$($config.RemoteProjectRoot)/runtime/public-events.json"
 $remoteRecentPath = "$($config.RemoteProjectRoot)/runtime/public-events-recent.json"
+$remoteRecoveryReportPath = "$($config.RemoteProjectRoot)/runtime/events/palworld-events-recovery.json"
 $remoteReprojectionRequestPath = "$($config.RemoteProjectRoot)/runtime/events/public-reprojection.request"
 $resolvedSourcePayloadPath = if ($SourcePayloadPath) {
     $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SourcePayloadPath)
@@ -266,6 +267,19 @@ function Read-RemoteJsonPayload {
         throw "Le JSON public distant est invalide: $Path"
     }
     return $payload
+}
+
+function Read-RemoteRecoveryReport {
+    if ($SourcePayloadPath -or $RecentSourcePayloadPath) {
+        return $null
+    }
+
+    try {
+        return Read-RemoteJsonPayload -Path $remoteRecoveryReportPath
+    }
+    catch {
+        return $null
+    }
 }
 
 function Read-EventPayload {
@@ -3140,6 +3154,45 @@ if (-not $Fast) {
 $syncState = Read-JsonFile -Path $SyncStatePath
 $probeProjectionRevision = Get-ProjectionRevision -Payload $remoteProbe
 $recentCompletenessProjectionRevision = if ($remoteRecentProbeForCompleteness) { Get-ProjectionRevision -Payload $remoteRecentProbeForCompleteness } else { -1 }
+$remoteRecoveryReport = Read-RemoteRecoveryReport
+$remoteCanonicalExport = if ($remoteRecoveryReport) { Get-OptionalProperty $remoteRecoveryReport "canonicalExport" } else { $null }
+$remoteCanonicalExportStatus = [string](Get-OptionalProperty $remoteCanonicalExport "status")
+$remoteCanonicalExportReason = [string](Get-OptionalProperty $remoteCanonicalExport "reason")
+$remoteProjectionRequiresReprojection = $remoteCanonicalExportStatus -eq "reprojection-required"
+if ($RequestRemoteBackfill -or $remoteProjectionRequiresReprojection) {
+    $reason = if ($remoteCanonicalExportReason) { $remoteCanonicalExportReason } elseif ($RequestRemoteBackfill) { "manual-request" } else { "remote-canonical-export-pending" }
+    $requestWritten = Request-RemotePublicEventBackfill -Reason $reason
+    Write-SyncState -State ([ordered]@{
+        remotePath = $remotePath
+        remoteRecentPath = $remoteRecentPath
+        remoteRevision = if ($Fast -and $syncState) { [string](Get-StateValue $syncState "remoteRevision") } else { [string]$remoteProbe.revision }
+        recentRevision = if ($Fast) { [string]$remoteProbe.revision } elseif ($remoteRecentProbeForCompleteness) { [string]$remoteRecentProbeForCompleteness.revision } elseif ($syncState) { [string](Get-StateValue $syncState "recentRevision") } else { "" }
+        remoteProjectionRevision = if ($Fast -and $syncState) { Get-StateValue $syncState "remoteProjectionRevision" } else { $probeProjectionRevision }
+        recentProjectionRevision = if ($Fast) { $probeProjectionRevision } elseif ($remoteRecentProbeForCompleteness) { $recentCompletenessProjectionRevision } else { $null }
+        remoteProvenanceRevision = if ($Fast -and $syncState) { [string](Get-StateValue $syncState "remoteProvenanceRevision") } else { [string]$remoteProbe.provenanceRevision }
+        recentProvenanceRevision = if ($Fast) { [string]$remoteProbe.provenanceRevision } elseif ($remoteRecentProbeForCompleteness) { [string]$remoteRecentProbeForCompleteness.provenanceRevision } elseif ($syncState) { [string](Get-StateValue $syncState "recentProvenanceRevision") } else { "" }
+        localRecentRevision = if ($syncState) { [string](Get-StateValue $syncState "localRecentRevision") } else { "" }
+        remoteUpdatedAt = [string]$remoteProbe.updatedAt
+        remoteEvents = if ($Fast -and $syncState) { [int](Get-StateValue $syncState "remoteEvents") } else { [int]$remoteProbe.events }
+        remoteRecentEvents = if ($remoteRecentProbeForCompleteness) { [int]$remoteRecentProbeForCompleteness.events } elseif ($Fast) { [int]$remoteProbe.events } else { $null }
+        remoteMaxId = if ($syncState) { Get-StateValue $syncState "remoteMaxId" } else { $null }
+        pageSize = $PageSize
+        recentEventLimit = $RecentEventLimit
+        pageCount = if ($syncState) { Get-StateValue $syncState "pageCount" } else { 0 }
+        v6GenerationId = if ($syncState) { [string](Get-StateValue $syncState "v6GenerationId") } else { "" }
+        v6IncrementalChanged = $false
+        v6IncrementalSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "v6IncrementalSyncedAt") } else { $null }
+        requiresReprojection = $true
+        reprojectionReason = $reason
+        remoteCanonicalExportStatus = $remoteCanonicalExportStatus
+        remoteCanonicalExportReason = $remoteCanonicalExportReason
+        remoteBackfillRequested = [bool]$requestWritten
+        remoteBackfillRequestedAt = (Get-Date).ToString("o")
+        fastSyncedAt = if ($Fast) { (Get-Date).ToString("o") } elseif ($syncState) { [string](Get-StateValue $syncState "fastSyncedAt") } else { $null }
+        fullSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "fullSyncedAt") } else { $null }
+    })
+    throw "La projection publique distante exige une reprojection complète ($reason); un rattrapage complet vient d'être demandé."
+}
 $hotWindowCoversFullProbeGap = [bool](
     $remoteRecentProbeForCompleteness -and
     (Test-HotProjectionWindowCoversRevision `

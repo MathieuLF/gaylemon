@@ -15,7 +15,7 @@ Le principe est simple: Palworld reste stable, les sauvegardes sont lues en lect
 - `docs/`: guides courts, contrats de données et notes d'exploitation.
 - `dependencies/`: verrous des dépendances externes, sans cloner leur code.
 
-Uptime Kuma, cloudflared, SteamCMD et Palworld ne sont pas possédés par ce dépôt. Gaylémon peut s'y brancher, mais ne doit pas en prendre le contrôle.
+cloudflared, SteamCMD et Palworld ne sont pas possédés par ce dépôt. Gaylémon peut s'y brancher, mais ne doit pas en prendre le contrôle.
 
 ## Démarrer en local
 
@@ -24,7 +24,7 @@ Uptime Kuma, cloudflared, SteamCMD et Palworld ne sont pas possédés par ce dé
 .\scripts\valider-depot.ps1
 ```
 
-L'initialisation prépare les dossiers ignorés et copie des exemples JSON si aucune donnée réelle n'existe. Elle ne contacte pas Ubuntu, Docker, Uptime Kuma ou Cloudflare.
+L'initialisation prépare les dossiers ignorés et copie des exemples JSON si aucune donnée réelle n'existe. Elle ne contacte pas Ubuntu, Docker ou Cloudflare.
 
 Pour ouvrir la console:
 
@@ -49,14 +49,14 @@ Routes utiles du microsite:
 - `http://127.0.0.1:8787/carte`: carte dédiée de Palpagos;
 - `http://127.0.0.1:8787/github`: page technique publique du dépôt.
 
-Pour exposer localement l'API REST Palworld au robot Discord via Docker Desktop:
+Pour exposer localement l'API REST Palworld aux annonces Discord et aux sondes d'exploitation via Docker Desktop:
 
 ```powershell
 .\scripts\palworld-api-tunnel.ps1 start
 .\scripts\palworld-api-tunnel.ps1 status
 ```
 
-Le port reste lié à `127.0.0.1`. Le bot doit utiliser l'exemple [bot.env.example](config/exemples/bot.env.example), hors Git une fois rempli.
+Le port reste lié à `127.0.0.1`. Le bot lit les JSON publics par défaut et utilise l'exemple [bot.env.example](config/exemples/bot.env.example), hors Git une fois rempli; les variables REST restent vides sauf si une commande d'annonce en jeu est activée.
 Si Docker Desktop ne peut pas joindre le LAN à cause d'un subnet Docker concurrent, le même script peut démarrer un tunnel SSH Windows local:
 
 ```powershell
@@ -107,7 +107,7 @@ Les exports publics réels restent non versionnés. Le site lit notamment:
 - `public-save-index.json`, `public-save-snapshot.json`, `public-save-bases.json`, `public-save-diagnostics.json` et `players/{slug}.json` pour les fiches, Pals, bases et exports JSON d'analyse; ces fichiers partagent une génération et l'index devient actif en dernier;
 - `public-events-channel.json` pour le canal v6 actif et son repli contrôlé, `public-events-head-v6.json` comme pointeur actif, le manifeste de compatibilité, les générations immuables `public-events-v6/` et les résumés `public-daily/` pour `/terminal`, `/resume` et les derniers échos de l'accueil;
 - les contrats `public-events*.json` v5 pendant la période de compatibilité;
-- `public-uptime.json`, `public-uptime-history.json` et `public-availability.json` pour l'état Kuma filtré.
+- `public-uptime.json`, `public-uptime-history.json` et `public-availability.json` pour la disponibilité calculée depuis l'API REST Palworld.
 
 Nginx sert les pages et les JSON v5 dynamiques en `no-store`. Le pointeur actif et le manifeste de compatibilité v6 sont revalidés avec ETag; les manifestes et têtes de génération, fragments, résumés et assets versionnés restent en cache immuable.
 

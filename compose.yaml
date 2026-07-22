@@ -2,6 +2,8 @@ name: gaylemon
 
 services:
   palworld-api-tunnel:
+    profiles:
+      - docker-tunnel
     build:
       context: .
       dockerfile: docker/palworld-api-tunnel/Dockerfile

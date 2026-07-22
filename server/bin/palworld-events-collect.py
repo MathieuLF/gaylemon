@@ -588,9 +588,10 @@ def collect_player_sessions(connection: sqlite3.Connection, stats_path: Path) ->
     except (OSError, ValueError, TypeError):
         return 0
 
+    reconcile_player_session_identities(connection, payload)
     added = 0
     for player_key, record in iter_player_records(payload):
-        player = str(record.get("name") or "").strip()
+        player = session_player_display_name(record)
         sessions = record.get("sessionHistory") or []
         if not player or not isinstance(sessions, list):
             continue
@@ -717,6 +718,75 @@ def iter_player_records(payload: dict):
             yield player_key, record
 
 
+def session_player_display_name(record: dict) -> str | None:
+    player = str(record.get("name") or "").strip()
+    if not player:
+        return None
+    technical_names = {
+        str(record.get(field) or "").strip().casefold()
+        for field in ("playerId", "userId", "userid", "id")
+        if str(record.get(field) or "").strip()
+    }
+    return None if player.casefold() in technical_names else player
+
+
+def player_session_aliases(payload: dict) -> dict[str, str]:
+    candidates: dict[str, set[str]] = {}
+    display_names: dict[str, str] = {}
+    for _player_key, record in iter_player_records(payload):
+        player = session_player_display_name(record)
+        if not player:
+            continue
+        for field in ("accountName", "playerId", "userId", "userid", "id"):
+            alias = str(record.get(field) or "").strip()
+            if not alias or alias.casefold() == player.casefold():
+                continue
+            alias_key = alias.casefold()
+            player_key = player.casefold()
+            candidates.setdefault(alias_key, set()).add(player_key)
+            display_names[player_key] = player
+    return {
+        alias: display_names[next(iter(players))]
+        for alias, players in candidates.items()
+        if len(players) == 1
+    }
+
+
+def reconcile_player_session_identities(
+    connection: sqlite3.Connection,
+    payload: dict,
+) -> int:
+    aliases = player_session_aliases(payload)
+    if not aliases:
+        return 0
+    updated = 0
+    rows = connection.execute(
+        """
+        SELECT id, type, player
+        FROM events
+        WHERE type IN ('join', 'leave')
+          AND source IN ('journal', 'players')
+          AND player IS NOT NULL
+        """
+    ).fetchall()
+    for row in rows:
+        player = aliases.get(str(row["player"] or "").casefold())
+        if not player:
+            continue
+        is_join = row["type"] == "join"
+        message = (
+            f"{player} rejoint l'aventure."
+            if is_join
+            else f"{player} quitte l'archipel pour l'instant."
+        )
+        connection.execute(
+            "UPDATE events SET player = ?, message = ? WHERE id = ?",
+            (player, message, int(row["id"])),
+        )
+        updated += 1
+    return updated
+
+
 def player_session_index(stats_path: Path) -> dict[str, list[tuple[datetime, datetime | None]]]:
     try:
         payload = json.loads(stats_path.read_text(encoding="utf-8"))
@@ -725,7 +795,7 @@ def player_session_index(stats_path: Path) -> dict[str, list[tuple[datetime, dat
 
     index: dict[str, list[tuple[datetime, datetime | None]]] = {}
     for _player_key, record in iter_player_records(payload):
-        player = str(record.get("name") or "").strip()
+        player = session_player_display_name(record)
         if not player:
             continue
         sessions: list[tuple[datetime, datetime | None]] = []
@@ -4166,6 +4236,8 @@ def normalized_public_language_event(row: sqlite3.Row, details: dict) -> tuple[s
 def empty_history_normalization_report(status: str = "current") -> dict:
     return {
         "status": status,
+        "researchAttributionsUpdated": 0,
+        "researchAttributionIds": [],
         "itemizedUpdated": 0,
         "publicLanguageUpdated": 0,
         "duplicatesRemoved": 0,
@@ -4187,20 +4259,99 @@ def empty_history_normalization_report(status: str = "current") -> dict:
     }
 
 
+def backfill_research_player_attribution(
+    connection: sqlite3.Connection,
+    bases_payload: dict | None,
+    stats_path: Path | None,
+) -> tuple[int, list[int]]:
+    if stats_path is None:
+        return 0, []
+    sessions = player_session_index(stats_path)
+    guilds = guild_research_state(bases_payload)
+    if not sessions or not guilds:
+        return 0, []
+
+    guilds_by_name: dict[str, list[dict]] = {}
+    for guild_state in guilds.values():
+        guild_name = str(guild_state.get("guild") or "").strip().casefold()
+        if guild_name:
+            guilds_by_name.setdefault(guild_name, []).append(guild_state)
+
+    updated_ids = []
+    rows = connection.execute(
+        """
+        SELECT id, fingerprint, occurred_at, guild, details_json
+        FROM events
+        WHERE source = 'save'
+          AND type = 'research'
+          AND player IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM event_suppressions
+              WHERE event_suppressions.event_id = events.id
+          )
+        ORDER BY occurred_at ASC, id ASC
+        """
+    ).fetchall()
+    for row in rows:
+        fingerprint = str(row["fingerprint"] or "")
+        guild_key = ""
+        if fingerprint.startswith("save:research:"):
+            guild_key = fingerprint.removeprefix("save:research:").rsplit(":", 1)[0].casefold()
+        guild_state = guilds.get(guild_key)
+        if guild_state is None:
+            matches = guilds_by_name.get(str(row["guild"] or "").strip().casefold(), [])
+            guild_state = matches[0] if len(matches) == 1 else None
+        if guild_state is None:
+            continue
+
+        active_players = active_players_at(sessions, str(row["occurred_at"] or ""))
+        if active_players is None:
+            continue
+        active_members = [
+            str(player).strip()
+            for player in guild_state.get("players") or []
+            if str(player).strip() and str(player).strip().casefold() in active_players
+        ]
+        if len(active_members) != 1:
+            continue
+
+        details = details_from_row(row)
+        details["attribution"] = "membre actif observé"
+        connection.execute(
+            """
+            UPDATE events
+            SET player = ?, confidence = 'derived', details_json = ?
+            WHERE id = ?
+            """,
+            (active_members[0], details_json_payload(details), int(row["id"])),
+        )
+        updated_ids.append(int(row["id"]))
+    return len(updated_ids), updated_ids
+
+
 def normalize_event_history(
     connection: sqlite3.Connection,
     bases_payload: dict | None = None,
+    stats_path: Path | None = None,
 ) -> dict:
+    research_attributions_updated, research_attribution_ids = backfill_research_player_attribution(
+        connection,
+        bases_payload,
+        stats_path,
+    )
     max_event_id = int(connection.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0])
     projection_revision = int(metadata_get(connection, "events_projection_revision", 0) or 0)
     state = metadata_get(connection, "event_history_normalization_state", {})
     if (
         isinstance(state, dict)
-        and int(state.get("schemaVersion") or 0) == 5
+        and int(state.get("schemaVersion") or 0) == 6
         and int(state.get("lastEventId") or 0) == max_event_id
         and int(state.get("projectionRevision") or 0) == projection_revision
     ):
-        return empty_history_normalization_report()
+        report = empty_history_normalization_report()
+        report["researchAttributionsUpdated"] = research_attributions_updated
+        report["researchAttributionIds"] = research_attribution_ids[:25]
+        return report
 
     rows = connection.execute(
         """
@@ -4349,12 +4500,14 @@ def normalize_event_history(
 
     business_normalization = normalize_business_events(connection, bases_payload)
     metadata_set(connection, "event_history_normalization_state", {
-        "schemaVersion": 5,
+        "schemaVersion": 6,
         "lastEventId": max_event_id,
         "projectionRevision": int(metadata_get(connection, "events_projection_revision", 0) or 0),
     })
     return {
         "status": "complete",
+        "researchAttributionsUpdated": research_attributions_updated,
+        "researchAttributionIds": research_attribution_ids[:25],
         "itemizedUpdated": itemized_updated,
         "duplicatesRemoved": len(duplicate_ids),
         "duplicateIds": duplicate_ids[:25],
@@ -5489,6 +5642,7 @@ def main() -> None:
         recovery_report["normalizationBackfill"] = normalize_event_history(
             connection,
             bases_payload,
+            args.stats,
         )
         recovery_report["baseLabelBackfill"] = normalize_base_labels(connection, bases_payload)
         recovery_report["inactiveSaveEventCleanup"] = purge_inactive_save_events(connection, args.stats)
