@@ -35,8 +35,14 @@ ALLOWED_DESTINATIONS = (
     re.compile(r"^/etc/sysctl\.d/[A-Za-z0-9_.-]*palworld[A-Za-z0-9_.-]*\.conf$"),
     re.compile(r"^/etc/sudoers\.d/(?:palworld|gaylemon)[A-Za-z0-9_.-]*$"),
 )
+ALLOWED_REMOVALS = (
+    re.compile(r"^/srv/storage/steam/bin/[A-Za-z0-9_.-]+$"),
+    re.compile(r"^/etc/systemd/system/(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
+    re.compile(r"^/etc/palworld/[A-Za-z0-9_.-]+\.env$"),
+)
 VALIDATORS = {"bash", "python", "sudoers", "sysctl", "systemd"}
 RESTART_POLICIES = {"none", "recommended", "game"}
+REMOVAL_KINDS = {"file", "secret", "systemd"}
 LOCK_PATH = Path("/run/lock/gaylemon-deploy.lock")
 
 
@@ -56,7 +62,11 @@ def is_allowed_destination(path: str) -> bool:
     return any(pattern.fullmatch(path) for pattern in ALLOWED_DESTINATIONS)
 
 
-def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def is_allowed_removal(path: str) -> bool:
+    return any(pattern.fullmatch(path) for pattern in ALLOWED_REMOVALS)
+
+
+def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     if pwd is None or grp is None:
         raise DeployError("Deployment manifests can only be resolved on a Unix host")
     stage = stage.resolve(strict=True)
@@ -133,7 +143,39 @@ def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
     if not entries:
         raise DeployError("Deployment manifest is empty")
-    return manifest, entries
+    removals: list[dict[str, Any]] = []
+    seen_removals: set[str] = set()
+    for raw in manifest.get("removals", []):
+        path_name = raw.get("path")
+        if not isinstance(path_name, str) or not is_allowed_removal(path_name):
+            raise DeployError(f"Removal is outside the allowlist: {path_name!r}")
+        if path_name in seen_destinations:
+            raise DeployError(f"Removal conflicts with a deployment destination: {path_name}")
+        if path_name in seen_removals:
+            raise DeployError(f"Duplicate removal entry: {path_name}")
+        kind = raw.get("kind")
+        if kind not in REMOVAL_KINDS:
+            raise DeployError(f"Invalid removal kind for {path_name}: {kind!r}")
+        unit = raw.get("unit")
+        if unit is not None and (
+            not isinstance(unit, str)
+            or not re.fullmatch(r"(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)", unit)
+        ):
+            raise DeployError(f"Invalid removal unit for {path_name}: {unit!r}")
+        if kind == "systemd" and not unit:
+            raise DeployError(f"Systemd removal requires a unit: {path_name}")
+        removals.append(
+            {
+                "path": path_name,
+                "pathObject": Path(path_name),
+                "kind": kind,
+                "unit": unit,
+                "reason": str(raw.get("reason") or ""),
+            }
+        )
+        seen_removals.add(path_name)
+
+    return manifest, entries, removals
 
 
 def run_checked(command: list[str]) -> None:
@@ -257,13 +299,35 @@ def build_plan(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [inspect_entry(entry) for entry in entries]
 
 
-def print_plan(plan: list[dict[str, Any]], as_json: bool) -> None:
+def inspect_removal(removal: dict[str, Any]) -> dict[str, Any]:
+    path = removal["pathObject"]
+    exists = path.exists() or path.is_symlink()
+    if exists and not (path.is_file() or path.is_symlink()):
+        raise DeployError(f"Refusing to remove non-file path: {path}")
+    return {
+        "path": removal["path"],
+        "kind": removal["kind"],
+        "unit": removal["unit"],
+        "reason": removal["reason"],
+        "status": "remove" if exists else "absent",
+        "changed": exists,
+    }
+
+
+def build_removal_plan(removals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [inspect_removal(removal) for removal in removals]
+
+
+def print_plan(plan: list[dict[str, Any]], removal_plan: list[dict[str, Any]], as_json: bool) -> None:
     if as_json:
-        print(json.dumps({"entries": plan}, ensure_ascii=False, indent=2))
+        print(json.dumps({"entries": plan, "removals": removal_plan}, ensure_ascii=False, indent=2))
         return
     for item in plan:
         marker = item["status"].upper()
         print(f"{marker:10} {item['source']} -> {item['destination']}")
+    for item in removal_plan:
+        marker = item["status"].upper()
+        print(f"{marker:10} {item['path']}")
 
 
 def copy_atomically(source: Path, destination: Path, mode: int, uid: int, gid: int) -> None:
@@ -284,6 +348,23 @@ def copy_atomically(source: Path, destination: Path, mode: int, uid: int, gid: i
 
 def restore_partial(records: list[dict[str, Any]]) -> None:
     for record in reversed(records):
+        if "removed" in record:
+            removed = record["removed"]
+            destination = Path(removed["path"])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if removed.get("wasSymlink"):
+                destination.unlink(missing_ok=True)
+                target = Path(removed["backup"]).read_text(encoding="utf-8").strip()
+                os.symlink(target, destination)
+            else:
+                copy_atomically(
+                    Path(removed["backup"]),
+                    destination,
+                    removed["beforeMode"],
+                    removed["beforeUid"],
+                    removed["beforeGid"],
+                )
+            continue
         destination = Path(record["destination"])
         if record["existed"]:
             copy_atomically(
@@ -300,6 +381,7 @@ def restore_partial(records: list[dict[str, Any]]) -> None:
 def apply_deployment(
     manifest: dict[str, Any],
     entries: list[dict[str, Any]],
+    removals: list[dict[str, Any]],
     stage: Path,
     confirmation: str,
     restart_units: list[str],
@@ -311,8 +393,10 @@ def apply_deployment(
         raise DeployError("Deployment confirmation does not match the staging release")
 
     plan = build_plan(entries)
+    removal_plan = build_removal_plan(removals)
     changed_sources = {item["source"] for item in plan if item["changed"] is True}
     changed_entries = [entry for entry in entries if entry["source"] in changed_sources]
+    changed_removals = [removal for removal in removals if removal["path"] in {item["path"] for item in removal_plan if item["changed"] is True}]
     allowed_restart_units = {
         entry["restartUnit"]: entry["restartPolicy"]
         for entry in entries
@@ -366,15 +450,55 @@ def apply_deployment(
                 entry["uid"],
                 entry["gid"],
             )
+        for removal in changed_removals:
+            destination = removal["pathObject"]
+            for unit in [removal.get("unit")]:
+                if unit:
+                    subprocess.run(["/usr/bin/systemctl", "disable", "--now", unit], text=True, capture_output=True, check=False)
+            if not (destination.exists() or destination.is_symlink()):
+                continue
+            if not (destination.is_file() or destination.is_symlink()):
+                raise DeployError(f"Refusing to remove non-file path: {destination}")
+            backup = files_directory / str(destination).lstrip("/")
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            record = {
+                "path": str(destination),
+                "kind": removal["kind"],
+                "unit": removal.get("unit"),
+                "reason": removal.get("reason"),
+                "backup": str(backup),
+                "existed": True,
+            }
+            if destination.is_symlink():
+                backup.write_text(os.readlink(destination) + "\n", encoding="utf-8")
+                os.chmod(backup, 0o600)
+                record["wasSymlink"] = True
+            else:
+                before = destination.stat()
+                shutil.copyfile(destination, backup)
+                os.chmod(backup, 0o600)
+                record.update(
+                    {
+                        "beforeSha256": sha256(destination),
+                        "beforeMode": stat.S_IMODE(before.st_mode),
+                        "beforeUid": before.st_uid,
+                        "beforeGid": before.st_gid,
+                    }
+                )
+            records.append({"removed": record})
+            destination.unlink()
     except Exception:
         restore_partial(records)
         raise
 
+    changed_removal_records = [record["removed"] for record in records if "removed" in record]
+    changed_file_records = [record for record in records if "removed" not in record]
     receipt = {
         "version": 1,
         "installedAt": datetime.now(timezone.utc).isoformat(),
         "stage": str(stage),
-        "changedFiles": records,
+        "changedFiles": changed_file_records,
+        "removedFiles": changed_removal_records,
         "requestedRestarts": restart_units,
         "systemdReloaded": False,
     }
@@ -382,16 +506,22 @@ def apply_deployment(
     receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.chmod(receipt_path, 0o600)
 
-    if any(str(entry["destinationPath"]).startswith("/etc/systemd/system/") for entry in changed_entries):
+    if any(str(entry["destinationPath"]).startswith("/etc/systemd/system/") for entry in changed_entries) or any(removal["kind"] == "systemd" for removal in changed_removals):
         run_checked(["/usr/bin/systemctl", "daemon-reload"])
         receipt["systemdReloaded"] = True
         receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    for removal in removals:
+        unit = removal.get("unit")
+        if unit:
+            subprocess.run(["/usr/bin/systemctl", "reset-failed", unit], text=True, capture_output=True, check=False)
 
     for unit in restart_units:
         run_checked(["/usr/bin/systemctl", "restart", unit])
 
     print(f"Receipt: {receipt_path}")
     print(f"Changed files: {len(changed_entries)}")
+    print(f"Removed files: {len(changed_removals)}")
     suggested_restarts = sorted(
         {
             entry["restartUnit"]
@@ -420,10 +550,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     stage = args.stage.resolve(strict=True)
-    manifest, entries = load_manifest(stage)
+    manifest, entries, removals = load_manifest(stage)
     validate_sources(entries)
     if args.action == "plan":
-        print_plan(build_plan(entries), args.json)
+        print_plan(build_plan(entries), build_removal_plan(removals), args.json)
         return 0
 
     if fcntl is None:
@@ -437,6 +567,7 @@ def main() -> int:
         apply_deployment(
             manifest,
             entries,
+            removals,
             stage,
             args.confirm,
             args.restart_unit,

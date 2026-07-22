@@ -15,7 +15,6 @@ param(
         "Update",
         "Restart",
         "RestartWelcome",
-        "PushKuma",
         "ApiTunnelStatus",
         "StartApiTunnel",
         "StopApiTunnel",
@@ -25,7 +24,6 @@ param(
         "InstallWindowsStartup",
         "UninstallWindowsStartup",
         "OpenMicrosite",
-        "OpenStatus",
         "RefreshMetrics",
         "TunePerformance",
         "ValidateRepository",
@@ -38,7 +36,7 @@ param(
     )]
     [string]$Action = "Menu",
 
-    [ValidateSet("service", "game", "update", "backup", "welcome", "kuma")]
+    [ValidateSet("service", "game", "update", "backup", "welcome")]
     [string]$LogMode = "service",
 
     [int]$Lines = 120,
@@ -611,12 +609,6 @@ function Restart-WelcomeWatcher {
     Invoke-Remote -Command "systemctl status palworld-welcome.service --no-pager -l"
 }
 
-function Push-KumaHealth {
-    Write-Title "Push Uptime Kuma"
-    Invoke-RemoteSystemctl -Verb "start" -Unit "palworld-kuma-push.service"
-    Show-Logs -Mode "kuma" -LineCount 10 -ShouldFollow:$false
-}
-
 function Tune-Performance {
     Write-Title "Priorité Palworld"
     Write-StatusLine Info "Application du profil performance sans redémarrage du serveur de jeu."
@@ -668,14 +660,6 @@ function Uninstall-WindowsStartup {
 function Open-Microsite {
     Write-Title "Microsite"
     Invoke-ProjectScript -ScriptName "open-microsite.ps1"
-}
-
-function Open-StatusPage {
-    if (-not $config.UptimeKumaPublicUrl) {
-        Write-StatusLine Warn "Aucune page de statut publique n'est configuree dans .env."
-        return
-    }
-    Start-Process $config.UptimeKumaPublicUrl
 }
 
 function Refresh-MicrositeMetrics {
@@ -747,20 +731,18 @@ function Show-LogsMenu {
         Write-Title "Choisir un log"
         Write-MenuItem "1" (Get-Icon "Server") "Service Palworld" "journal systemd principal" "Green"
         Write-MenuItem "2" (Get-Icon "Logs") "Log jeu Pal.log" "événements bruts du serveur" "Cyan"
-        Write-MenuItem "3" (Get-Icon "Web") "Uptime Kuma" "heartbeat et monitoring" "Magenta"
-        Write-MenuItem "4" (Get-Icon "Announce") "Welcome watcher" "messages de bienvenue" "Yellow"
-        Write-MenuItem "5" (Get-Icon "Update") "Update" "mises à jour SteamCMD" "Blue"
-        Write-MenuItem "6" (Get-Icon "Backup") "Backup" "sauvegardes locales" "DarkGreen"
+        Write-MenuItem "3" (Get-Icon "Announce") "Welcome watcher" "messages de bienvenue" "Yellow"
+        Write-MenuItem "4" (Get-Icon "Update") "Update" "mises à jour SteamCMD" "Blue"
+        Write-MenuItem "5" (Get-Icon "Backup") "Backup" "sauvegardes locales" "DarkGreen"
         Write-MenuItem "0" (Get-Icon "Quit") "Retour" "" "DarkGray"
         $choice = Read-Host "Choix"
 
         $mode = switch ($choice) {
             "1" { "service" }
             "2" { "game" }
-            "3" { "kuma" }
-            "4" { "welcome" }
-            "5" { "update" }
-            "6" { "backup" }
+            "3" { "welcome" }
+            "4" { "update" }
+            "5" { "backup" }
             "0" { return }
             default { $null }
         }
@@ -802,15 +784,13 @@ function Show-MainMenu {
         Write-MenuItem "10" (Get-Icon "Update") "Lancer une update" "annonce, backup, confirmation UPDATE" "Blue"
         Write-MenuItem "11" (Get-Icon "Restart") "Appliquer la config et redémarrer Palworld" "confirmation RESTART" "Red"
         Write-MenuItem "12" (Get-Icon "Restart") "Redémarrer le watcher de bienvenue" "" "Yellow"
-        Write-MenuItem "13" (Get-Icon "Web") "Forcer un push Uptime Kuma" "" "Magenta"
         Write-MenuItem "31" (Get-Icon "Server") "Réappliquer la priorité Palworld" "sans redémarrage" "Green"
 
         Write-Host ""
         Write-Host " Local Windows" -ForegroundColor DarkCyan
         Write-MenuItem "14" (Get-Icon "Web") "Ouvrir le microsite" $config.MicrositePublicUrl "Cyan"
-        Write-MenuItem "15" (Get-Icon "Web") "Ouvrir la page de statut publique" "Uptime Kuma" "Cyan"
         Write-MenuItem "16" (Get-Icon "Api") "Rafraîchir les métriques du microsite" "" "Cyan"
-        Write-MenuItem "17" (Get-Icon "Api") "Statut du tunnel API Docker" "bot Discord" "Green"
+        Write-MenuItem "17" (Get-Icon "Api") "Statut du tunnel API Docker" "uptime/annonces" "Green"
         Write-MenuItem "18" (Get-Icon "Api") "Démarrer le tunnel API Docker" "" "Green"
         Write-MenuItem "19" (Get-Icon "Api") "Arrêter le tunnel API Docker" "" "Yellow"
         Write-MenuItem "20" (Get-Icon "Windows") "Démarrer les services locaux Windows" "tunnel Docker, microsite, métriques" "Green"
@@ -843,9 +823,7 @@ function Show-MainMenu {
             "10" { Start-Update; Pause-Menu }
             "11" { Restart-Palworld; Pause-Menu }
             "12" { Restart-WelcomeWatcher; Pause-Menu }
-            "13" { Push-KumaHealth; Pause-Menu }
             "14" { Open-Microsite; Pause-Menu }
-            "15" { Open-StatusPage; Pause-Menu }
             "16" { Refresh-MicrositeMetrics; Pause-Menu }
             "17" { Show-ApiTunnelStatus; Pause-Menu }
             "18" { Start-ApiTunnel; Pause-Menu }
@@ -884,7 +862,6 @@ switch ($Action) {
     "Update" { Start-Update }
     "Restart" { Restart-Palworld }
     "RestartWelcome" { Restart-WelcomeWatcher }
-    "PushKuma" { Push-KumaHealth }
     "TunePerformance" { Tune-Performance }
     "ApiTunnelStatus" { Show-ApiTunnelStatus }
     "StartApiTunnel" { Start-ApiTunnel }
@@ -895,7 +872,6 @@ switch ($Action) {
     "InstallWindowsStartup" { Install-WindowsStartup }
     "UninstallWindowsStartup" { Uninstall-WindowsStartup }
     "OpenMicrosite" { Open-Microsite }
-    "OpenStatus" { Open-StatusPage }
     "RefreshMetrics" { Refresh-MicrositeMetrics }
     "ValidateRepository" { Validate-Repository }
     "DiagnoseIntegrations" { Diagnose-Integrations }

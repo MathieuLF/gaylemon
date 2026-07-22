@@ -24,7 +24,7 @@ Git décrit les fichiers non secrets que Gaylémon maintient. Ubuntu exécute de
 - exports publics réels sous `portal/data/public-*.json`;
 - profils publics réels sous `portal/data/players/`;
 - pages joueurs générées sous `portal/joueur/`;
-- volumes Uptime Kuma et configuration cloudflared;
+- configuration cloudflared;
 - clones complets de dépendances tierces.
 
 ## Fichiers Ubuntu actifs

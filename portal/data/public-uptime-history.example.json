@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "ok": true,
-  "source": "uptime-kuma-sqlite",
+  "source": "palworld-rest-api-history",
   "updatedAt": "2026-07-14T12:00:00.0000000-04:00",
   "updatedAtLocal": "2026-07-14 12:00:00",
   "localTimeZone": {
@@ -10,9 +10,9 @@
   },
   "historyDays": 90,
   "monitor": {
-    "id": 1,
-    "name": "Palworld - Gaylemon",
-    "type": "push",
+    "id": "palworld-rest-api",
+    "name": "Serveur Palworld",
+    "type": "rest-api",
     "active": true
   },
   "latest": {
@@ -20,15 +20,30 @@
     "statusClass": "nominal",
     "heartbeatAt": "2026-07-14T15:59:42.0000000+00:00",
     "heartbeatAtLocal": "2026-07-14 11:59:42 -04:00",
+    "probeAt": "2026-07-14T15:59:42.0000000+00:00",
+    "probeAgeSeconds": 18,
     "heartbeatAgeSeconds": 18,
     "fresh": true,
     "ping": 16.8,
-    "message": "Palworld OK"
+    "message": "Palworld OK",
+    "metrics": {
+      "players": 2,
+      "playerListCount": 2,
+      "maxPlayers": 32,
+      "fps": 60,
+      "fpsAverage": 59.8,
+      "frameMs": 16.7,
+      "days": 512,
+      "baseCamps": 14,
+      "uptimeSeconds": 7200,
+      "uptime": "2h 0m"
+    }
   },
   "summary": {
     "all": {
       "upSeconds": 86200,
       "unavailableSeconds": 200,
+      "degradedSeconds": 0,
       "maintenanceSeconds": 0,
       "unknownSeconds": 0,
       "observedSeconds": 86400,
@@ -37,6 +52,7 @@
     "last24h": {
       "upSeconds": 86200,
       "unavailableSeconds": 200,
+      "degradedSeconds": 0,
       "maintenanceSeconds": 0,
       "unknownSeconds": 0,
       "observedSeconds": 86400,
@@ -45,22 +61,20 @@
     "last7d": {
       "upSeconds": 86200,
       "unavailableSeconds": 200,
+      "degradedSeconds": 0,
       "maintenanceSeconds": 0,
       "unknownSeconds": 0,
       "observedSeconds": 86400,
       "uptimePercent": 99.7685
     },
-    "missingHeartbeatGapSeconds": 0,
-    "missingHeartbeatGapSecondsLast24h": 0,
-    "missingHeartbeatGapSecondsLast7d": 0,
-    "heartbeatCount": 2880,
+    "sampleCount": 2880,
     "downtimeWindowCount": 1,
     "resolvedDowntimeWindowCount": 1,
     "openDowntimeWindowCount": 0
   },
   "windows": [
     {
-      "id": "kuma-window-0001",
+      "id": "palworld-api-window-0001",
       "status": "resolved",
       "startedAt": "2026-07-14T10:00:00.0000000+00:00",
       "startedAtLocal": "2026-07-14 06:00:00 -04:00",
@@ -68,22 +82,16 @@
       "endedAtLocal": "2026-07-14 06:03:20 -04:00",
       "durationSeconds": 200,
       "measuredUnavailableSeconds": 200,
-      "lastNominalAt": "2026-07-14T10:00:00.0000000+00:00",
-      "lastNominalAtLocal": "2026-07-14 06:00:00 -04:00",
-      "unavailableStartedAt": "2026-07-14T10:00:30.0000000+00:00",
-      "unavailableStartedAtLocal": "2026-07-14 06:00:30 -04:00",
-      "unavailableEndedAt": "2026-07-14T10:03:00.0000000+00:00",
-      "unavailableEndedAtLocal": "2026-07-14 06:03:00 -04:00",
       "firstFunctionalAt": "2026-07-14T10:03:20.0000000+00:00",
       "firstFunctionalAtLocal": "2026-07-14 06:03:20 -04:00",
-      "lastHeartbeatId": 42,
       "statusCounts": {
-        "pending": 2
+        "down": 2
       },
       "messages": [
-        "No heartbeat in the time window"
+        "API REST Palworld indisponible."
       ]
     }
   ],
-  "recentHeartbeats": []
+  "recentHeartbeats": [],
+  "recentProbes": []
 }

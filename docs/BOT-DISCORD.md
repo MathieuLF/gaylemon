@@ -1,15 +1,15 @@
 # Bot Discord
 
-Le code du bot Discord n'est pas dans ce dépôt. Gaylémon fournit le tunnel local et le contrat de configuration qui permettent au bot de lire l'API REST Palworld sans exposer ce port sur le réseau.
+Le code du bot Discord n'est pas dans ce dépôt. Gaylémon fournit le contrat des JSON publics que le bot peut lire pour le statut, les joueurs, les résumés et l'uptime. Le tunnel REST local reste disponible seulement pour les commandes d'annonce en jeu qui exigent l'accès admin Palworld.
 
-## Tunnel local
+## Tunnel local optionnel
 
 ```powershell
 .\scripts\palworld-api-tunnel.ps1 start
 .\scripts\palworld-api-tunnel.ps1 status
 ```
 
-Le conteneur Docker publie seulement `127.0.0.1:8212` côté Windows et redémarre avec `restart: unless-stopped`. Le port distant reste le port REST Palworld sur Ubuntu.
+Le conteneur Docker publie seulement `127.0.0.1:8212` côté Windows et redémarre avec `restart: unless-stopped`. Le port distant reste le port REST Palworld sur Ubuntu. Le bot n'en a pas besoin pour lire les JSON publics; il en a besoin seulement si une commande Discord doit appeler l'API `/announce`.
 
 Si Docker Desktop ne peut pas joindre l'IP LAN du serveur à cause d'un bridge Docker concurrent, utiliser le mode SSH Windows:
 
@@ -42,10 +42,10 @@ Copy-Item .\config\exemples\bot.env.example C:\chemin\du\bot\.env
 Valeurs attendues:
 
 ```text
-BOT_PALWORLD_REST_API_URL=http://127.0.0.1:8212/v1/api
-BOT_PALWORLD_REST_API_USERNAME=admin
-BOT_PALWORLD_REST_API_PASSWORD=REMPLACER_PAR_LE_MOT_DE_PASSE_ADMIN
 GAYLEMON_PUBLIC_BASE_URL=https://gaylemon.mathieu.pro
+BOT_PALWORLD_REST_API_URL=
+BOT_PALWORLD_REST_API_USERNAME=
+BOT_PALWORLD_REST_API_PASSWORD=
 GAYLEMON_DAILY_SUMMARY_TIME_ZONE=America/Toronto
 GAYLEMON_DAILY_SUMMARY_HOUR=1
 GAYLEMON_DAILY_SUMMARY_MINUTE=0
@@ -53,7 +53,7 @@ GAYLEMON_DAILY_SUMMARY_CHANNEL_NAMES=arrivees-et-departs,palworld
 GAYLEMON_DAILY_SUMMARY_COMMAND_CHANNEL_NAMES=arrivees-et-departs,palworld
 ```
 
-Le mot de passe correspond au mot de passe admin Palworld. Il doit rester dans la configuration privée du bot ou sur Ubuntu, pas dans Git.
+Les variables `BOT_PALWORLD_REST_API_*` sont volontairement vides dans l'exemple. Les renseigner seulement si le bot active une commande d'annonce en jeu; le mot de passe correspond alors au mot de passe admin Palworld et doit rester dans la configuration privée du bot ou sur Ubuntu, pas dans Git.
 
 ## Résumé quotidien
 
@@ -85,10 +85,11 @@ Utiliser les IDs Discord dès que possible si les noms de salons peuvent changer
 
 ## Comportement attendu du bot
 
-- Appeler l'API REST Palworld uniquement via l'URL locale `127.0.0.1`.
-- Utiliser l'URL publique seulement pour les liens du microsite, comme `/resume?jour=YYYY-MM-DD`.
+- Lire les JSON publics de `GAYLEMON_PUBLIC_BASE_URL` pour le statut, les joueurs, les résumés et l'uptime.
+- Appeler l'API REST Palworld uniquement via l'URL locale `127.0.0.1`, et seulement pour `/announce`.
+- Désactiver proprement la commande d'annonce si une variable `BOT_PALWORLD_REST_API_*` manque.
 - Utiliser un timeout court, autour de 5 secondes.
-- Mettre en cache les commandes de statut quelques secondes pour éviter de spammer l'API.
+- Mettre en cache les commandes de statut quelques secondes pour éviter de spammer les JSON publics.
 - Limiter les commandes Discord par rôle et par fréquence.
 - Afficher des erreurs sobres dans Discord, sans URL complète, en-têtes, mot de passe ou réponse brute de l'API.
 - Réserver toute commande d'administration aux rôles explicitement autorisés.
@@ -100,4 +101,4 @@ Utiliser les IDs Discord dès que possible si les noms de salons peuvent changer
 .\scripts\valider-depot.ps1
 ```
 
-Le diagnostic vérifie le conteneur Docker, le mode SSH Windows, la politique de redémarrage, le bind local du port, le dossier SSH, l'exemple de configuration du bot et la réponse HTTP locale sans identifiants. La validation locale échoue si le tunnel Docker devient public ou si les garde-fous principaux disparaissent.
+Le diagnostic vérifie le conteneur Docker, le mode SSH Windows, la politique de redémarrage, le bind local du port, le dossier SSH, l'exemple de configuration du bot, le microsite public et la sonde REST d'uptime. Un port REST local fermé est normal si les annonces Discord sont désactivées. La validation locale échoue si le tunnel Docker devient public ou si les garde-fous principaux disparaissent.

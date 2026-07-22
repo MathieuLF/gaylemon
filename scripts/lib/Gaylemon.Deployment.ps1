@@ -60,10 +60,35 @@ function Get-GaylemonDeploymentManifest {
         })
     }
 
+    $removals = [Collections.Generic.List[object]]::new()
+    $removalPaths = @{}
+    foreach ($removal in @($manifest.removals)) {
+        $path = ([string]$removal.path).
+            Replace("{{REMOTE_PROJECT_ROOT}}", [string]$Config.RemoteProjectRoot).
+            Replace("{{REMOTE_STEAM_ROOT}}", [string]$Config.RemoteSteamRoot)
+        if (-not $path.StartsWith("/", [StringComparison]::Ordinal)) {
+            throw "Suppression distante non absolue: $path"
+        }
+        if ($destinations.ContainsKey($path)) {
+            throw "Suppression en conflit avec une destination livree: $path"
+        }
+        if ($removalPaths.ContainsKey($path)) {
+            throw "Suppression dupliquee dans le manifeste: $path"
+        }
+        $removalPaths[$path] = $true
+        $removals.Add([pscustomobject][ordered]@{
+            Path = $path
+            Kind = [string]$removal.kind
+            Unit = if ($null -eq $removal.unit) { "" } else { [string]$removal.unit }
+            Reason = [string]$removal.reason
+        })
+    }
+
     return [pscustomobject][ordered]@{
         Version = [int]$manifest.version
         BackupRoot = [string]$manifest.backupRoot
         Entries = @($entries)
+        Removals = @($removals)
         SourcePath = $manifestPath
     }
 }
@@ -87,6 +112,14 @@ function New-GaylemonResolvedDeploymentManifest {
                 validation = $_.Validation
                 restartUnit = if ($_.RestartUnit) { $_.RestartUnit } else { $null }
                 restartPolicy = $_.RestartPolicy
+            }
+        })
+        removals = @($Manifest.Removals | ForEach-Object {
+            [ordered]@{
+                path = $_.Path
+                kind = $_.Kind
+                unit = if ($_.Unit) { $_.Unit } else { $null }
+                reason = $_.Reason
             }
         })
     }

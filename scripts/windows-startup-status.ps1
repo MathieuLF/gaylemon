@@ -215,8 +215,8 @@ if (Test-Path -LiteralPath $availabilityPath) {
         $availability = Get-Content -Raw -Encoding UTF8 -LiteralPath $availabilityPath | ConvertFrom-Json
         $availabilityColor = if ($availability.status -eq "up") { "Green" } elseif ($availability.status -eq "down") { "Red" } else { "Yellow" }
         Write-Host "Disponibilité locale: $($availability.status)" -ForegroundColor $availabilityColor
-        Write-Host "Moniteur Kuma: $($availability.summary.monitorStatus)"
-        Write-Host "Dernier heartbeat: $($availability.summary.heartbeatAgeSeconds)s"
+        Write-Host "Sonde REST Palworld: $($availability.summary.monitorStatus)"
+        Write-Host "Dernière sonde: $($availability.summary.probeAgeSeconds)s"
         Write-Host "Exports stale/manquants: $($availability.summary.staleOrMissingDataSets)"
     }
     catch {
