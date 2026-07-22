@@ -1766,6 +1766,99 @@ class SessionReconciliationTests(unittest.TestCase):
             ("leave", "players"),
         ])
 
+    def test_player_session_aliases_are_repaired_with_current_display_name(self):
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="players:join:steam_1:2026-07-13T10:00:00-04:00",
+            occurred_at="2026-07-13T10:00:00-04:00",
+            event_type="join",
+            player="gregorymercier97",
+            title="Arrivée sur Palpagos",
+            message="gregorymercier97 rejoint l'aventure.",
+            source="players",
+        )
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="journal:leave-alias",
+            occurred_at="2026-07-13T11:00:00-04:00",
+            event_type="leave",
+            player="gregorymercier97",
+            title="Fin d'expédition",
+            message="gregorymercier97 quitte l'archipel pour l'instant.",
+            source="journal",
+        )
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({
+            "players": {
+                "steam_1": {
+                    "id": "steam_1",
+                    "name": "Galyk",
+                    "accountName": "gregorymercier97",
+                    "userId": "steam_1",
+                    "sessionHistory": [{
+                        "startedAt": "2026-07-13T10:00:00-04:00",
+                        "endedAt": "2026-07-13T11:00:00-04:00",
+                    }],
+                },
+            },
+        }), encoding="utf-8")
+
+        self.assertEqual(EVENTS.collect_player_sessions(self.connection, stats), 0)
+        rows = self.connection.execute(
+            "SELECT type, player, message FROM events ORDER BY occurred_at"
+        ).fetchall()
+
+        self.assertEqual([row["player"] for row in rows], ["Galyk", "Galyk"])
+        self.assertEqual(rows[0]["message"], "Galyk rejoint l'aventure.")
+        self.assertEqual(
+            rows[1]["message"],
+            "Galyk quitte l'archipel pour l'instant.",
+        )
+
+    def test_player_sessions_accept_a_display_name_that_matches_the_account_name(self):
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({
+            "players": {
+                "steam_1": {
+                    "id": "steam_1",
+                    "name": "DukeChicken",
+                    "accountName": "DukeChicken",
+                    "userId": "steam_1",
+                    "sessionHistory": [{
+                        "startedAt": "2026-07-13T10:00:00-04:00",
+                        "endedAt": None,
+                    }],
+                },
+            },
+        }), encoding="utf-8")
+
+        self.assertEqual(EVENTS.collect_player_sessions(self.connection, stats), 1)
+        row = self.connection.execute("SELECT type, player FROM events").fetchone()
+        self.assertEqual((row["type"], row["player"]), ("join", "DukeChicken"))
+
+    def test_player_sessions_do_not_publish_a_structural_identifier(self):
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({
+            "players": {
+                "steam_1": {
+                    "id": "steam_1",
+                    "name": "steam_1",
+                    "accountName": "gregorymercier97",
+                    "userId": "steam_1",
+                    "sessionHistory": [{
+                        "startedAt": "2026-07-13T10:00:00-04:00",
+                        "endedAt": None,
+                    }],
+                },
+            },
+        }), encoding="utf-8")
+
+        self.assertEqual(EVENTS.collect_player_sessions(self.connection, stats), 0)
+        self.assertEqual(
+            self.connection.execute("SELECT COUNT(*) FROM events").fetchone()[0],
+            0,
+        )
+
     def test_player_sessions_accept_public_player_lists_and_are_strict_after_leave(self):
         stats = self.root / "stats-list.json"
         stats.write_text(json.dumps({
@@ -3130,6 +3223,111 @@ class PublicExportTests(unittest.TestCase):
             rows[6]["message"],
             "Alyross capture 2 Shroomer Noct. Total enregistré: 4.",
         )
+
+    def test_history_normalization_repairs_unambiguous_research_attribution(self):
+        occurred_at = "2026-07-20T10:40:02-04:00"
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:research:guild_duke:16",
+            occurred_at=occurred_at,
+            event_type="research",
+            player=None,
+            guild="Claque moi la moule",
+            title="Recherche de guilde terminée",
+            message="La recherche de la guilde Claque moi la moule progresse: 1 recherche terminée.",
+            source="save",
+            confidence="confirmed",
+            details={
+                "headline": "Recherche de guilde terminée",
+                "body": "Le laboratoire progresse au niveau de la guilde.",
+                "bullets": ["+1 recherche"],
+                "total": 16,
+            },
+        )
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({
+            "players": {
+                "steam_duke": {
+                    "id": "steam_duke",
+                    "name": "DukeChicken",
+                    "accountName": "DukeChicken",
+                    "userId": "steam_duke",
+                    "sessionHistory": [{
+                        "startedAt": "2026-07-20T10:27:38-04:00",
+                        "endedAt": None,
+                    }],
+                },
+            },
+        }), encoding="utf-8")
+        bases_payload = {
+            "guildResearch": [{
+                "key": "guild_duke",
+                "guild": "Claque moi la moule",
+                "players": ["DukeChicken"],
+                "completed": 16,
+            }],
+        }
+
+        report = EVENTS.normalize_event_history(self.connection, bases_payload, stats)
+        second_report = EVENTS.normalize_event_history(self.connection, bases_payload, stats)
+        row = self.connection.execute(
+            "SELECT player, confidence, details_json FROM events WHERE type = 'research'"
+        ).fetchone()
+
+        self.assertEqual(report["researchAttributionsUpdated"], 1)
+        self.assertEqual(second_report["researchAttributionsUpdated"], 0)
+        self.assertEqual(row["player"], "DukeChicken")
+        self.assertEqual(row["confidence"], "derived")
+        self.assertEqual(json.loads(row["details_json"])["attribution"], "membre actif observé")
+
+    def test_history_normalization_keeps_ambiguous_research_unattributed(self):
+        occurred_at = "2026-07-20T10:40:02-04:00"
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="save:research:guild_shared:16",
+            occurred_at=occurred_at,
+            event_type="research",
+            player=None,
+            guild="Spartans",
+            title="Recherche de guilde terminée",
+            message="La recherche de la guilde Spartans progresse: 1 recherche terminée.",
+            source="save",
+            confidence="confirmed",
+            details={"total": 16},
+        )
+        stats = self.root / "stats.json"
+        stats.write_text(json.dumps({
+            "players": {
+                name: {
+                    "id": f"steam_{name.casefold()}",
+                    "name": name,
+                    "accountName": name,
+                    "userId": f"steam_{name.casefold()}",
+                    "sessionHistory": [{
+                        "startedAt": "2026-07-20T10:00:00-04:00",
+                        "endedAt": None,
+                    }],
+                }
+                for name in ("Mathieu", "Galyk")
+            },
+        }), encoding="utf-8")
+        bases_payload = {
+            "guildResearch": [{
+                "key": "guild_shared",
+                "guild": "Spartans",
+                "players": ["Mathieu", "Galyk"],
+                "completed": 16,
+            }],
+        }
+
+        report = EVENTS.normalize_event_history(self.connection, bases_payload, stats)
+        row = self.connection.execute(
+            "SELECT player, confidence FROM events WHERE type = 'research'"
+        ).fetchone()
+
+        self.assertEqual(report["researchAttributionsUpdated"], 0)
+        self.assertIsNone(row["player"])
+        self.assertEqual(row["confidence"], "confirmed")
 
     def test_world_drop_build_noise_is_removed_from_history(self):
         EVENTS.add_event(

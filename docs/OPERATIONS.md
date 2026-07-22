@@ -124,7 +124,9 @@ Ce PC héberge aussi les helpers locaux: tunnel API Docker, microsite Docker et 
 .\scripts\palworld-console.ps1 -Action UninstallWindowsStartup
 ```
 
-Le tunnel API est un service Docker Compose avec `restart: unless-stopped`; Docker Desktop le relance quand son moteur redémarre. L'autostart Windows reste utile pour la synchronisation des données publiques et le watcher du microsite.
+L'installation privilégie une tâche planifiée. Si Windows la refuse sans élévation, elle installe plutôt une entrée de démarrage pour l'utilisateur courant et retire l'ancien lanceur Startup afin d'éviter deux lancements concurrents. `StartupStatus` indique le mécanisme actif.
+
+En mode `docker`, le tunnel API utilise le service Compose avec `restart: unless-stopped`. En mode `windows-ssh`, ce conteneur reste volontairement arrêté et l'autostart Windows relance le tunnel SSH, la synchronisation des données publiques et le watcher du microsite.
 
 Audit de reprise:
 

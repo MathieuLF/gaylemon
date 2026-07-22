@@ -58,7 +58,12 @@ set_setting() {
   local value="$2"
 
   KEY="$key" VALUE="$value" perl -0pi -e \
-    's/(\b\Q$ENV{KEY}\E=)(?:"[^"]*"|[^,)]*)/$1$ENV{VALUE}/g' \
+    'my $key = $ENV{KEY};
+     my $value = $ENV{VALUE};
+     my $changed = s/(\b\Q$key\E=)(?:"[^"]*"|[^,)]*)/$1$value/g;
+     if (!$changed) {
+       s/(OptionSettings=\([^)]*)\)/$1,$key=$value)/s;
+     }' \
     "$CANONICAL_CFG"
 }
 
@@ -119,8 +124,8 @@ set_setting bIsUseBackupSaveData True
 set_setting LogFormatType Text
 set_setting SupplyDropSpan 180
 set_setting EnablePredatorBossPal True
-set_setting bAllowGlobalPalboxExport False
-set_setting bAllowGlobalPalboxImport False
+set_setting bAllowGlobalPalboxExport True
+set_setting bAllowGlobalPalboxImport True
 set_setting EquipmentDurabilityDamageRate 1.100000
 set_setting MonsterFarmActionSpeedRate 0.700000
 
@@ -136,5 +141,7 @@ print_setting PalStomachDecreaceRate
 print_setting PalStaminaDecreaceRate
 print_setting CollectionDropRate
 print_setting PalEggDefaultHatchingTime
+print_setting bAllowGlobalPalboxExport
+print_setting bAllowGlobalPalboxImport
 print_setting MonsterFarmActionSpeedRate
 print_setting EquipmentDurabilityDamageRate

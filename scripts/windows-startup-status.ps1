@@ -10,8 +10,15 @@ if (-not $TaskName) { $TaskName = $config.StartupTaskName }
 
 $StartupFolder = [Environment]::GetFolderPath("Startup")
 $StartupLauncher = Join-Path $StartupFolder "$TaskName.cmd"
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$RunValue = Get-ItemPropertyValue -Path $RunKey -Name $TaskName -ErrorAction SilentlyContinue
 
-$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+$task = if ($RunValue) {
+    $null
+}
+else {
+    Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+}
 if ($task) {
     $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
     Write-Host "✅ Tâche planifiée: installée" -ForegroundColor Green
@@ -26,12 +33,22 @@ else {
     Write-Host "ℹ️  Tâche planifiée: non installée" -ForegroundColor DarkGray
 }
 
+if ($RunValue) {
+    Write-Host "✅ Démarrage utilisateur: installé" -ForegroundColor Green
+    Write-Host "Entrée: $TaskName"
+}
+else {
+    Write-Host "ℹ️  Démarrage utilisateur: non installé" -ForegroundColor DarkGray
+}
+
 if (Test-Path -LiteralPath $StartupLauncher) {
     Write-Host "✅ Lanceur Startup: installé" -ForegroundColor Green
     Write-Host "Chemin du lanceur: $StartupLauncher"
 }
 else {
-    Write-Host "⚠️  Lanceur Startup: non installé" -ForegroundColor Yellow
+    $launcherColor = if ($task -or $RunValue) { "DarkGray" } else { "Yellow" }
+    $launcherPrefix = if ($task -or $RunValue) { "ℹ️ " } else { "⚠️ " }
+    Write-Host "$launcherPrefix Lanceur Startup: non installé" -ForegroundColor $launcherColor
 }
 
 Write-Host ""

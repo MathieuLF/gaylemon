@@ -246,6 +246,9 @@ try {
         if ($expectedPublicName -notin $publicNames) {
             $publicIdentityLeakErrors.Add("$publicFileName nom public absent")
         }
+        if ("Joueur" -in $publicNames -or "" -in $publicNames) {
+            $publicIdentityLeakErrors.Add("$publicFileName joueur sans nom public expose")
+        }
         if ($publicFileName -eq "public-stats.json" -and $publicText -notmatch '"Difficulty"\s*:\s*"Normal"') {
             $publicIdentityLeakErrors.Add("$publicFileName reglage public absent")
         }

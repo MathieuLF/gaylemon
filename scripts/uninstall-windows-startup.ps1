@@ -10,8 +10,15 @@ if (-not $TaskName) { $TaskName = $config.StartupTaskName }
 
 $StartupFolder = [Environment]::GetFolderPath("Startup")
 $StartupLauncher = Join-Path $StartupFolder "$TaskName.cmd"
+$RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$runValue = Get-ItemPropertyValue -Path $RunKey -Name $TaskName -ErrorAction SilentlyContinue
 
-$task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+$task = if ($runValue) {
+    $null
+}
+else {
+    Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+}
 if ($task) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     Write-Host "✅ Tâche planifiée supprimée: $TaskName" -ForegroundColor Green
@@ -26,4 +33,12 @@ if (Test-Path -LiteralPath $StartupLauncher) {
 }
 else {
     Write-Host "ℹ️  Lanceur Startup introuvable: $StartupLauncher" -ForegroundColor DarkGray
+}
+
+if ($runValue) {
+    Remove-ItemProperty -Path $RunKey -Name $TaskName -Force
+    Write-Host "✅ Démarrage utilisateur supprimé: $TaskName" -ForegroundColor Green
+}
+else {
+    Write-Host "ℹ️  Démarrage utilisateur introuvable: $TaskName" -ForegroundColor DarkGray
 }
