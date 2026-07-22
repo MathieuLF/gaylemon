@@ -117,6 +117,7 @@ catch {
 }
 
 $changed = @($plan.entries | Where-Object { $_.changed -eq $true })
+$removed = @($plan.removals | Where-Object { $_.changed -eq $true })
 $protected = @($plan.entries | Where-Object { $null -eq $_.changed })
 $recommendedUnits = @($changed | Where-Object restartPolicy -eq "recommended" | Select-Object -ExpandProperty restartUnit -Unique)
 $gameChanges = @($changed | Where-Object restartPolicy -eq "game")
@@ -124,6 +125,7 @@ $gameChanges = @($changed | Where-Object restartPolicy -eq "game")
 Write-Host ""
 Write-Host "Zone validée: ${Cible}:$remoteStage" -ForegroundColor Green
 Write-Host "Changements visibles: $($changed.Count)"
+Write-Host "Suppressions visibles: $($removed.Count)"
 Write-Host "Fichiers protégés à revérifier sous sudo: $($protected.Count)"
 if ($recommendedUnits.Count -gt 0) {
     Write-Host "Redémarrages auxiliaires suggérés: $($recommendedUnits -join ', ')" -ForegroundColor Yellow

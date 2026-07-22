@@ -15,7 +15,7 @@ sysctl -n vm.swappiness
 printf 'PalServer priority: '
 pgrep -f 'PalServer-Linux-Shipping' | head -n 1 | xargs -r ps -o ni=,pri= -p
 echo
-systemctl list-timers palworld-backup.timer palworld-update.timer palworld-kuma-push.timer palworld-stats.timer palworld-save-snapshot.timer palworld-events.timer --no-pager
+systemctl list-timers palworld-backup.timer palworld-update.timer palworld-stats.timer palworld-save-snapshot.timer palworld-events.timer --no-pager
 echo
 ss -lunp | grep -E ':(8211|27015)\b' || true
 '@

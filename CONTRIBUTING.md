@@ -26,7 +26,7 @@ L'initialisation ne doit pas écraser une config locale.
 - Mettre à jour les exemples JSON avec les contrats publics.
 - Vérifier les routes `/`, `/terminal` et `/github` quand le microsite, les échos ou les métriques changent.
 - Ajouter tout nouveau fichier Ubuntu actif dans `server/deployment-manifest.json`.
-- Ne pas ajouter Uptime Kuma ou cloudflared au Compose.
+- Ne pas ajouter cloudflared ou un service de monitoring externe au Compose.
 - Ne pas introduire de redémarrage implicite, surtout pour `palworld.service`.
 
 ## Avant une demande de fusion

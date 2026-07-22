@@ -58,8 +58,7 @@ $requiredFiles = @(
     "scripts\lib\Gaylemon.Deployment.ps1",
     "scripts\lib\Gaylemon.Config.ps1",
     "scripts\set-public-events-channel.ps1",
-    "server\palworld.env.example",
-    "server\palworld-kuma.env.example"
+    "server\palworld.env.example"
 )
 foreach ($relativePath in $requiredFiles) {
     Write-Result (Test-Path -LiteralPath (Join-Path $ProjectRoot $relativePath)) "Fichier requis: $relativePath"
@@ -135,10 +134,11 @@ Write-Result (
     $apiTunnelEntrypoint.Contains('*[!A-Za-z0-9._@:-]*')
 ) "Tunnel API Docker durci"
 Write-Result (
-    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=http://127\.0\.0\.1:8212/v1/api$' -and
-    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=admin$' -and
-    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=REMPLACER_PAR_LE_MOT_DE_PASSE_ADMIN$'
-) "Configuration exemple du bot Discord"
+    $botEnvExample -match '(?m)^GAYLEMON_PUBLIC_BASE_URL=https://gaylemon\.mathieu\.pro/?$' -and
+    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=$' -and
+    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=$' -and
+    $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=$'
+) "Configuration exemple du bot Discord public-first"
 
 $eventsSyncSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\sync-palworld-events.ps1") -Raw -Encoding UTF8
 $metricsUpdaterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\update-microsite-metrics.ps1") -Raw -Encoding UTF8
@@ -262,12 +262,17 @@ finally {
 }
 Write-Result ($publicIdentityLeakErrors.Count -eq 0) "Exports publics sans identite ni diagnostic prive" ($publicIdentityLeakErrors -join ", ")
 
-$availabilityExporterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\export-uptime-kuma-history.ps1") -Raw -Encoding UTF8
+$availabilityExporterSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\export-palworld-uptime.ps1") -Raw -Encoding UTF8
 $availabilityExample = Get-Content -LiteralPath (Join-Path $ProjectRoot "portal\data\public-availability.example.json") -Raw -Encoding UTF8
 Write-Result (
     $availabilityExporterSource -notmatch '(?m)^\s*path\s*=\s*\$Path\b' -and
     $availabilityExample -notmatch '"path"\s*:'
 ) "Disponibilite publique sans chemins locaux"
+Write-Result (
+    $availabilityExporterSource.Contains("palworld-api.ps1") -and
+    $availabilityExporterSource.Contains("palworld-rest-api") -and
+    $metricsUpdaterSource.Contains("export-palworld-uptime.ps1")
+) "Disponibilite publique par API REST Palworld"
 
 $recoveryAuditSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\verify-microsite-recovery.ps1") -Raw -Encoding UTF8
 Write-Result (
@@ -309,9 +314,10 @@ $parseErrors = [Collections.Generic.List[string]]::new()
 foreach ($file in Get-ChildItem -LiteralPath $ProjectRoot -Filter "*.ps1" -File -Recurse) {
     $tokens = $null
     $errors = $null
-    [void][Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
-    foreach ($error in @($errors)) {
-        $parseErrors.Add("$($file.FullName):$($error.Extent.StartLineNumber) $($error.Message)")
+    $source = Get-Content -Raw -Encoding UTF8 -LiteralPath $file.FullName
+    [void][Management.Automation.Language.Parser]::ParseInput($source, $file.FullName, [ref]$tokens, [ref]$errors)
+    foreach ($parseError in @($errors)) {
+        $parseErrors.Add("$($file.FullName):$($parseError.Extent.StartLineNumber) $($parseError.Message)")
     }
 }
 Write-Result ($parseErrors.Count -eq 0) "Syntaxe PowerShell" ($parseErrors -join "; ")
@@ -358,8 +364,7 @@ try {
     $apiWrapperSources = @(
         "server/bin/palworld-announce.sh",
         "server/bin/palworld-api.sh",
-        "server/bin/palworld-backup.sh",
-        "server/bin/palworld-kuma-push.sh"
+        "server/bin/palworld-backup.sh"
     )
     $apiWrapperPermissionErrors = @(
         $deploymentManifest.Entries |
@@ -606,7 +611,6 @@ if ($git) {
         '\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b',
         'https://(?:discord(?:app)?\.com)/api/webhooks/[0-9]+/',
         '(?m)^CF_API_TOKEN=[ \t]*\S+',
-        '(?m)^KUMA_PUSH_URL=(?!.*(?:REPLACE_ME|EXEMPLE)).*?/api/push/[A-Za-z0-9_-]{12,}',
         '(?m)^(?:SERVER_PASSWORD|ADMIN_PASSWORD|BOT_PALWORLD_REST_API_PASSWORD)=(?![ \t]*(?:["'']?\$\{|["'']?[ \t]*$|REMPLACER|<))[^\r\n]+'
     )
     $secretErrors = [Collections.Generic.List[string]]::new()

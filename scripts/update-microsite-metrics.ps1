@@ -225,7 +225,7 @@ catch {
 }
 
 try {
-    & (Join-Path $PSScriptRoot "export-public-uptime.ps1") | Out-Null
+    & (Join-Path $PSScriptRoot "export-palworld-uptime.ps1") | Out-Null
 }
 catch {
     Write-UpdateWarning "Public uptime export failed: $($_.Exception.Message)"
@@ -246,17 +246,6 @@ try {
 catch {
     Write-UpdateWarning "Public event history sync failed: $($_.Exception.Message)"
 }
-}
-
-try {
-    Invoke-OptionalRefresh `
-        -Label "Historique Uptime Kuma" `
-        -DuePath (Join-Path $PSScriptRoot "..\portal\data\public-uptime-history.json") `
-        -IntervalMinutes $UptimeHistoryIntervalMinutes `
-        -ScriptBlock { & (Join-Path $PSScriptRoot "export-uptime-kuma-history.ps1") | Out-Null }
-}
-catch {
-    Write-UpdateWarning "Public uptime history export failed: $($_.Exception.Message)"
 }
 
 try {

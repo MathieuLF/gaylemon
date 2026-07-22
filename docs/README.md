@@ -4,7 +4,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 
 ## Comprendre
 
-- [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, Kuma, routes publiques et contrats JSON.
+- [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, routes publiques et contrats JSON.
 - [Source de vérité](SOURCE-DE-VERITE.md): quels fichiers Git représentent les fichiers actifs sur Ubuntu.
 - [Sécurité d'exploitation](SECURITE-EXPLOITATION.md): sudo borné, wrapper de déploiement et garde-fous.
 - [Sources](SOURCES.md): références externes utiles.
@@ -19,8 +19,8 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 ## Exploiter
 
 - [Opérations](OPERATIONS.md): console, sauvegardes, mises à jour, stats, échos, terminal et microsite.
-- [Bot Discord](BOT-DISCORD.md): tunnel REST local, configuration bot et garde-fous.
-- [Uptime Kuma](UPTIME-KUMA.md): intégration avec l'instance externe.
+- [Bot Discord](BOT-DISCORD.md): JSON publics, annonces REST optionnelles et garde-fous.
+- [Disponibilité REST](OPERATIONS.md#donnees-publiques): uptime public calculé depuis l'API REST Palworld.
 - [Personnalisation](CUSTOMIZATION.md): annonces, bienvenue et profil de difficulté.
 - [Profil de configuration](CONFIGURATION-AUDIT.md): réglages PvE fournis.
 

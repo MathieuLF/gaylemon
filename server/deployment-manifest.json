@@ -73,16 +73,6 @@
       "restartPolicy": "none"
     },
     {
-      "source": "server/bin/palworld-kuma-push.sh",
-      "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-kuma-push.sh",
-      "owner": "root",
-      "group": "steam",
-      "mode": "0750",
-      "validation": "bash",
-      "restartUnit": null,
-      "restartPolicy": "none"
-    },
-    {
       "source": "server/bin/palworld-performance-tune.sh",
       "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-performance-tune.sh",
       "owner": "root",
@@ -233,26 +223,6 @@
       "restartPolicy": "recommended"
     },
     {
-      "source": "server/systemd/palworld-kuma-push.service",
-      "destination": "/etc/systemd/system/palworld-kuma-push.service",
-      "owner": "root",
-      "group": "root",
-      "mode": "0644",
-      "validation": "systemd",
-      "restartUnit": null,
-      "restartPolicy": "none"
-    },
-    {
-      "source": "server/systemd/palworld-kuma-push.timer",
-      "destination": "/etc/systemd/system/palworld-kuma-push.timer",
-      "owner": "root",
-      "group": "root",
-      "mode": "0644",
-      "validation": "systemd",
-      "restartUnit": "palworld-kuma-push.timer",
-      "restartPolicy": "recommended"
-    },
-    {
       "source": "server/systemd/palworld-performance.service",
       "destination": "/etc/systemd/system/palworld-performance.service",
       "owner": "root",
@@ -391,6 +361,32 @@
       "validation": "sudoers",
       "restartUnit": null,
       "restartPolicy": "none"
+    }
+  ],
+  "removals": [
+    {
+      "path": "/etc/systemd/system/palworld-kuma-push.service",
+      "kind": "systemd",
+      "unit": "palworld-kuma-push.service",
+      "reason": "ancienne sonde externe retiree"
+    },
+    {
+      "path": "/etc/systemd/system/palworld-kuma-push.timer",
+      "kind": "systemd",
+      "unit": "palworld-kuma-push.timer",
+      "reason": "ancienne sonde externe retiree"
+    },
+    {
+      "path": "{{REMOTE_STEAM_ROOT}}/bin/palworld-kuma-push.sh",
+      "kind": "file",
+      "unit": null,
+      "reason": "ancienne sonde externe retiree"
+    },
+    {
+      "path": "/etc/palworld/kuma.env",
+      "kind": "secret",
+      "unit": null,
+      "reason": "ancienne sonde externe retiree"
     }
   ]
 }
