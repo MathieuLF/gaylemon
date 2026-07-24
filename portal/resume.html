@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260721.6">
-  <script src="/assets/app.js?v=20260721.6" defer></script>
+  <link rel="stylesheet" href="/assets/styles.css?v=20260724.1">
+  <script src="/assets/app.js?v=20260724.1" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -92,8 +92,8 @@
         <header class="daily-heading">
           <div>
             <p class="eyebrow">Résumé quotidien</p>
-            <h1 id="daily-title">La journée en clair</h1>
-            <p class="daily-lede">Un coup d’œil sur ce qui a vraiment animé Palpagos: joueurs actifs, trouvailles, fabrications, productions, niveaux et moments qui sortent du lot.</p>
+            <h1 id="daily-title">Résumé du jour</h1>
+            <p class="daily-lede">Une vue simple de la journée: joueurs actifs, objets fabriqués, ressources produites, Pals, niveaux, bases et moments marquants.</p>
           </div>
           <div class="daily-heading__actions">
             <a class="dashboard-return-link daily-return-link" href="/" aria-label="Retour au tableau de bord">
@@ -130,15 +130,16 @@
           </section>
           <section class="daily-summary-block daily-summary-block--pulse" aria-labelledby="daily-pulse-title">
             <h2 id="daily-pulse-title">Rythme</h2>
-            <div class="daily-hourly" id="daily-hourly" aria-label="Répartition horaire des échos"></div>
+            <div class="daily-hourly" id="daily-hourly" aria-label="Répartition horaire de la journée"></div>
           </section>
         </div>
 
         <section class="daily-section" aria-labelledby="daily-types-title">
           <div class="daily-section__heading">
             <div>
-              <p class="eyebrow">Butin et progrès</p>
-              <h2 id="daily-types-title">Ce qui a rempli les sacs</h2>
+              <p class="eyebrow">Objets et Pals</p>
+              <h2 id="daily-types-title">Ce qui a bougé</h2>
+              <p>Les principales fabrications, productions et captures de la journée.</p>
             </div>
           </div>
           <div class="daily-tangibles" id="daily-types"></div>
@@ -147,8 +148,9 @@
         <section class="daily-section" aria-labelledby="daily-players-title">
           <div class="daily-section__heading">
             <div>
-              <p class="eyebrow">Par aventurier</p>
-              <h2 id="daily-players-title">Ce que chacun a apporté</h2>
+              <p class="eyebrow">Par joueur</p>
+              <h2 id="daily-players-title">Activité par joueur</h2>
+              <p>Les joueurs actifs passent d'abord; les profils sans activité visible restent en bas.</p>
             </div>
           </div>
           <div class="daily-players" id="daily-players"></div>

@@ -93,9 +93,9 @@ set_setting CollectionDropRate 1.000000
 set_setting CollectionObjectRespawnSpeedRate 1.000000
 set_setting EnemyDropItemRate 1.000000
 set_setting DeathPenalty Item
-set_setting BaseCampWorkerMaxNum 18
+set_setting BaseCampWorkerMaxNum 22
 set_setting GuildPlayerMaxNum 12
-set_setting BaseCampMaxNumInGuild 5
+set_setting BaseCampMaxNumInGuild 6
 set_setting PalEggDefaultHatchingTime 2.000000
 set_setting WorkSpeedRate 1.000000
 set_setting bIsPvP False
@@ -122,7 +122,7 @@ set_setting bIsShowJoinLeftMessage True
 set_setting ChatPostLimitPerMinute 20
 set_setting bIsUseBackupSaveData True
 set_setting LogFormatType Text
-set_setting SupplyDropSpan 180
+set_setting SupplyDropSpan 60
 set_setting EnablePredatorBossPal True
 set_setting bAllowGlobalPalboxExport True
 set_setting bAllowGlobalPalboxImport True
@@ -140,7 +140,10 @@ print_setting PlayerStaminaDecreaceRate
 print_setting PalStomachDecreaceRate
 print_setting PalStaminaDecreaceRate
 print_setting CollectionDropRate
+print_setting BaseCampWorkerMaxNum
+print_setting BaseCampMaxNumInGuild
 print_setting PalEggDefaultHatchingTime
+print_setting SupplyDropSpan
 print_setting bAllowGlobalPalboxExport
 print_setting bAllowGlobalPalboxImport
 print_setting MonsterFarmActionSpeedRate
