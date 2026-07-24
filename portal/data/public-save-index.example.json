@@ -1,7 +1,19 @@
 {
   "version": 2,
   "ok": true,
+  "generationId": "save-20260711-160000-272490ad7430a88b",
   "updatedAt": "2026-07-11T12:00:00-04:00",
+  "provenance": {
+    "observedAt": "2026-07-11T12:00:00-04:00",
+    "sourceUpdatedAt": "2026-07-11T12:00:00-04:00",
+    "gameVersion": "v0.7-example",
+    "steamBuildId": "example",
+    "parserCommit": "example",
+    "catalogCommit": "example",
+    "schemaVersion": 4,
+    "freshness": "current",
+    "sourceStatus": "available"
+  },
   "summary": { "players": 1, "pals": 12, "guilds": 1, "bases": 2 },
   "world": { "paldexSpecies": 288, "fastTravelPoints": 174, "discoverableAreas": 123, "knownBosses": 99 },
   "guilds": [

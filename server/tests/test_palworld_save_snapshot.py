@@ -56,6 +56,24 @@ class SaveSnapshotContractTests(unittest.TestCase):
                     snapshot.validate_public_payload({key: "secret"})
         snapshot.validate_public_payload({"container": "party"})
 
+    def test_public_save_generation_id_is_deterministic(self):
+        generation_id = snapshot.public_save_generation_id(
+            "2026.07.13-10.00.00",
+            "2026-07-13T10:00:00-04:00",
+            "parser",
+            snapshot.PROJECTION_VERSION,
+        )
+        self.assertRegex(generation_id, r"^save-20260713-140000-[a-f0-9]{16}$")
+        self.assertEqual(
+            generation_id,
+            snapshot.public_save_generation_id(
+                "2026.07.13-10.00.00",
+                "2026-07-13T14:00:00.0000000Z",
+                "parser",
+                snapshot.PROJECTION_VERSION,
+            ),
+        )
+
     def test_fixture_is_valid_v3_and_keeps_unknown_as_null(self):
         fixture = json.loads(
             (ROOT / "server" / "tests" / "fixtures" / "save-contract-v3.json").read_text(encoding="utf-8")
@@ -140,6 +158,15 @@ class SaveSnapshotContractTests(unittest.TestCase):
         )
 
         self.assertEqual(public["summary"]["structures"], 1)
+        self.assertEqual(
+            public["generationId"],
+            snapshot.public_save_generation_id(
+                "backup",
+                "2026-07-13T10:00:00-04:00",
+                "parser",
+                snapshot.PROJECTION_VERSION,
+            ),
+        )
         self.assertEqual(public["bases"][0]["structures"]["total"], 1)
         self.assertEqual(public["bases"][0]["structures"]["highlights"], [{"name": "Mur", "count": 1}])
         self.assertEqual(len(public["bases"][0]["structures"]["states"]), 1)
@@ -468,6 +495,7 @@ class SaveSnapshotContractTests(unittest.TestCase):
             temporary = Path(directory) / "snapshot.json"
             temporary.write_text(
                 json.dumps({
+                    "generationId": "save-test-generation",
                     "source": {"backup": "2026.07.12-17.00.00"},
                     "parser": {"commit": "abc123"},
                     "projection": {"version": snapshot.PROJECTION_VERSION},
@@ -476,7 +504,7 @@ class SaveSnapshotContractTests(unittest.TestCase):
             )
             self.assertEqual(
                 snapshot.existing_snapshot_source(temporary),
-                ("2026.07.12-17.00.00", "abc123", snapshot.PROJECTION_VERSION),
+                ("2026.07.12-17.00.00", "abc123", snapshot.PROJECTION_VERSION, "save-test-generation"),
             )
 
     def test_hourly_checkpoint_is_immutable_and_rolling_history_is_bounded(self):
