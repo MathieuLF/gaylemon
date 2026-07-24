@@ -2,9 +2,21 @@
   "version": 3,
   "projection": { "version": 4 },
   "ok": true,
+  "generationId": "save-20260711-160000-272490ad7430a88b",
   "updatedAt": "2026-07-11T12:00:00-04:00",
   "source": { "type": "palworld-built-in-backup", "backup": "2026.07.11-12.00.00" },
   "parser": { "name": "PalworldSaveTools", "commit": "example" },
+  "provenance": {
+    "observedAt": "2026-07-11T12:00:00-04:00",
+    "sourceUpdatedAt": "2026-07-11T12:00:00-04:00",
+    "gameVersion": "v0.7-example",
+    "steamBuildId": "example",
+    "parserCommit": "example",
+    "catalogCommit": "example",
+    "schemaVersion": 4,
+    "freshness": "current",
+    "sourceStatus": "available"
+  },
   "summary": { "players": 2, "pals": 24, "guilds": 2, "bases": 3 },
   "world": {
     "paldexSpecies": 288,
