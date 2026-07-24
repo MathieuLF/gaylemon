@@ -313,6 +313,20 @@ function ConvertTo-GenerationInstant {
     return $parsed.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", [Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Get-PublicSaveGenerationId {
+    param(
+        [Parameter(Mandatory)] [string]$Backup,
+        [Parameter(Mandatory)] [string]$SourceUpdatedAt,
+        [Parameter(Mandatory)] [string]$ParserCommit,
+        [Parameter(Mandatory)] [int]$ProjectionVersion
+    )
+
+    $snapshotInstant = ConvertTo-GenerationInstant -Value $SourceUpdatedAt -Name "snapshot.provenance.sourceUpdatedAt"
+    $identityText = "$Backup|$snapshotInstant|$ParserCommit|$ProjectionVersion"
+    $identityHash = (Get-Utf8Sha256 -Text $identityText).Substring(0, 16)
+    return "save-$($snapshotInstant.Substring(0, 19).Replace('-', '').Replace(':', '').Replace('T', '-'))-$identityHash"
+}
+
 function Assert-SaveSourceBundle {
     param(
         [Parameter(Mandatory)] $Snapshot,
@@ -372,10 +386,26 @@ function Assert-SaveSourceBundle {
         throw "Les artefacts distants n'utilisent pas la même version du parseur."
     }
 
-    $identityText = "$snapshotBackup|$snapshotInstant|$snapshotParser|$projectionVersion"
-    $identityHash = (Get-Utf8Sha256 -Text $identityText).Substring(0, 16)
+    $expectedGenerationId = Get-PublicSaveGenerationId `
+        -Backup $snapshotBackup `
+        -SourceUpdatedAt $snapshotUpdatedAt `
+        -ParserCommit $snapshotParser `
+        -ProjectionVersion $projectionVersion
+    $sourceGenerationIds = @(
+        [string](Get-OptionalProperty $Snapshot "generationId"),
+        [string](Get-OptionalProperty $Bases "generationId"),
+        [string](Get-OptionalProperty $Diagnostics "generationId")
+    )
+    if (
+        (@($sourceGenerationIds | Where-Object { $_ -notmatch '^[A-Za-z0-9._-]+$' }).Count -gt 0) -or
+        (@($sourceGenerationIds | Sort-Object -Unique).Count -ne 1) -or
+        $sourceGenerationIds[0] -ne $expectedGenerationId
+    ) {
+        throw "Les artefacts distants ne portent pas la même identité de génération publique."
+    }
+
     return [pscustomobject]@{
-        generationId = "save-$($snapshotInstant.Substring(0, 19).Replace('-', '').Replace(':', '').Replace('T', '-'))-$identityHash"
+        generationId = $sourceGenerationIds[0]
         backup = $snapshotBackup
         sourceUpdatedAt = $snapshotInstant
         parserCommit = $snapshotParser

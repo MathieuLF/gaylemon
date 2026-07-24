@@ -34,6 +34,33 @@ function Write-TestJson {
     [IO.File]::WriteAllText($Path, (($Value | ConvertTo-Json -Depth 30) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 }
 
+function Get-TestUtf8Sha256 {
+    param([Parameter(Mandatory)] [string]$Text)
+
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+        return (($algorithm.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join "")
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
+function Get-TestPublicSaveGenerationId {
+    param(
+        [Parameter(Mandatory)] [string]$Backup,
+        [Parameter(Mandatory)] [string]$SourceUpdatedAt,
+        [Parameter(Mandatory)] [string]$ParserCommit,
+        [Parameter(Mandatory)] [int]$ProjectionVersion
+    )
+
+    $parsed = [DateTimeOffset]::Parse($SourceUpdatedAt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+    $instant = $parsed.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", [Globalization.CultureInfo]::InvariantCulture)
+    $identityHash = (Get-TestUtf8Sha256 -Text "$Backup|$instant|$ParserCommit|$ProjectionVersion").Substring(0, 16)
+    return "save-$($instant.Substring(0, 19).Replace('-', '').Replace(':', '').Replace('T', '-'))-$identityHash"
+}
+
 function New-SourceBundle {
     param(
         [Parameter(Mandatory)] [string]$Backup,
@@ -45,6 +72,7 @@ function New-SourceBundle {
     $bases = Get-Content -LiteralPath $basesExample -Raw -Encoding UTF8 | ConvertFrom-Json
     $diagnostics = Get-Content -LiteralPath $diagnosticsExample -Raw -Encoding UTF8 | ConvertFrom-Json
     $diagnosticsAt = ([DateTimeOffset]::Parse($SourceUpdatedAt)).AddSeconds(30).ToString("o")
+    $generationId = Get-TestPublicSaveGenerationId -Backup $Backup -SourceUpdatedAt $SourceUpdatedAt -ParserCommit $ParserCommit -ProjectionVersion 4
 
     $provenance = [pscustomobject]@{
         observedAt = $SourceUpdatedAt
@@ -58,6 +86,7 @@ function New-SourceBundle {
         sourceStatus = "available"
     }
     $snapshot.updatedAt = $SourceUpdatedAt
+    $snapshot | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
     $snapshot.source.backup = $Backup
     $snapshot.parser.commit = $ParserCommit
     $snapshot.projection.version = 4
@@ -73,11 +102,13 @@ function New-SourceBundle {
     $snapshot | Add-Member -NotePropertyName provenance -NotePropertyValue (Copy-JsonValue $provenance) -Force
 
     $bases.updatedAt = $SourceUpdatedAt
+    $bases | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
     $bases.parser.commit = $ParserCommit
     $bases | Add-Member -NotePropertyName source -NotePropertyValue (Copy-JsonValue $snapshot.source) -Force
     $bases | Add-Member -NotePropertyName provenance -NotePropertyValue (Copy-JsonValue $provenance) -Force
 
     $diagnostics.updatedAt = $diagnosticsAt
+    $diagnostics | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
     $diagnostics.parser.commit = $ParserCommit
     $diagnostics.save | Add-Member -NotePropertyName backupName -NotePropertyValue $Backup -Force
     $diagnosticsProvenance = Copy-JsonValue $provenance

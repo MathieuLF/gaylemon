@@ -2,6 +2,7 @@
   "version": 3,
   "projection": {"version": 4},
   "ok": true,
+  "generationId": "save-20260712-130000-dd4a21fed0526ff1",
   "updatedAt": "2026-07-12T09:00:00-04:00",
   "source": {
     "type": "palworld-built-in-backup",
@@ -10,6 +11,17 @@
   "parser": {
     "name": "PalworldSaveTools",
     "commit": "0123456789ab"
+  },
+  "provenance": {
+    "observedAt": "2026-07-12T09:00:00-04:00",
+    "sourceUpdatedAt": "2026-07-12T09:00:00-04:00",
+    "gameVersion": "v0.7-fixture",
+    "steamBuildId": "fixture",
+    "parserCommit": "0123456789ab",
+    "catalogCommit": "0123456789ab",
+    "schemaVersion": 4,
+    "freshness": "current",
+    "sourceStatus": "available"
   },
   "summary": {
     "players": 1,
