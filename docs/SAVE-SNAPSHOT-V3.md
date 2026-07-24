@@ -53,6 +53,10 @@ répertoire privé temporaire. Le verrou est libéré dès la copie terminée; l
 téléchargement plus long se fait ensuite depuis ce lot immuable. Une nouvelle
 génération peut donc être produite pendant le transfert sans mélanger snapshot,
 bases et diagnostic. Le lot distant temporaire est supprimé après lecture.
+Si le lot distant ne porte pas encore l'identité de génération exigée par le
+contrat public, la synchronisation relance une fois
+`palworld-save-snapshot.service`, relit un nouveau lot figé, puis échoue si les
+artefacts restent incomplets.
 
 Le service utilise:
 

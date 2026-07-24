@@ -405,6 +405,18 @@ if ($command -match "^rm -rf -- '([^']+)'$") {
     exit 0
 }
 
+if ($command -eq "sudo -n /usr/bin/systemctl start palworld-save-snapshot.service") {
+    $marker = Join-Path $root "refresh-after-generation-contract"
+    if (Test-Path -LiteralPath $marker) {
+        foreach ($name in @("public-save-snapshot.json", "public-save-bases.json", "public-save-diagnostics.json")) {
+            Copy-Item -LiteralPath (Join-Path (Join-Path $root "next") $name) -Destination (Join-Path (Join-Path $root "runtime") $name) -Force
+        }
+        Remove-Item -LiteralPath $marker -Force
+    }
+    [IO.File]::WriteAllText((Join-Path $root "refresh-called"), "1", [Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
 exit 92
 '@
     [IO.File]::WriteAllText($sshMockPath, $sshMock, [Text.UTF8Encoding]::new($false))
@@ -424,6 +436,25 @@ exit 92
     $sshCommands = [IO.File]::ReadAllText((Join-Path $remoteRoot "ssh-commands.log"), [Text.Encoding]::UTF8)
     Assert-True ($sshCommands -match 'flock -s 9') "Le lot distant n'a pas été figé sous le verrou partagé du producteur."
     Assert-True ($sshCommands -match 'cp --reflink=auto') "Le lot distant n'a pas été copié avant le téléchargement."
+
+    $remoteStale = Copy-JsonValue $remoteSecond
+    foreach ($payload in @($remoteStale.snapshot, $remoteStale.bases, $remoteStale.diagnostics)) {
+        $payload.PSObject.Properties.Remove("generationId")
+    }
+    $remoteRepaired = New-SourceBundle -Backup "2026.07.18-20.15.00" -SourceUpdatedAt "2026-07-18T20:15:20-04:00"
+    foreach ($entry in @(
+        [pscustomobject]@{ Name = "public-save-snapshot.json"; Stale = $remoteStale.snapshot; Repaired = $remoteRepaired.snapshot },
+        [pscustomobject]@{ Name = "public-save-bases.json"; Stale = $remoteStale.bases; Repaired = $remoteRepaired.bases },
+        [pscustomobject]@{ Name = "public-save-diagnostics.json"; Stale = $remoteStale.diagnostics; Repaired = $remoteRepaired.diagnostics }
+    )) {
+        Write-TestJson -Path (Join-Path $remoteRuntime $entry.Name) -Value $entry.Stale
+        Write-TestJson -Path (Join-Path $remoteNext $entry.Name) -Value $entry.Repaired
+    }
+    [IO.File]::WriteAllText((Join-Path $remoteRoot "refresh-after-generation-contract"), "1", [Text.UTF8Encoding]::new($false))
+    Invoke-TestRemoteSync -SshMockPath $sshMockPath -DestinationRoot $remoteDestination
+    $remoteRepairedPublished = Get-Content -LiteralPath (Join-Path $remoteDestination "data\public-save-snapshot.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ($remoteRepairedPublished.generationId -eq $remoteRepaired.snapshot.generationId) "La synchronisation n'a pas relancé le producteur quand le lot distant était sans génération."
+    Assert-True (Test-Path -LiteralPath (Join-Path $remoteRoot "refresh-called")) "La régénération distante n'a pas été demandée."
 
     Write-Host "[OK] Synchronisation atomique des snapshots: cohérence, course distante, rejet, rollback, verrou et backoff validés."
 }
