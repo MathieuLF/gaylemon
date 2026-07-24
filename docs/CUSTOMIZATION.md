@@ -48,7 +48,9 @@ Quelques valeurs du profil généré:
 | `DeathPenalty` | `Item` |
 | `PalEggDefaultHatchingTime` | `2.000000` |
 | `MonsterFarmActionSpeedRate` | `0.700000` |
-| `BaseCampWorkerMaxNum` | `18` |
+| `BaseCampWorkerMaxNum` | `22` |
+| `BaseCampMaxNumInGuild` | `6` |
+| `SupplyDropSpan` | `60` |
 
 Le profil est généré par:
 

@@ -31,8 +31,9 @@ Aucun changement urgent n'est requis.
 | `bAllowClientMod` | `True` | `False` | éviter les clients moddés |
 | `RESTAPIEnabled` | `False` | `True` | annonces et sondes locales |
 | `bShowPlayerList` | `False` | `True` | confort joueurs |
-| `BaseCampWorkerMaxNum` | `15` | `18` | bases plus vivantes |
-| `BaseCampMaxNumInGuild` | `4` | `5` | marge pour le groupe |
+| `BaseCampWorkerMaxNum` | `15` | `22` | bases plus vivantes |
+| `BaseCampMaxNumInGuild` | `4` | `6` | marge pour le groupe |
+| `SupplyDropSpan` | `180` | `60` | météorites et caisses toutes les heures |
 | `NightTimeSpeedRate` | `1.0` | `0.70` | nuits plus présentes |
 | `PalCaptureRate` | `1.0` | `0.80` | captures nettement moins automatiques |
 | `CollectionDropRate` | `1.0` | `1.0` | collecte sans bonus |

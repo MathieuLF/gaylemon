@@ -366,14 +366,18 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(terminal, /event-pagination--top/);
   assert.match(app, /event-pagination__page-input/);
   assert.match(app, /event-pagination__total/);
-  assert.match(app, /let headerPresencePlayerCount = null/);
+  assert.doesNotMatch(app, /let headerPresencePlayerCount = null/);
+  assert.doesNotMatch(app, /headerPresencePlayerCount = Number\.isFinite\(Number\(metrics\.players\)\)/);
+  assert.doesNotMatch(app, /const anonymousCount = Math\.max\(0, count - players\.length\)/);
+  assert.doesNotMatch(app, /Nom public non disponible/);
+  assert.match(app, /function isKnownPlayerName/);
+  assert.match(app, /function playerDisplayName/);
   assert.match(app, /function isPlaceholderPlayerName/);
-  assert.match(app, /"joueur inconnu"/);
-  assert.match(app, /if \(isPlaceholderPlayerName\(name\)\) return/);
-  assert.match(app, /const anonymousCount = Math\.max\(0, count - players\.length\)/);
-  assert.match(app, /Présence détectée/);
-  assert.match(app, /Nom public non disponible/);
-  assert.match(app, /headerPresencePlayerCount = Number\.isFinite\(Number\(metrics\.players\)\)/);
+  assert.match(app, /"joueur non identifie"/);
+  assert.match(app, /return !isKnownPlayerName\(value\)/);
+  assert.match(app, /const count = players\.length/);
+  assert.match(app, /setMetric\("players-current", count\)/);
+  assert.match(app, /if \(!name\) return null/);
   assert.match(app, /function renderTerminalEventTooltip/);
   assert.match(app, /if \(!isTerminalRoute\(\)\) return \{ attributes: "", html: "" \}/);
   assert.match(app, /const terminalRoute = isTerminalRoute\(\)/);
@@ -639,7 +643,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260721\.6/);
-    assert.match(html, /app\.js\?v=20260721\.6/);
+    assert.match(html, /styles\.css\?v=20260724\.1/);
+    assert.match(html, /app\.js\?v=20260724\.1/);
   }
 });
