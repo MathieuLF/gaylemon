@@ -300,6 +300,33 @@ function Remove-RemoteSaveSourceStage {
     & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias "rm -rf -- $(ConvertTo-PosixShellLiteral -Value $RemotePath)" 2>$null | Out-Null
 }
 
+function Invoke-RemoteSaveSnapshotRefresh {
+    $command = "sudo -n /usr/bin/systemctl start palworld-save-snapshot.service"
+    & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias $command 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Impossible de relancer la génération distante des snapshots publics."
+    }
+}
+
+function Read-RemoteSaveSourceBundle {
+    $remoteStagePath = New-RemoteSaveSourceStage `
+        -SnapshotPath $RemoteSnapshotPath `
+        -BasesPath $RemoteBasesPath `
+        -DiagnosticsPath $RemoteDiagnosticsPath `
+        -CatalogsManifestPath $RemoteCatalogsManifestPath
+    try {
+        return [pscustomobject]@{
+            Snapshot = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-snapshot.json"
+            Bases = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-bases.json"
+            Diagnostics = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-diagnostics.json"
+            CatalogsManifest = Read-RemoteJson -RemotePath "$remoteStagePath/public-catalogs-manifest.json" -Optional
+        }
+    }
+    finally {
+        Remove-RemoteSaveSourceStage -RemotePath $remoteStagePath
+    }
+}
+
 function ConvertTo-GenerationInstant {
     param(
         [Parameter(Mandatory)] [string]$Value,
@@ -325,6 +352,24 @@ function Get-PublicSaveGenerationId {
     $identityText = "$Backup|$snapshotInstant|$ParserCommit|$ProjectionVersion"
     $identityHash = (Get-Utf8Sha256 -Text $identityText).Substring(0, 16)
     return "save-$($snapshotInstant.Substring(0, 19).Replace('-', '').Replace(':', '').Replace('T', '-'))-$identityHash"
+}
+
+function Test-SaveSourceGenerationContract {
+    param(
+        [Parameter(Mandatory)] $Snapshot,
+        [Parameter(Mandatory)] $Bases,
+        [Parameter(Mandatory)] $Diagnostics
+    )
+
+    $sourceGenerationIds = @(
+        [string](Get-OptionalProperty $Snapshot "generationId"),
+        [string](Get-OptionalProperty $Bases "generationId"),
+        [string](Get-OptionalProperty $Diagnostics "generationId")
+    )
+    return (
+        (@($sourceGenerationIds | Where-Object { $_ -notmatch '^[A-Za-z0-9._-]+$' }).Count -eq 0) -and
+        (@($sourceGenerationIds | Sort-Object -Unique).Count -eq 1)
+    )
 }
 
 function Assert-SaveSourceBundle {
@@ -1203,19 +1248,19 @@ if ($SourceBundlePath) {
     $sourceCatalogsManifest = Get-OptionalProperty $sourceBundle "catalogsManifest"
 }
 else {
-    $remoteStagePath = New-RemoteSaveSourceStage `
-        -SnapshotPath $RemoteSnapshotPath `
-        -BasesPath $RemoteBasesPath `
-        -DiagnosticsPath $RemoteDiagnosticsPath `
-        -CatalogsManifestPath $RemoteCatalogsManifestPath
-    try {
-        $source = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-snapshot.json"
-        $sourceBases = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-bases.json"
-        $sourceDiagnostics = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-diagnostics.json"
-        $sourceCatalogsManifest = Read-RemoteJson -RemotePath "$remoteStagePath/public-catalogs-manifest.json" -Optional
-    }
-    finally {
-        Remove-RemoteSaveSourceStage -RemotePath $remoteStagePath
+    $remoteBundle = Read-RemoteSaveSourceBundle
+    $source = $remoteBundle.Snapshot
+    $sourceBases = $remoteBundle.Bases
+    $sourceDiagnostics = $remoteBundle.Diagnostics
+    $sourceCatalogsManifest = $remoteBundle.CatalogsManifest
+    if (-not (Test-SaveSourceGenerationContract -Snapshot $source -Bases $sourceBases -Diagnostics $sourceDiagnostics)) {
+        Write-Host "Le lot distant ne porte pas encore l'identité de génération attendue; régénération distante demandée."
+        Invoke-RemoteSaveSnapshotRefresh
+        $remoteBundle = Read-RemoteSaveSourceBundle
+        $source = $remoteBundle.Snapshot
+        $sourceBases = $remoteBundle.Bases
+        $sourceDiagnostics = $remoteBundle.Diagnostics
+        $sourceCatalogsManifest = $remoteBundle.CatalogsManifest
     }
 }
 $sourceGeneration = Assert-SaveSourceBundle -Snapshot $source -Bases $sourceBases -Diagnostics $sourceDiagnostics

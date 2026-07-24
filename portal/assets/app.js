@@ -5856,6 +5856,32 @@ function dailyPlayerReasons(player) {
   return reasons.length ? reasons.join(" · ") : "activité discrète mais présente";
 }
 
+function renderDailyBriefItem(label, detail) {
+  return `<li aria-label="${escapeHtml(`${label}: ${detail}`)}"><b>${escapeHtml(label)}</b><span>${escapeHtml(detail)}</span></li>`;
+}
+
+function renderDailyBasicPlayerCard(player) {
+  const metrics = player?.metrics || {};
+  const moments = Number(player?.echoes || player?.eventCount || 0);
+  const palTotal = Number(player?.palFinds || player?.palSignals || metrics.palFinds || 0);
+  const factTotal = Number(player?.facts || player?.factCount || metrics.facts || 0);
+  return `
+    <article class="daily-player-card" style="--player-color:${escapeHtml(playerColor(player.name))};--card-accent:${escapeHtml(playerColor(player.name))}">
+      <header>
+        <span class="daily-player-card__avatar">${escapeHtml(playerInitials(player.name))}</span>
+        <span><strong>${escapeHtml(player.name)}</strong><small>${dailyPlural(moments, "moment", "moments")}</small></span>
+      </header>
+      <div class="daily-player-card__stats">
+        <span data-tooltip="${escapeHtml("Montées de niveau détectées pendant la journée.")}"><b>${formatInteger(metrics.levelUps || player?.levelUps || 0)}</b><small>Niveaux gagnés</small></span>
+        <span data-tooltip="${escapeHtml("Captures et ajouts de collection regroupés par Pal.")}"><b>${formatInteger(palTotal)}</b><small>Pals repérés</small></span>
+        <span data-tooltip="${escapeHtml("Quantités ajoutées par les événements de fabrication.")}"><b>${formatInteger(metrics.craft || player?.craft || 0)}</b><small>Objets fabriqués</small></span>
+        <span data-tooltip="${escapeHtml("Ressources prêtes ou sorties de production dans les bases.")}"><b>${formatInteger(metrics.production || player?.production || 0)}</b><small>Ressources produites</small></span>
+        <span data-tooltip="${escapeHtml("Moments attribués à ce joueur pendant la journée.")}"><b>${formatInteger(moments)}</b><small>Moments</small></span>
+        <span data-tooltip="${escapeHtml("Découvertes, défis, boss, mutations, notes, pêche et autres faits non routiniers.")}"><b>${formatInteger(factTotal)}</b><small>Faits divers</small></span>
+      </div>
+    </article>`;
+}
+
 function renderDailyBrief(summary) {
   const active = summary.players.filter((player) => dailyPlayerHasActivity(player) && player.name !== "Monde");
   const leader = [...active].sort((left, right) => Number(right.score || 0) - Number(left.score || 0)
@@ -5882,20 +5908,23 @@ function renderDailyBrief(summary) {
   const palLine = palSignals
     ? `${dailyPlural(palSignals, "Pal repéré", "Pals repérés")}${topPal ? ` · ${topPal.name} ressort le plus` : " dans les captures et collections"}`
     : "Aucun Pal nommé ne ressort dans les captures ou collections.";
+  const briefItems = [
+    ["Joueur qui ressort", leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement."],
+    ["Ateliers et bases", workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Les ateliers sont restés plutôt calmes."],
+    ["Pals", palLine],
+    ["Progression", summary.totals.levelUps || factTotal ? `${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "moment spécial", "moments spéciaux")}` : "Pas de grande poussée de progression visible."],
+    ["Moment fort", topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler."],
+  ];
   return `
     <div class="daily-brief__lead">
       <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
       <span>${lead}</span>
     </div>
     <ul class="daily-brief__list">
-      <li><b>Joueur qui ressort</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement."}</span></li>
-      <li><b>Ateliers et bases</b><span>${workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Les ateliers sont restés plutôt calmes."}</span></li>
-      <li><b>Pals</b><span>${palLine}</span></li>
-      <li><b>Progression</b><span>${summary.totals.levelUps || factTotal ? `${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "moment spécial", "moments spéciaux")}` : "Pas de grande poussée de progression visible."}</span></li>
-      <li><b>Moment fort</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler."}</span></li>
+      ${briefItems.map(([label, detail]) => renderDailyBriefItem(label, detail)).join("")}
     </ul>
     <div class="daily-type-strip">
-      ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : ["capture", "collection", "pal"].includes(entry.type) ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b>${escapeHtml(dailyAggregateQuantityLabel(entry))}</span>`).join("")}
+      ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : ["capture", "collection", "pal"].includes(entry.type) ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b><small>${escapeHtml(dailyAggregateQuantityLabel(entry))}</small></span>`).join("")}
     </div>`;
 }
 
@@ -6041,26 +6070,14 @@ function renderDailyPlayerCard(player) {
   const playerAccent = playerColor(player.name);
   const palTotal = dailyPalSignalTotal(player);
   const factTotal = dailyFactTotal(player.metrics);
-  const hasPublishedEchoes = Number(player.eventCount || 0) > 0;
   const hasDailyActivity = dailyPlayerHasActivity(player);
-  const lastTrace = dailyPlayerLastTrace(player);
-  const presenceStat = player.presenceAvailable === false
-    ? `<span data-tooltip="Moments attribués à ce joueur pendant la journée."><b>${formatInteger(player.eventCount)}</b><small>Moments</small></span>`
-    : `<span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>`;
-  const statsMarkup = hasPublishedEchoes ? `
+  const statsMarkup = `
         <span data-tooltip="${escapeHtml("Montées de niveau détectées pendant la journée.")}"><b>${formatInteger(player.metrics.levelUps)}</b><small>Niveaux gagnés</small></span>
         <span data-tooltip="${escapeHtml("Captures et ajouts de collection regroupés par Pal.")}"><b>${formatInteger(palTotal)}</b><small>Pals repérés</small></span>
         <span data-tooltip="${escapeHtml("Quantités ajoutées par les événements de fabrication.")}"><b>${formatInteger(player.metrics.craft)}</b><small>Objets fabriqués</small></span>
         <span data-tooltip="${escapeHtml("Ressources prêtes ou sorties de production dans les bases.")}"><b>${formatInteger(player.metrics.production)}</b><small>Ressources produites</small></span>
-        ${presenceStat}
-        <span data-tooltip="${escapeHtml("Découvertes, défis, boss, mutations, notes, pêche et autres faits non routiniers.")}"><b>${formatInteger(factTotal)}</b><small>Faits divers</small></span>` : hasDailyActivity ? `
-        <span data-tooltip="${escapeHtml("Durée de présence estimée depuis les sessions observées.")}"><b>${player.dailyOnlineSeconds ? formatCompactDuration(player.dailyOnlineSeconds) : "--"}</b><small>Présence</small></span>
-        <span data-tooltip="${escapeHtml("Sessions observées pendant la journée sélectionnée.")}"><b>${formatInteger(player.dailySessionCount)}</b><small>Sessions du jour</small></span>
-        <span data-tooltip="${escapeHtml("Aucun moment attribué à ce joueur pour cette journée.")}"><b>0</b><small>Moments</small></span>
-        <span data-tooltip="${escapeHtml("Niveau actuel du joueur.")}"><b>${player.level != null ? formatInteger(player.level) : "--"}</b><small>Niveau actuel</small></span>` : `
-        <span data-tooltip="${escapeHtml("Niveau actuel du joueur.")}"><b>${player.level != null ? formatInteger(player.level) : "--"}</b><small>Niveau actuel</small></span>
-        <span data-tooltip="${escapeHtml("Nombre actuel de Pals du joueur.")}"><b>${player.pals != null ? formatInteger(player.pals) : "--"}</b><small>Pals actuels</small></span>
-        <span data-tooltip="${escapeHtml(lastTrace ? `Dernière trace: ${formatDateTime(lastTrace)}` : "Aucune trace de présence.")}"><b>${lastTrace ? dailyShortDate(lastTrace) : "--"}</b><small>Dernière trace</small></span>`;
+        <span data-tooltip="${escapeHtml("Moments attribués à ce joueur pendant la journée.")}"><b>${formatInteger(player.eventCount)}</b><small>Moments</small></span>
+        <span data-tooltip="${escapeHtml("Découvertes, défis, boss, mutations, notes, pêche et autres faits non routiniers.")}"><b>${formatInteger(factTotal)}</b><small>Faits divers</small></span>`;
   return `
     <article class="daily-player-card${hasDailyActivity ? "" : " daily-player-card--quiet"}" style="--player-color:${escapeHtml(playerAccent)};--card-accent:${escapeHtml(playerAccent)}" tabindex="0" data-tooltip="${escapeHtml(`Score de journée: ${Math.round(Number(player.score || 0))} · ${dailyPlayerReasons(player)}`)}">
       <header>
@@ -6344,13 +6361,13 @@ function renderDailyV6Basic(payload) {
   ].join("");
   if (dailyBrief) dailyBrief.innerHTML = `
     <div class="daily-brief__lead"><strong>${escapeHtml(dailyDisplayDate(payload.date))}</strong><span>${dailyPlural(echoes, "moment retenu", "moments retenus")} · ${dailyPlural(represented, "action regroupée", "actions regroupées")}${derived ? ` · quelques rattachements à la guilde` : ""}</span></div>
-    <ul class="daily-brief__list">${typeRows.slice(0, 6).map((entry) => `<li><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><span>${dailyPlural(entry.count, "moment", "moments")}</span></li>`).join("") || "<li><span>Rien de notable publié pour cette journée.</span></li>"}</ul>`;
+    <ul class="daily-brief__list">${typeRows.length ? typeRows.slice(0, 6).map((entry) => renderDailyBriefItem(eventTypeMeta[entry.type]?.label || entry.type, dailyPlural(entry.count, "moment", "moments"))).join("") : renderDailyBriefItem("Journal", "Rien de notable publié pour cette journée.")}</ul>`;
   if (dailyHourly) dailyHourly.innerHTML = '<p class="daily-empty">Le rythme détaillé arrivera avec le prochain bilan complet.</p>';
   if (dailyTypes) dailyTypes.innerHTML = typeRows.length
     ? `<article class="daily-tangible-card" style="--tangible-color:#176d70"><header><span>Ce qui a bougé</span><strong>${formatInteger(echoes)}</strong></header><ol class="daily-item-list">${typeRows.slice(0, 10).map((entry) => `<li><span><b>${escapeHtml(eventTypeMeta[entry.type]?.label || entry.type)}</b><small>Moments de la journée</small></span><strong>${formatInteger(entry.count)}</strong></li>`).join("")}</ol></article>`
     : '<p class="daily-empty">Aucune catégorie notable pour cette journée.</p>';
   if (dailyPlayers) dailyPlayers.innerHTML = players.length
-    ? players.map((player) => `<article class="daily-player-card" style="--player-color:${escapeHtml(playerColor(player.name))};--card-accent:${escapeHtml(playerColor(player.name))}"><header><span class="daily-player-card__avatar">${escapeHtml(playerInitials(player.name))}</span><span><strong>${escapeHtml(player.name)}</strong><small>${dailyPlural(Number(player.echoes || 0), "moment", "moments")}</small></span></header></article>`).join("")
+    ? players.map((player) => renderDailyBasicPlayerCard(player)).join("")
     : '<p class="daily-empty">Aucun joueur présent dans le journal de cette journée.</p>';
   const latest = Array.isArray(payload.latest)
     ? sortEventsNewestFirst(payload.latest.filter(eventCanBePublished), { canonical: true })
