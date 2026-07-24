@@ -573,6 +573,36 @@ def runtime_provenance(stats_path: Path, parser_sha: str) -> dict:
     }
 
 
+def generation_instant(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("Missing save generation timestamp")
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        for pattern in ("%Y-%m-%d %H:%M:%S", "%m/%d/%Y %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+            try:
+                parsed = datetime.strptime(raw, pattern)
+                break
+            except ValueError:
+                parsed = None
+        if parsed is None:
+            raise
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    parsed_utc = parsed.astimezone(timezone.utc)
+    return f"{parsed_utc.strftime('%Y-%m-%dT%H:%M:%S')}.{parsed_utc.microsecond:06d}0Z"
+
+
+def public_save_generation_id(source_name: str, source_updated_at: str, parser_sha: str, projection_version: int) -> str:
+    instant = generation_instant(source_updated_at)
+    identity_text = f"{source_name}|{instant}|{parser_sha}|{projection_version}"
+    identity_hash = hashlib.sha256(identity_text.encode("utf-8")).hexdigest()[:16]
+    safe_instant = instant[:19].replace("-", "").replace(":", "").replace("T", "-")
+    return f"save-{safe_instant}-{identity_hash}"
+
+
 def update_catalog_drift_report(
     path: Path,
     observations: dict,
@@ -1070,8 +1100,16 @@ def build_base_snapshots(
     counters,
     drift=None,
     source_provenance=None,
+    generation_id=None,
 ):
     source_provenance = source_provenance or {}
+    source_updated_at = source_provenance.get("sourceUpdatedAt") or captured_at
+    generation_id = generation_id or public_save_generation_id(
+        source_name,
+        source_updated_at,
+        parser_sha,
+        PROJECTION_VERSION,
+    )
     groups = nested(world, "GroupSaveDataMap", "value", default=[])
     characters = nested(world, "CharacterSaveParameterMap", "value", default=[])
     character_lookup = {
@@ -1415,7 +1453,7 @@ def build_base_snapshots(
 
     provenance = {
         "observedAt": captured_at,
-        "sourceUpdatedAt": captured_at,
+        "sourceUpdatedAt": source_updated_at,
         "gameVersion": source_provenance.get("gameVersion"),
         "steamBuildId": source_provenance.get("steamBuildId"),
         "parserCommit": source_provenance.get("parserCommit") or parser_sha or None,
@@ -1427,6 +1465,7 @@ def build_base_snapshots(
     public_payload = {
         "version": 1,
         "ok": True,
+        "generationId": generation_id,
         "updatedAt": captured_at,
         "source": {"type": "palworld-built-in-backup", "backup": source_name},
         "parser": {"name": "PalworldSaveTools", "commit": parser_sha},
@@ -2211,16 +2250,24 @@ def build_snapshot(
     counters["unknownPalProperties"] = len(unknown_pal_fields)
     public_players.sort(key=lambda player: (-player["level"], player["name"].casefold()))
     public_guilds.sort(key=lambda guild: guild["name"].casefold())
+    source_updated_at = provenance.get("sourceUpdatedAt") or captured_at
+    generation_id = public_save_generation_id(
+        source_name,
+        source_updated_at,
+        parser_sha,
+        PROJECTION_VERSION,
+    )
     snapshot = {
         "version": 3,
         "projection": {"version": PROJECTION_VERSION},
         "ok": True,
+        "generationId": generation_id,
         "updatedAt": captured_at,
         "source": {"type": "palworld-built-in-backup", "backup": source_name},
         "parser": {"name": "PalworldSaveTools", "commit": parser_sha},
         "provenance": {
             "observedAt": captured_at,
-            "sourceUpdatedAt": captured_at,
+            "sourceUpdatedAt": source_updated_at,
             "gameVersion": provenance.get("gameVersion"),
             "steamBuildId": provenance.get("steamBuildId"),
             "parserCommit": provenance.get("parserCommit") or parser_sha or None,
@@ -2257,6 +2304,7 @@ def build_snapshot(
         counters,
         drift,
         provenance,
+        generation_id,
     )
     validate_public_payload(snapshot)
     return snapshot, counters, public_bases, private_bases, drift
@@ -2518,6 +2566,7 @@ def backup_metrics(backup: Path):
     player_files = list((backup / "Players").glob("*.sav"))
     level = backup / "Level.sav"
     level_bytes = level.stat().st_size
+    level_updated_at = datetime.fromtimestamp(level.stat().st_mtime, timezone.utc).astimezone().isoformat()
     players_bytes = sum(path.stat().st_size for path in player_files)
     return {
         "levelBytes": level_bytes,
@@ -2525,6 +2574,7 @@ def backup_metrics(backup: Path):
         "playersBytes": players_bytes,
         "generationBytes": level_bytes + players_bytes,
         "backupName": backup.name,
+        "backupUpdatedAt": level_updated_at,
         "backupAgeSeconds": max(0, round(time.time() - level.stat().st_mtime)),
     }
 
@@ -2536,9 +2586,10 @@ def existing_snapshot_source(path: Path):
             str(nested(payload, "source", "backup", default="")),
             str(nested(payload, "parser", "commit", default="")),
             to_int(nested(payload, "projection", "version", default=0), 0),
+            str(payload.get("generationId") or ""),
         )
     except (OSError, ValueError, TypeError):
-        return ("", "", 0)
+        return ("", "", 0, "")
 
 
 def initial_diagnostics(args, started_at):
@@ -2597,12 +2648,14 @@ def run(args):
         try:
             backup = choose_backup(args.save_root, args.minimum_age)
             diagnostics["save"] = backup_metrics(backup)
+            backup_updated_at = diagnostics["save"]["backupUpdatedAt"]
             provenance = runtime_provenance(
                 args.stats, diagnostics["parser"]["commit"]
             )
+            save_provenance = {**provenance, "sourceUpdatedAt": backup_updated_at}
             diagnostics["provenance"].update({
                 "observedAt": started_at,
-                "sourceUpdatedAt": provenance.get("sourceUpdatedAt") or started_at,
+                "sourceUpdatedAt": backup_updated_at,
                 "gameVersion": provenance.get("gameVersion"),
                 "steamBuildId": provenance.get("steamBuildId"),
                 "parserCommit": provenance.get("parserCommit"),
@@ -2621,6 +2674,12 @@ def run(args):
                 backup.name,
                 diagnostics["parser"]["commit"],
                 PROJECTION_VERSION,
+                public_save_generation_id(
+                    backup.name,
+                    backup_updated_at,
+                    diagnostics["parser"]["commit"],
+                    PROJECTION_VERSION,
+                ),
             ):
                 print(f"Backup {backup.name} already processed; snapshot unchanged")
                 return
@@ -2664,7 +2723,7 @@ def run(args):
                     captured_at,
                     backup.name,
                     diagnostics["parser"]["commit"],
-                    provenance,
+                    save_provenance,
                 )
                 projected_at = time.monotonic()
 
@@ -2697,7 +2756,9 @@ def run(args):
                 )
             completed_at = datetime.now(timezone.utc).astimezone().isoformat()
             diagnostics["ok"] = True
+            diagnostics["generationId"] = snapshot["generationId"]
             diagnostics["updatedAt"] = completed_at
+            diagnostics["provenance"]["sourceUpdatedAt"] = snapshot["provenance"]["sourceUpdatedAt"]
             diagnostics["parse"].update(
                 {
                     "completedAt": completed_at,
