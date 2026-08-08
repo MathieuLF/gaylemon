@@ -359,6 +359,19 @@ func tokenHash(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func (s *Server) opsCookie(name, value string, expires time.Time, maxAge int, httpOnly bool) *http.Cookie {
+	return &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/ops",
+		Expires:  expires,
+		MaxAge:   maxAge,
+		HttpOnly: httpOnly,
+		Secure:   s.config.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	}
+}
+
 func (s *Server) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	if s.oauth == nil {
 		writeError(w, http.StatusServiceUnavailable, "oauth-not-configured")
@@ -433,8 +446,8 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	csrf, _ := randomToken(24)
-	http.SetCookie(w, &http.Cookie{Name: "gaylemon_ops", Value: sessionToken, Path: "/ops", Expires: expires, MaxAge: 43200, HttpOnly: true, Secure: s.config.CookieSecure, SameSite: http.SameSiteStrictMode})
-	http.SetCookie(w, &http.Cookie{Name: "gaylemon_csrf", Value: csrf, Path: "/ops", Expires: expires, MaxAge: 43200, HttpOnly: false, Secure: s.config.CookieSecure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, s.opsCookie("gaylemon_ops", sessionToken, expires, 43200, true))
+	http.SetCookie(w, s.opsCookie("gaylemon_csrf", csrf, expires, 43200, false))
 	http.Redirect(w, r, state.ReturnPath, http.StatusFound)
 }
 
@@ -470,8 +483,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie("gaylemon_ops"); err == nil {
 		_ = s.repo.DeleteSession(r.Context(), tokenHash(cookie.Value))
 	}
-	http.SetCookie(w, &http.Cookie{Name: "gaylemon_ops", Value: "", Path: "/ops", MaxAge: -1, HttpOnly: true, Secure: s.config.CookieSecure, SameSite: http.SameSiteStrictMode})
-	http.SetCookie(w, &http.Cookie{Name: "gaylemon_csrf", Value: "", Path: "/ops", MaxAge: -1, Secure: s.config.CookieSecure, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, s.opsCookie("gaylemon_ops", "", time.Time{}, -1, true))
+	http.SetCookie(w, s.opsCookie("gaylemon_csrf", "", time.Time{}, -1, false))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
