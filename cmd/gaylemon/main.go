@@ -66,7 +66,7 @@ func run(arguments []string, logger *slog.Logger) error {
 
 func collect(arguments []string, logger *slog.Logger) error {
 	flags := flag.NewFlagSet("collect", flag.ContinueOnError)
-	kind := flags.String("kind", "metrics", "projection à produire: metrics, stats ou events")
+	kind := flags.String("kind", "metrics", "projection à produire: metrics, stats, events ou snapshot")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -82,7 +82,11 @@ func collect(arguments []string, logger *slog.Logger) error {
 		return err
 	}
 	defer spool.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	timeout := 2 * time.Minute
+	if *kind == "snapshot" {
+		timeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	result, err := collector.CollectPublic(ctx, collector.PublicConfigFromEnv(), *kind)
 	if err != nil {

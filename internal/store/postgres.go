@@ -173,6 +173,24 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 		return model.IngestResult{}, err
 	}
 	if activate {
+		var promotedSaveGeneration string
+		if batch.Stream == "snapshot" {
+			for _, document := range payload.Documents {
+				if document.Path == "data/public-save-index.json" {
+					promotedSaveGeneration = document.GenerationID
+					break
+				}
+			}
+		}
+		if promotedSaveGeneration != "" {
+			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.documents
+				WHERE generation_id<>$1 AND (
+					path LIKE 'data/players/%' OR
+					path IN ('data/public-save-index.json','data/public-save-snapshot.json','data/public-save-bases.json','data/public-save-diagnostics.json')
+				)`, promotedSaveGeneration); err != nil {
+				return model.IngestResult{}, err
+			}
+		}
 		for _, document := range payload.Documents {
 			contentHash := sha256.Sum256(document.Content)
 			sha := hex.EncodeToString(contentHash[:])
