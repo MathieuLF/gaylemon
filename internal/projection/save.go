@@ -165,7 +165,7 @@ func publicSavePlayer(raw map[string]any) map[string]any {
 	}
 	pals["team"] = team
 	player["pals"] = pals
-	return cloneValue(player).(map[string]any)
+	return player
 }
 
 func publicSaveIndexPlayers(players []any) []any {
