@@ -224,7 +224,7 @@ $botEnvExamplePath = Join-Path $ProjectRoot "config\exemples\bot.env.example"
 if (Test-Path -LiteralPath $botEnvExamplePath) {
     $botEnvExample = Get-Content -LiteralPath $botEnvExamplePath -Raw -Encoding UTF8
     if (
-        $botEnvExample -match '(?m)^GAYLEMON_PUBLIC_BASE_URL=https://gaylemon\.mathieu\.pro/?$' -and
+        $botEnvExample -match '(?m)^GAYLEMON_PUBLIC_BASE_URL=https://gaylemon\.nethercore\.dev/?$' -and
         $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=$' -and
         $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=$' -and
         $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=$'

@@ -1,5 +1,35 @@
 Set-StrictMode -Version 2.0
 
+function Build-GaylemonLinuxAgent {
+    param([Parameter(Mandatory = $true)] [string]$ProjectRoot)
+
+    $go = Get-Command go -ErrorAction Stop
+    $agentBuildRoot = Join-Path $ProjectRoot "server\build"
+    $agentBinary = Join-Path $agentBuildRoot "gaylemon"
+    New-Item -ItemType Directory -Path $agentBuildRoot -Force | Out-Null
+    $previousGoOS = $env:GOOS
+    $previousGoArch = $env:GOARCH
+    $previousCgo = $env:CGO_ENABLED
+    $previousGoFlags = $env:GOFLAGS
+    Push-Location $ProjectRoot
+    try {
+        $env:GOOS = "linux"
+        $env:GOARCH = "amd64"
+        $env:CGO_ENABLED = "0"
+        $env:GOFLAGS = "-mod=mod"
+        & $go.Source build -trimpath -ldflags "-s -w" -o $agentBinary .\cmd\gaylemon
+        if ($LASTEXITCODE -ne 0) { throw "Compilation Linux de l'agent impossible." }
+    }
+    finally {
+        Pop-Location
+        $env:GOOS = $previousGoOS
+        $env:GOARCH = $previousGoArch
+        $env:CGO_ENABLED = $previousCgo
+        $env:GOFLAGS = $previousGoFlags
+    }
+    return $agentBinary
+}
+
 function Get-GaylemonDeploymentManifest {
     param(
         [Parameter(Mandatory = $true)] [string]$ProjectRoot,

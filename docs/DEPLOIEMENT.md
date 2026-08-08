@@ -1,5 +1,7 @@
 # Déploiement
 
+Le déploiement public sur PostgreSQL 16 et DockPanel est décrit dans [Publication sur la VPS Nethercore](VPS-NETHERCORE.md). Cette page reste consacrée aux fichiers d'exploitation du serveur Ubuntu.
+
 Le dépôt peut préparer une livraison Ubuntu, mais rien ne doit partir en production par surprise.
 
 ## Avant de livrer

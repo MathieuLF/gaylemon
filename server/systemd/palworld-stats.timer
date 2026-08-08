@@ -1,10 +1,10 @@
 [Unit]
-Description=Collect Palworld local statistics every 20 seconds
+Description=Collect Palworld local statistics in game-priority mode
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=20s
-AccuracySec=1s
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
 Unit=palworld-stats.service
 
 [Install]

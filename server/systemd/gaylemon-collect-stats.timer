@@ -1,0 +1,11 @@
+[Unit]
+Description=Project Palworld statistics every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=gaylemon-collect-stats.service
+
+[Install]
+WantedBy=timers.target

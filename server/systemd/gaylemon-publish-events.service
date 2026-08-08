@@ -1,0 +1,21 @@
+[Unit]
+Description=Queue privacy-safe Palworld events for publication
+After=palworld-events.service
+
+[Service]
+Type=oneshot
+User=gaylemon
+Group=gaylemon
+EnvironmentFile=/etc/gaylemon/agent.env
+Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-events.service/agent.key
+LoadCredential=agent.key:/etc/gaylemon/agent.key
+ExecStart=/usr/local/bin/gaylemon collect --kind events
+Nice=19
+CPUQuota=10%
+MemoryMax=768M
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/gaylemon/Gaylemon/runtime
+ReadWritePaths=/var/lib/gaylemon-agent

@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /data/
 
-Sitemap: https://gaylemon.mathieu.pro/sitemap.xml
+Sitemap: https://gaylemon.nethercore.dev/sitemap.xml

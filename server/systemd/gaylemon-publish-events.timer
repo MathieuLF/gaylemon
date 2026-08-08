@@ -1,0 +1,11 @@
+[Unit]
+Description=Queue Palworld events after their collection window
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=30min
+AccuracySec=1min
+Unit=gaylemon-publish-events.service
+
+[Install]
+WantedBy=timers.target

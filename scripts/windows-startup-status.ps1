@@ -8,16 +8,32 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
 if (-not $TaskName) { $TaskName = $config.StartupTaskName }
 
+function Get-JsonProperty {
+    param(
+        $Object,
+        [Parameter(Mandatory)] [string]$Name
+    )
+
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
 $StartupFolder = [Environment]::GetFolderPath("Startup")
 $StartupLauncher = Join-Path $StartupFolder "$TaskName.cmd"
 $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$RunValue = Get-ItemPropertyValue -Path $RunKey -Name $TaskName -ErrorAction SilentlyContinue
-
-$task = if ($RunValue) {
-    $null
+$RunValue = $null
+try {
+    $RunValue = Get-ItemPropertyValue -Path $RunKey -Name $TaskName -ErrorAction Stop
 }
-else {
-    Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+catch {
+    $RunValue = $null
+}
+
+$task = $null
+if (-not $RunValue) {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
 if ($task) {
     $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -146,11 +162,13 @@ if (Test-Path -LiteralPath $publicSaveIndexPath) {
         $saveIndex = Get-Content -Raw -Encoding UTF8 -LiteralPath $publicSaveIndexPath | ConvertFrom-Json
         $snapshotSourceAt = $null
         $parsedSnapshotSourceAt = [DateTimeOffset]::MinValue
-        $snapshotSourceValue = if ($saveIndex.provenance -and $saveIndex.provenance.sourceUpdatedAt) {
-            $saveIndex.provenance.sourceUpdatedAt
+        $snapshotSourceValue = $null
+        $saveIndexProvenance = Get-JsonProperty -Object $saveIndex -Name "provenance"
+        if ($saveIndexProvenance) {
+            $snapshotSourceValue = Get-JsonProperty -Object $saveIndexProvenance -Name "sourceUpdatedAt"
         }
-        else {
-            $saveIndex.updatedAt
+        if (-not $snapshotSourceValue) {
+            $snapshotSourceValue = Get-JsonProperty -Object $saveIndex -Name "updatedAt"
         }
         if ($snapshotSourceValue -is [DateTimeOffset]) {
             $snapshotSourceAt = $snapshotSourceValue
@@ -171,7 +189,8 @@ if (Test-Path -LiteralPath $publicSaveIndexPath) {
         }
         $snapshotFreshLimitSeconds = [Math]::Max(120, $config.SaveSnapshotSyncTimeoutSeconds + ($config.SaveSnapshotSyncIntervalSeconds * 2))
         $snapshotFreshnessColor = if ($snapshotAgeSeconds -le $snapshotFreshLimitSeconds) { "Green" } else { "Yellow" }
-        Write-Host "Dernier snapshot joueurs: ${snapshotAgeSeconds}s, génération $($saveIndex.generationId)" -ForegroundColor $snapshotFreshnessColor
+        $generationId = Get-JsonProperty -Object $saveIndex -Name "generationId"
+        Write-Host "Dernier snapshot joueurs: ${snapshotAgeSeconds}s, génération $generationId" -ForegroundColor $snapshotFreshnessColor
     }
     catch {
         Write-Host "⚠️  Snapshot joueurs local illisible: $($_.Exception.Message)" -ForegroundColor Yellow
