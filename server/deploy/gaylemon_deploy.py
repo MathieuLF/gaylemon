@@ -31,7 +31,8 @@ ALLOWED_DESTINATIONS = (
     re.compile(r"^/srv/storage/steam/bin/[A-Za-z0-9_.-]+$"),
     re.compile(r"^/home/[A-Za-z0-9_.-]+/Gaylemon/server/bin/[A-Za-z0-9_.-]+$"),
     re.compile(r"^/usr/local/sbin/gaylemon-[A-Za-z0-9_.-]+$"),
-    re.compile(r"^/etc/systemd/system/(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
+    re.compile(r"^/usr/local/bin/gaylemon$"),
+    re.compile(r"^/etc/systemd/system/(?:palworld|gaylemon|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
     re.compile(r"^/etc/sysctl\.d/[A-Za-z0-9_.-]*palworld[A-Za-z0-9_.-]*\.conf$"),
     re.compile(r"^/etc/sudoers\.d/(?:palworld|gaylemon)[A-Za-z0-9_.-]*$"),
 )
@@ -40,7 +41,7 @@ ALLOWED_REMOVALS = (
     re.compile(r"^/etc/systemd/system/(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
     re.compile(r"^/etc/palworld/[A-Za-z0-9_.-]+\.env$"),
 )
-VALIDATORS = {"bash", "python", "sudoers", "sysctl", "systemd"}
+VALIDATORS = {"bash", "binary", "python", "sudoers", "sysctl", "systemd"}
 RESTART_POLICIES = {"none", "recommended", "game"}
 REMOVAL_KINDS = {"file", "secret", "systemd"}
 LOCK_PATH = Path("/run/lock/gaylemon-deploy.lock")
@@ -115,7 +116,7 @@ def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]], li
         restart_unit = raw.get("restartUnit")
         if restart_unit is not None and (
             not isinstance(restart_unit, str)
-            or not re.fullmatch(r"(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)", restart_unit)
+            or not re.fullmatch(r"(?:palworld|gaylemon|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)", restart_unit)
         ):
             raise DeployError(f"Invalid restart unit for {source_name}: {restart_unit!r}")
         if policy != "none" and not restart_unit:
@@ -192,6 +193,9 @@ def validate_sources(entries: list[dict[str, Any]]) -> None:
         validator = entry["validation"]
         if validator == "bash":
             run_checked(["/usr/bin/bash", "-n", str(source)])
+        elif validator == "binary":
+            if source.read_bytes()[:4] != b"\x7fELF":
+                raise DeployError(f"Linux executable validation failed for {source}")
         elif validator == "python":
             try:
                 compile(source.read_bytes(), str(source), "exec")

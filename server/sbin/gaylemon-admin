@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:-}"
+shift || true
+
+allowed_unit() {
+  case "$1" in
+    gaylemon-agent.service|gaylemon-collect-metrics.service|gaylemon-collect-stats.service|gaylemon-publish-events.service|gaylemon-publish-snapshot.service|palworld-stats.service|palworld-events.service|palworld-save-snapshot.service|palworld.service) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+timers_for_stream() {
+  case "$1" in
+    metrics) printf '%s\n' "gaylemon-collect-metrics.timer" ;;
+    stats) printf '%s\n' "palworld-stats.timer" "gaylemon-collect-stats.timer" ;;
+    events) printf '%s\n' "palworld-events.timer" "gaylemon-publish-events.timer" ;;
+    snapshot) printf '%s\n' "palworld-save-snapshot.timer" "gaylemon-publish-snapshot.timer" ;;
+    *) return 1 ;;
+  esac
+}
+
+services_for_stream() {
+  case "$1" in
+    metrics) printf '%s\n' "gaylemon-collect-metrics.service" ;;
+    stats) printf '%s\n' "palworld-stats.service" "gaylemon-collect-stats.service" ;;
+    events) printf '%s\n' "palworld-events.service" "gaylemon-publish-events.service" ;;
+    snapshot) printf '%s\n' "palworld-save-snapshot.service" "gaylemon-publish-snapshot.service" ;;
+    *) return 1 ;;
+  esac
+}
+
+case "$action" in
+  status)
+    exec /usr/bin/systemctl --no-pager --full status gaylemon-agent.service gaylemon-collect-metrics.timer gaylemon-collect-stats.timer gaylemon-publish-events.timer gaylemon-publish-snapshot.timer palworld-stats.timer palworld-events.timer palworld-save-snapshot.timer
+    ;;
+  logs)
+    unit="${1:-}"
+    allowed_unit "$unit" || { echo "Unite refusee." >&2; exit 2; }
+    exec /usr/bin/journalctl --no-pager --output=short-iso --lines=200 --unit "$unit"
+    ;;
+  sync)
+    operation="${1:-}"
+    stream="${2:-}"
+    case "$operation" in
+      pause|resume)
+        if [[ "$stream" == "all" || -z "$stream" ]]; then
+          timers=(gaylemon-collect-metrics.timer gaylemon-collect-stats.timer gaylemon-publish-events.timer gaylemon-publish-snapshot.timer palworld-stats.timer palworld-events.timer palworld-save-snapshot.timer)
+        else
+          mapfile -t timers < <(timers_for_stream "$stream")
+        fi
+        if [[ "$operation" == "pause" ]]; then
+          exec /usr/bin/systemctl disable --now "${timers[@]}"
+        fi
+        exec /usr/bin/systemctl enable --now "${timers[@]}"
+        ;;
+      run)
+        if [[ "$stream" == "all" ]]; then
+          exec /usr/bin/systemctl start palworld-stats.service gaylemon-collect-stats.service gaylemon-collect-metrics.service palworld-events.service gaylemon-publish-events.service palworld-save-snapshot.service gaylemon-publish-snapshot.service
+        fi
+        mapfile -t services < <(services_for_stream "$stream")
+        [[ ${#services[@]} -gt 0 ]] || { echo "Flux refuse." >&2; exit 2; }
+        exec /usr/bin/systemctl start "${services[@]}"
+        ;;
+      schedule)
+        schedule="${3:-}"
+        case "$schedule" in 30s|1m|5m|30m|2h) ;; *) echo "Horaire refuse." >&2; exit 2 ;; esac
+        mapfile -t timers < <(timers_for_stream "$stream")
+        [[ ${#timers[@]} -gt 0 ]] || { echo "Flux refuse." >&2; exit 2; }
+        for timer in "${timers[@]}"; do
+          directory="/etc/systemd/system/${timer}.d"
+          /usr/bin/install -d -m 0755 "$directory"
+          temporary="$(/usr/bin/mktemp "${directory}/schedule.XXXXXX")"
+          /usr/bin/printf '[Timer]\nOnUnitActiveSec=\nOnUnitActiveSec=%s\n' "$schedule" > "$temporary"
+          /usr/bin/chmod 0644 "$temporary"
+          /usr/bin/mv -f "$temporary" "${directory}/gaylemon-schedule.conf"
+        done
+        /usr/bin/systemctl daemon-reload
+        exec /usr/bin/systemctl restart "${timers[@]}"
+        ;;
+      *) echo "Operation de synchronisation refusee." >&2; exit 2 ;;
+    esac
+    ;;
+  announce)
+    message="${1:-}"
+    [[ -n "$message" && ${#message} -le 240 && "$message" != *$'\n'* && "$message" != *$'\r'* ]] || { echo "Annonce refusee." >&2; exit 2; }
+    exec /srv/storage/steam/bin/palworld-announce.sh "$message"
+    ;;
+  backup)
+    exec /usr/bin/systemctl start palworld-backup.service
+    ;;
+  release)
+    [[ "${1:-}" == "update" ]] || { echo "Operation de version refusee." >&2; exit 2; }
+    exec /usr/bin/systemctl start palworld-update.service
+    ;;
+  restart)
+    unit="${1:-}"
+    confirmation="${2:-false}"
+    allowed_unit "$unit" || { echo "Unite refusee." >&2; exit 2; }
+    if [[ "$unit" == "palworld.service" && "$confirmation" != "true" ]]; then
+      echo "Redemarrage Palworld non confirme." >&2
+      exit 2
+    fi
+    exec /usr/bin/systemctl restart "$unit"
+    ;;
+  *)
+    echo "Commande refusee." >&2
+    exit 2
+    ;;
+esac

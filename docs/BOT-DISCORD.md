@@ -42,7 +42,7 @@ Copy-Item .\config\exemples\bot.env.example C:\chemin\du\bot\.env
 Valeurs attendues:
 
 ```text
-GAYLEMON_PUBLIC_BASE_URL=https://gaylemon.mathieu.pro
+GAYLEMON_PUBLIC_BASE_URL=https://gaylemon.nethercore.dev
 BOT_PALWORLD_REST_API_URL=
 BOT_PALWORLD_REST_API_USERNAME=
 BOT_PALWORLD_REST_API_PASSWORD=
@@ -60,7 +60,7 @@ Les variables `BOT_PALWORLD_REST_API_*` sont volontairement vides dans l'exemple
 Le bot doit publier chaque jour, à `01:00` dans le fuseau `America/Toronto`, le lien direct vers le résumé de la veille:
 
 ```text
-https://gaylemon.mathieu.pro/resume?jour=YYYY-MM-DD
+https://gaylemon.nethercore.dev/resume?jour=YYYY-MM-DD
 ```
 
 Comportement attendu:

@@ -1,0 +1,11 @@
+[Unit]
+Description=Queue Palworld snapshot after its collection window
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=2h
+AccuracySec=5min
+Unit=gaylemon-publish-snapshot.service
+
+[Install]
+WantedBy=timers.target

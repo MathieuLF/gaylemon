@@ -1,11 +1,11 @@
 [Unit]
-Description=Refresh the public Palworld event history every 20 seconds
+Description=Refresh the public Palworld event history in game-priority mode
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=20s
-AccuracySec=1s
-Persistent=true
+OnBootSec=15min
+OnUnitActiveSec=30min
+AccuracySec=5min
+Persistent=false
 Unit=palworld-events.service
 
 [Install]

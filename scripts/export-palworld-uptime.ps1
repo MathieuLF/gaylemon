@@ -461,7 +461,9 @@ function Get-DataProbe {
         [string]$Path,
         [int]$MaxAgeSeconds,
         $NowUtc,
-        [switch]$PreferFileTimestamp
+        [switch]$PreferFileTimestamp,
+        [string]$FreshnessPath = "",
+        [string[]]$FreshnessProperties = @()
     )
 
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -483,7 +485,20 @@ function Get-DataProbe {
     if (-not $contentUpdatedValue) { $contentUpdatedValue = $payload.generatedAt }
     if (-not $contentUpdatedValue) { $contentUpdatedValue = $payload.checkedAt }
     $contentUpdatedAt = Convert-ToDate $contentUpdatedValue
-    $updatedAt = if ($PreferFileTimestamp) { [DateTimeOffset]$item.LastWriteTimeUtc } else { $contentUpdatedAt }
+
+    $freshnessUpdatedAt = $null
+    if ($FreshnessPath -and (Test-Path -LiteralPath $FreshnessPath)) {
+        $freshnessPayload = $null
+        try { $freshnessPayload = Get-Content -Raw -Encoding UTF8 -LiteralPath $FreshnessPath | ConvertFrom-Json } catch { }
+        foreach ($property in @($FreshnessProperties | Where-Object { $_ })) {
+            if ($freshnessPayload -and $freshnessPayload.PSObject.Properties.Name -contains $property) {
+                $freshnessUpdatedAt = Convert-ToDate $freshnessPayload.$property
+                if ($freshnessUpdatedAt) { break }
+            }
+        }
+    }
+
+    $updatedAt = if ($PreferFileTimestamp) { [DateTimeOffset]$item.LastWriteTimeUtc } elseif ($freshnessUpdatedAt) { $freshnessUpdatedAt } else { $contentUpdatedAt }
     if (-not $updatedAt) { $updatedAt = [DateTimeOffset]$item.LastWriteTimeUtc }
     $ageSeconds = [int][Math]::Round(($NowUtc - $updatedAt.ToUniversalTime()).TotalSeconds, 0)
     if ($ageSeconds -lt 0) { $ageSeconds = 0 }
@@ -496,6 +511,7 @@ function Get-DataProbe {
         updatedAt = $updatedAt.ToString("o")
         contentUpdatedAt = if ($contentUpdatedAt) { $contentUpdatedAt.ToString("o") } else { $null }
         fileUpdatedAt = ([DateTimeOffset]$item.LastWriteTimeUtc).ToString("o")
+        syncUpdatedAt = if ($freshnessUpdatedAt) { $freshnessUpdatedAt.ToString("o") } else { $null }
         ageSeconds = $ageSeconds
         maxAgeSeconds = $MaxAgeSeconds
         ok = $payloadOk
@@ -639,6 +655,7 @@ $publicMetricMaxAgeSeconds = [Math]::Max(90, $config.MetricIntervalSeconds * 4)
 $publicRecentEventsMaxAgeSeconds = [Math]::Max(120, $config.EventSyncIntervalSeconds * 6)
 $publicFullEventsMaxAgeSeconds = 30 * 60
 $publicDiagnosticsMaxAgeSeconds = 26 * 60 * 60
+$eventSyncStatePath = Join-Path $DataDirectory "public-events-sync-state.json"
 $dataChecks = @(
     Get-DataProbe -Name "metrics" -Path (Join-Path $DataDirectory "public-metrics.json") -MaxAgeSeconds $publicMetricMaxAgeSeconds -NowUtc $nowUtc
     Get-DataProbe -Name "stats" -Path (Join-Path $DataDirectory "public-stats.json") -MaxAgeSeconds 900 -NowUtc $nowUtc
@@ -648,8 +665,8 @@ $dataChecks = @(
     Get-DataProbe -Name "saveSnapshot" -Path (Join-Path $DataDirectory "public-save-snapshot.json") -MaxAgeSeconds 900 -NowUtc $nowUtc -PreferFileTimestamp
     Get-DataProbe -Name "saveBases" -Path (Join-Path $DataDirectory "public-save-bases.json") -MaxAgeSeconds 900 -NowUtc $nowUtc -PreferFileTimestamp
     Get-DataProbe -Name "saveDiagnostics" -Path (Join-Path $DataDirectory "public-save-diagnostics.json") -MaxAgeSeconds $publicDiagnosticsMaxAgeSeconds -NowUtc $nowUtc -PreferFileTimestamp
-    Get-DataProbe -Name "events" -Path (Join-Path $DataDirectory "public-events.json") -MaxAgeSeconds $publicFullEventsMaxAgeSeconds -NowUtc $nowUtc
-    Get-DataProbe -Name "recentEvents" -Path (Join-Path $DataDirectory "public-events-recent.json") -MaxAgeSeconds $publicRecentEventsMaxAgeSeconds -NowUtc $nowUtc
+    Get-DataProbe -Name "events" -Path (Join-Path $DataDirectory "public-events.json") -MaxAgeSeconds $publicFullEventsMaxAgeSeconds -NowUtc $nowUtc -FreshnessPath $eventSyncStatePath -FreshnessProperties @("fullSyncedAt", "syncedAt")
+    Get-DataProbe -Name "recentEvents" -Path (Join-Path $DataDirectory "public-events-recent.json") -MaxAgeSeconds $publicRecentEventsMaxAgeSeconds -NowUtc $nowUtc -FreshnessPath $eventSyncStatePath -FreshnessProperties @("fastSyncedAt", "syncedAt")
 )
 $badChecks = @($dataChecks | Where-Object { $_.status -ne "fresh" })
 $availabilityStatus = if ($currentAvailability -eq "down") { "down" } elseif ($badChecks.Count -gt 0 -or $currentAvailability -ne "up") { "degraded" } else { "up" }

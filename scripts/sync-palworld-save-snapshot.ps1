@@ -16,6 +16,7 @@ param(
     [int]$DiagnosticsRefreshAnchorHour = 1,
     [int]$DiagnosticsRefreshWindowMinutes = 15,
     [switch]$ForceDiagnostics,
+    [switch]$TreatRemoteStageFailureAsNoop,
     [ValidateSet("", "AfterStage", "AfterFirstPublish")]
     [string]$TestFailurePoint = "",
     [int]$TestHoldLockMilliseconds = 0,
@@ -274,6 +275,7 @@ printf '%s\n' "$stage"
         Replace('__BASES__', (ConvertTo-PosixShellLiteral -Value $BasesPath)).
         Replace('__DIAGNOSTICS__', (ConvertTo-PosixShellLiteral -Value $DiagnosticsPath)).
         Replace('__CATALOGS__', (ConvertTo-PosixShellLiteral -Value $CatalogsManifestPath))
+    $command = $command -replace "`r`n?", "`n"
 
     $raw = & $SshExecutable -n -T -o BatchMode=yes -o ConnectTimeout=8 $config.SshAlias $command 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -396,16 +398,17 @@ function Assert-SaveSourceBundle {
         [string](Get-OptionalProperty $Bases "generationId"),
         [string](Get-OptionalProperty $Diagnostics "generationId")
     )
+    $presentGenerationIds = @($sourceGenerationIds | Where-Object { $_ })
     if (
-        (@($sourceGenerationIds | Where-Object { $_ -notmatch '^[A-Za-z0-9._-]+$' }).Count -gt 0) -or
-        (@($sourceGenerationIds | Sort-Object -Unique).Count -ne 1) -or
-        $sourceGenerationIds[0] -ne $expectedGenerationId
+        (@($presentGenerationIds | Where-Object { $_ -notmatch '^[A-Za-z0-9._-]+$' }).Count -gt 0) -or
+        (@($presentGenerationIds | Sort-Object -Unique).Count -gt 1) -or
+        ($presentGenerationIds.Count -gt 0 -and $presentGenerationIds[0] -ne $expectedGenerationId)
     ) {
         throw "Les artefacts distants ne portent pas la même identité de génération publique."
     }
 
     return [pscustomobject]@{
-        generationId = $sourceGenerationIds[0]
+        generationId = $expectedGenerationId
         backup = $snapshotBackup
         sourceUpdatedAt = $snapshotInstant
         parserCommit = $snapshotParser
@@ -1203,11 +1206,20 @@ if ($SourceBundlePath) {
     $sourceCatalogsManifest = Get-OptionalProperty $sourceBundle "catalogsManifest"
 }
 else {
-    $remoteStagePath = New-RemoteSaveSourceStage `
-        -SnapshotPath $RemoteSnapshotPath `
-        -BasesPath $RemoteBasesPath `
-        -DiagnosticsPath $RemoteDiagnosticsPath `
-        -CatalogsManifestPath $RemoteCatalogsManifestPath
+    try {
+        $remoteStagePath = New-RemoteSaveSourceStage `
+            -SnapshotPath $RemoteSnapshotPath `
+            -BasesPath $RemoteBasesPath `
+            -DiagnosticsPath $RemoteDiagnosticsPath `
+            -CatalogsManifestPath $RemoteCatalogsManifestPath
+    }
+    catch {
+        if ($TreatRemoteStageFailureAsNoop) {
+            Write-Host "Snapshot public différé: $($_.Exception.Message)"
+            return
+        }
+        throw
+    }
     try {
         $source = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-snapshot.json"
         $sourceBases = Read-RemoteJson -RemotePath "$remoteStagePath/public-save-bases.json"

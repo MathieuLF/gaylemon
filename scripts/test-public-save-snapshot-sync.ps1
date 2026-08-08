@@ -65,7 +65,8 @@ function New-SourceBundle {
     param(
         [Parameter(Mandatory)] [string]$Backup,
         [Parameter(Mandatory)] [string]$SourceUpdatedAt,
-        [string]$ParserCommit = "snapshot-test-commit"
+        [string]$ParserCommit = "snapshot-test-commit",
+        [switch]$OmitGenerationId
     )
 
     $snapshot = Get-Content -LiteralPath $snapshotExample -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -86,7 +87,12 @@ function New-SourceBundle {
         sourceStatus = "available"
     }
     $snapshot.updatedAt = $SourceUpdatedAt
-    $snapshot | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
+    if ($OmitGenerationId) {
+        $snapshot.PSObject.Properties.Remove("generationId")
+    }
+    else {
+        $snapshot | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
+    }
     $snapshot.source.backup = $Backup
     $snapshot.parser.commit = $ParserCommit
     $snapshot.projection.version = 4
@@ -102,13 +108,23 @@ function New-SourceBundle {
     $snapshot | Add-Member -NotePropertyName provenance -NotePropertyValue (Copy-JsonValue $provenance) -Force
 
     $bases.updatedAt = $SourceUpdatedAt
-    $bases | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
+    if ($OmitGenerationId) {
+        $bases.PSObject.Properties.Remove("generationId")
+    }
+    else {
+        $bases | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
+    }
     $bases.parser.commit = $ParserCommit
     $bases | Add-Member -NotePropertyName source -NotePropertyValue (Copy-JsonValue $snapshot.source) -Force
     $bases | Add-Member -NotePropertyName provenance -NotePropertyValue (Copy-JsonValue $provenance) -Force
 
     $diagnostics.updatedAt = $diagnosticsAt
-    $diagnostics | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
+    if ($OmitGenerationId) {
+        $diagnostics.PSObject.Properties.Remove("generationId")
+    }
+    else {
+        $diagnostics | Add-Member -NotePropertyName generationId -NotePropertyValue $generationId -Force
+    }
     $diagnostics.parser.commit = $ParserCommit
     $diagnostics.save | Add-Member -NotePropertyName backupName -NotePropertyValue $Backup -Force
     $diagnosticsProvenance = Copy-JsonValue $provenance
@@ -234,6 +250,16 @@ try {
     $playerPayload = Get-Content -LiteralPath (Join-Path $dataRoot "players\aventuriere.json") -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert-True ($playerPayload.generationId -eq $primary[0].generationId) "La fiche joueur ne suit pas la génération principale."
     $firstGeneration = [string]$primary[0].generationId
+
+    $legacyBundlePath = Join-Path $tempRoot "bundle-legacy-no-generation.json"
+    $legacyBundle = New-SourceBundle -Backup "2026.07.18-18.40.00" -SourceUpdatedAt "2026-07-18T18:40:20-04:00" -OmitGenerationId
+    Write-TestJson -Path $legacyBundlePath -Value $legacyBundle
+    Invoke-TestSync -BundlePath $legacyBundlePath
+    $legacyPrimary = @($primaryPaths | ForEach-Object { Get-Content -LiteralPath $_ -Raw -Encoding UTF8 | ConvertFrom-Json })
+    $expectedLegacyGeneration = Get-TestPublicSaveGenerationId -Backup "2026.07.18-18.40.00" -SourceUpdatedAt "2026-07-18T18:40:20-04:00" -ParserCommit "snapshot-test-commit" -ProjectionVersion 4
+    Assert-True ((@($legacyPrimary.generationId | Sort-Object -Unique)).Count -eq 1) "La génération héritée sans identifiant distant est incohérente."
+    Assert-True ($legacyPrimary[0].generationId -eq $expectedLegacyGeneration) "La génération héritée n'a pas reçu l'identité locale attendue."
+
     $beforeMismatch = Get-PublicGenerationSnapshot -Root (Join-Path $tempRoot "site")
 
     $mismatchedBundle = Copy-JsonValue $firstBundle

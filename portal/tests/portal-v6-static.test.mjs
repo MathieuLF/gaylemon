@@ -313,6 +313,8 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.doesNotMatch(terminal, /nouveaux échos|ajouts dans le journal/i);
   assert.match(terminal, /aria-live="off"/);
   assert.match(resume, /id="daily-today"/);
+  assert.match(resume, /Rythme des échos/);
+  assert.match(resume, /joueurs visibles, actions résumées/);
   assert.doesNotMatch(carte, /id="map-activity-toggle"/);
   assert.doesNotMatch(carte, /id="map-storage-toggle"/);
   assert.doesNotMatch(carte, /id="map-alert-toggle"/);
@@ -328,6 +330,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.doesNotMatch(app, /Attribution déduite/);
   assert.match(app, /settings: \{ label: "Règles du monde"/);
   assert.match(app, /presenceAvailable: false/);
+  assert.match(app, /dailyRepresentedEventCount/);
+  assert.match(app, /Actions résumées/);
+  assert.match(app, /Joueurs du journal/);
+  assert.match(app, /Faits notables/);
   assert.doesNotMatch(app, /params\.get\("jour"\) \?\? saved\.day/);
   assert.doesNotMatch(app, /params\.set\("jour"/);
   assert.match(app, /CommonDropItem3D/);
@@ -342,6 +348,8 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /rawPublicFields/);
   assert.doesNotMatch(app, /globalMapPoiMeta/);
   assert.match(app, /dailyConsolidatedPalFinds/);
+  assert.match(styles, /\.daily-brief__list/);
+  assert.match(styles, /\.daily-type-strip/);
   assert.match(app, /loadPortalFreshnessSources/);
   assert.match(app, /Get-V6PalRowsFromEvent|dailyCaptureEntries/);
   assert.match(app, /data: \{/);
@@ -480,6 +488,7 @@ test("les événements compilés rendent leur tranche sans répétition", async 
 
 test("la fraîcheur traduit les états publics sans effacer la dernière donnée utile", async () => {
   const app = await portalFile("assets/app.js");
+  const uptimeExporter = await readFile(new URL("../../scripts/export-palworld-uptime.ps1", import.meta.url), "utf8");
   const state = extractFunction(app, "sourceHealthState");
   const statsRenderer = app.slice(app.indexOf("function renderStats"), app.indexOf("function playerInitials"));
   const uptimeLoader = app.slice(app.indexOf("async function loadUptime"), app.indexOf("async function readUptimePayload"));
@@ -502,6 +511,8 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   assert.match(app, /registerDataUpdate\(\s*"bases"/);
   assert.match(app, /"base indexée", "bases indexées"/);
   assert.match(app, /data\/public-availability\.json/);
+  assert.match(uptimeExporter, /public-events-sync-state\.json/);
+  assert.match(uptimeExporter, /-FreshnessPath \$eventSyncStatePath/);
 });
 
 test("le terminal v6 ne limite pas les filtres à la tête courte", async () => {
@@ -545,6 +556,7 @@ test("les snapshots publics refusent les mélanges de générations", async () =
     const previousFull = { ok: true, generationId: "save-generation-precedente", players: [{ name: "Aventurière" }] };
     assert.equal(generationId(current), current.generationId);
     assert.equal(generationId({ ok: true, generationId: "../../invalide" }), "");
+    assert.equal(generationId({ ok: true, updatedAt: "07/24/2026 08:19:12" }), "legacy-07-24-2026-08-19-12");
     assert.equal(isValid(current, current.generationId), true);
     assert.equal(isValid(current, "save-autre-generation"), false);
     assert.equal(isValid({ ok: true }, current.generationId), false);
@@ -643,7 +655,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260724\.1/);
-    assert.match(html, /app\.js\?v=20260724\.1/);
+    assert.match(html, /styles\.css\?v=20260726\.1/);
+    assert.match(html, /app\.js\?v=20260726\.1/);
   }
 });
