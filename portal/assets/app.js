@@ -1370,7 +1370,15 @@ function formatParsingWarningsNote(parse) {
 
 function publicSaveGenerationId(payload) {
   const generationId = String(payload?.generationId || "");
-  return /^[A-Za-z0-9._-]+$/.test(generationId) ? generationId : "";
+  if (/^[A-Za-z0-9._-]+$/.test(generationId)) return generationId;
+
+  const legacySource = String(payload?.provenance?.sourceUpdatedAt || payload?.updatedAt || "").trim();
+  const normalizedLegacyKey = legacySource
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalizedLegacyKey ? `legacy-${normalizedLegacyKey}` : "";
 }
 
 function activeSaveGenerationId() {
@@ -5656,6 +5664,13 @@ function createDailyPlayerSummary(player) {
   };
 }
 
+function dailyRepresentedEventCount(summary) {
+  const totals = summary?.totals || summary || {};
+  const represented = Number(totals.representedEvents || 0);
+  const events = Number(totals.eventCount || 0);
+  return represented > 0 ? represented : events;
+}
+
 function applyDailyPresence(player, dateKey) {
   const sessions = (player.sessionHistory || [])
     .map((session) => dailySessionOverlap(session, dateKey))
@@ -5868,7 +5883,13 @@ function renderDailyBrief(summary) {
   const factTotal = dailyFactTotal(summary.totals);
   const lead = summary.presenceAvailable === false
     ? (summary.totals.eventCount
-      ? `${dailyPlural(summary.totals.activePlayers, "aventurier visible", "aventuriers visibles")} · ${dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus")}`
+      ? [
+        dailyPlural(summary.totals.activePlayers, "aventurier visible", "aventuriers visibles"),
+        dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus"),
+        dailyRepresentedEventCount(summary) > Number(summary.totals.eventCount || 0)
+          ? dailyPlural(dailyRepresentedEventCount(summary), "action résumée", "actions résumées")
+          : "",
+      ].filter(Boolean).join(" · ")
       : "Aucun moment publié pour cette journée.")
     : (summary.totals.eventCount || summary.totals.presenceSessions
       ? `${dailyPlural(summary.totals.activePlayers, "joueur actif", "joueurs actifs")} · ${dailyPlural(summary.totals.eventCount, "moment retenu", "moments retenus")}`
@@ -5951,7 +5972,7 @@ function renderDailyTypes(summary) {
       <ol class="daily-item-list">
         ${group.rows.length ? group.rows.map((row) => `
           <li data-tooltip="${escapeHtml(`${row.name}: ${dailyAggregateQuantityLabel(row)} · ${dailyAggregatePlayersLabel(row, 3)}`)}">
-            ${row.icon ? gameImage(row.icon, row.name, "daily-item-icon") : `<span class="daily-item-icon daily-item-icon--empty">${escapeHtml(playerInitials(row.name))}</span>`}
+            ${row.icon ? gameImage(row.icon, "", "daily-item-icon") : `<span class="daily-item-icon daily-item-icon--empty">${escapeHtml(playerInitials(row.name))}</span>`}
             <span><b>${escapeHtml(row.name)}</b><small>${escapeHtml(`${dailyAggregateShortKind(row)} · ${dailyAggregatePlayersLabel(row, 2)}`)}</small></span>
             <strong>${formatInteger(row.quantity)}</strong>
           </li>`).join("") : `<li class="daily-item-list__empty">${escapeHtml(group.empty)}</li>`}
@@ -6214,15 +6235,28 @@ function renderDailyDigest(summary) {
   }
   const palSignals = dailyPalSignalTotal(summary);
   const factTotal = dailyFactTotal(totals);
+  const presenceAvailable = summary.presenceAvailable !== false;
+  const representedEvents = dailyRepresentedEventCount(summary);
+  const derivedEchoes = Number(totals.derivedEchoes || 0);
+  const playerMetricLabel = presenceAvailable ? "Joueurs actifs" : "Joueurs du journal";
+  const playerMetricDetail = presenceAvailable
+    ? (totals.presenceSessions ? dailyPlural(totals.presenceSessions, "session observée", "sessions observées") : "Présence non mesurée")
+    : "avec au moins un moment publié";
+  const playerMetricTooltip = presenceAvailable
+    ? "Joueurs avec activité visible pendant la journée."
+    : "Joueurs présents dans les échos publics de la journée.";
+  const activityMetric = presenceAvailable
+    ? renderDailyMetric("Temps en jeu", totals.onlineSeconds ? formatCompactDuration(totals.onlineSeconds) : "--", totals.presenceSessions ? "présence suivie" : "présence non mesurée", "presence", "Temps de présence observé pendant la journée.")
+    : renderDailyMetric("Actions résumées", formatInteger(representedEvents), derivedEchoes ? dailyPlural(derivedEchoes, "écho rattaché à la guilde", "échos rattachés à la guilde") : "actions proches regroupées", "events", "Actions publiques représentées par les échos de la journée.");
   dailyMetrics.innerHTML = [
-    renderDailyMetric("Joueurs actifs", formatInteger(totals.activePlayers), totals.presenceSessions ? dailyPlural(totals.presenceSessions, "session observée", "sessions observées") : "Présence non mesurée", "players", "Joueurs avec activité visible pendant la journée."),
-    renderDailyMetric("Temps en jeu", totals.onlineSeconds ? formatCompactDuration(totals.onlineSeconds) : "--", totals.presenceSessions ? "présence suivie" : "présence non mesurée", "presence", "Temps de présence observé pendant la journée."),
+    renderDailyMetric(playerMetricLabel, formatInteger(totals.activePlayers), playerMetricDetail, "players", playerMetricTooltip),
+    activityMetric,
     renderDailyMetric("Fabrications", formatInteger(totals.craft), totals.craft ? "objets assemblés pendant la journée" : "aucune fabrication", "craft", "Somme des quantités ajoutées par les fabrications du jour."),
     renderDailyMetric("Productions", formatInteger(totals.production), totals.production ? "ressources prêtes pendant la journée" : "aucune production", "production", "Somme des ressources prêtes dans les productions du jour."),
     renderDailyMetric("Pals", formatInteger(totals.capture + totals.collection), `${dailyPlural(totals.capture, "capture Paldex", "captures Paldex")} · ${dailyPlural(totals.collection, "ajout en collection", "ajouts en collection")}`, "capture", `${dailyPlural(totals.capture, "capture Paldex", "captures Paldex")} + ${dailyPlural(totals.collection, "Pal ajouté en collection", "Pals ajoutés en collection")}.`),
     renderDailyMetric("Niveaux", formatInteger(totals.levelUps), totals.levelUps ? "progression des joueurs actifs" : "aucune montée", "level", "Montées de niveau pendant la journée."),
     renderDailyMetric("Bases", formatInteger(dailyTotalStructures(totals)), dailyStructureDetail(totals), "base", "Structures ajoutées et réparations dans les bases."),
-    renderDailyMetric("Moments", formatInteger(factTotal), dailyOtherFactsDetail(totals), "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres moments moins routiniers."),
+    renderDailyMetric("Faits notables", formatInteger(factTotal), dailyOtherFactsDetail(totals), "rare", "Boss, découvertes, défis, mutations, notes, pêche et autres moments moins routiniers."),
   ].join("");
   if (dailyBrief) dailyBrief.innerHTML = renderDailyBrief(summary);
   if (dailyHourly) dailyHourly.innerHTML = renderDailyHourly(summary);
@@ -6311,6 +6345,9 @@ function normalizeDailyV6Digest(payload) {
       presenceSessions: 0,
       ...metricDefaults,
       ...digest.totals,
+      representedEvents: Number(payload.counts?.representedEvents || digest.totals.representedEvents || digest.totals.eventCount || payload.counts?.echoes || 0),
+      confirmedEchoes: Number(payload.counts?.confirmedEchoes || digest.totals.confirmedEchoes || 0),
+      derivedEchoes: Number(payload.counts?.derivedEchoes || digest.totals.derivedEchoes || 0),
     },
     typeCounts: dailyV6Map(digest.typeCounts || digest.types || payload.types),
     craftedItems: dailyV6Map(digest.craftedItems),

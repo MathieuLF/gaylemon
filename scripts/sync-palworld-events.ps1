@@ -13,7 +13,8 @@ param(
     [int]$TestHoldLockMilliseconds = 0,
     [switch]$Fast,
     [switch]$Force,
-    [switch]$RequestRemoteBackfill
+    [switch]$RequestRemoteBackfill,
+    [switch]$TreatRemoteBackfillRequestAsNoop
 )
 
 $ErrorActionPreference = "Stop"
@@ -3191,7 +3192,12 @@ if ($RequestRemoteBackfill -or $remoteProjectionRequiresReprojection) {
         fastSyncedAt = if ($Fast) { (Get-Date).ToString("o") } elseif ($syncState) { [string](Get-StateValue $syncState "fastSyncedAt") } else { $null }
         fullSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "fullSyncedAt") } else { $null }
     })
-    throw "La projection publique distante exige une reprojection complète ($reason); un rattrapage complet vient d'être demandé."
+    $message = "La projection publique distante exige une reprojection complète ($reason); un rattrapage complet vient d'être demandé."
+    if ($TreatRemoteBackfillRequestAsNoop) {
+        Write-Host $message
+        return
+    }
+    throw $message
 }
 $hotWindowCoversFullProbeGap = [bool](
     $remoteRecentProbeForCompleteness -and
@@ -3237,7 +3243,12 @@ if ($fullProbeBehindRecent) {
         fastSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "fastSyncedAt") } else { $null }
         fullSyncedAt = if ($syncState) { [string](Get-StateValue $syncState "fullSyncedAt") } else { $null }
     })
-    throw "L'export complet distant est en retard sur la tête des échos; un rattrapage complet vient d'être demandé."
+    $message = "L'export complet distant est en retard sur la tête des échos; un rattrapage complet vient d'être demandé."
+    if ($TreatRemoteBackfillRequestAsNoop) {
+        Write-Host $message
+        return
+    }
+    throw $message
 }
 $stateProjectionRevision = if ($Fast) {
     Get-ProjectionRevision -Payload ([ordered]@{ projectionRevision = Get-StateValue $syncState "recentProjectionRevision" })

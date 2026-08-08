@@ -163,6 +163,116 @@
       "restartPolicy": "none"
     },
     {
+      "source": "server/build/gaylemon",
+      "destination": "/usr/local/bin/gaylemon",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "binary",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/sbin/gaylemon-admin",
+      "destination": "/usr/local/sbin/gaylemon-admin",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-agent.service",
+      "destination": "/etc/systemd/system/gaylemon-agent.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-collect-metrics.service",
+      "destination": "/etc/systemd/system/gaylemon-collect-metrics.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-collect-metrics.timer",
+      "destination": "/etc/systemd/system/gaylemon-collect-metrics.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-collect-stats.service",
+      "destination": "/etc/systemd/system/gaylemon-collect-stats.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-collect-stats.timer",
+      "destination": "/etc/systemd/system/gaylemon-collect-stats.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-publish-events.service",
+      "destination": "/etc/systemd/system/gaylemon-publish-events.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-publish-events.timer",
+      "destination": "/etc/systemd/system/gaylemon-publish-events.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-publish-snapshot.service",
+      "destination": "/etc/systemd/system/gaylemon-publish-snapshot.service",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/systemd/gaylemon-publish-snapshot.timer",
+      "destination": "/etc/systemd/system/gaylemon-publish-snapshot.timer",
+      "owner": "root",
+      "group": "root",
+      "mode": "0644",
+      "validation": "systemd",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
       "source": "server/systemd/cloudflare-update-dns.service",
       "destination": "/etc/systemd/system/cloudflare-update-dns.service",
       "owner": "root",
@@ -355,6 +465,26 @@
     {
       "source": "server/sudoers/gaylemon-deploy",
       "destination": "/etc/sudoers.d/gaylemon-deploy",
+      "owner": "root",
+      "group": "root",
+      "mode": "0440",
+      "validation": "sudoers",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/sudoers/gaylemon-admin",
+      "destination": "/etc/sudoers.d/gaylemon-admin",
+      "owner": "root",
+      "group": "root",
+      "mode": "0440",
+      "validation": "sudoers",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/sudoers/gaylemon-public-collector",
+      "destination": "/etc/sudoers.d/gaylemon-public-collector",
       "owner": "root",
       "group": "root",
       "mode": "0440",

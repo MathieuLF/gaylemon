@@ -38,7 +38,16 @@ main() {
 
   export SteamAppId=2394010
   cd "$GAME_DIR"
-  exec ./PalServer.sh ${PALWORLD_ARGS:--port=8211 -useperfthreads -NoAsyncLoadingThread -UseMultithreadForDS -logformat=text}
+
+  args="${PALWORLD_ARGS:--port=8211 -logformat=text}"
+  for performance_arg in -useperfthreads -NoAsyncLoadingThread -UseMultithreadForDS; do
+    case " $args " in
+      *" $performance_arg "*) ;;
+      *) args="$args $performance_arg" ;;
+    esac
+  done
+
+  exec ./PalServer.sh $args
 }
 
 main "$@"

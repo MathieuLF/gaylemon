@@ -29,13 +29,15 @@ if ($RepertoireDistant -notmatch '^/tmp/[A-Za-z0-9._/-]+$' -or $RepertoireDistan
     throw "Le répertoire distant doit rester sous /tmp et ne peut pas contenir '..'."
 }
 foreach ($unit in $RestartUnit) {
-    if ($unit -notmatch '^(palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(service|timer)$') {
+    if ($unit -notmatch '^(palworld|gaylemon|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(service|timer)$') {
         throw "Unité systemd non autorisée: $unit"
     }
 }
 if ($RestartUnit -contains "palworld.service" -and -not $AllowPalworldRestart) {
     throw "Le redémarrage de palworld.service exige -AllowPalworldRestart."
 }
+
+[void](Build-GaylemonLinuxAgent -ProjectRoot $ProjectRoot)
 
 $manifest = Get-GaylemonDeploymentManifest -ProjectRoot $ProjectRoot -Config $config
 $serverRoot = Join-Path $ProjectRoot "server"

@@ -23,6 +23,9 @@ if ($UpdateTimeoutSeconds -le 0) { $UpdateTimeoutSeconds = $config.MetricUpdateT
 if ($SaveSnapshotSyncIntervalSeconds -le 0) { $SaveSnapshotSyncIntervalSeconds = $config.SaveSnapshotSyncIntervalSeconds }
 if ($SaveSnapshotSyncTimeoutSeconds -le 0) { $SaveSnapshotSyncTimeoutSeconds = $config.SaveSnapshotSyncTimeoutSeconds }
 if (-not $PublicUrl) { $PublicUrl = $config.MicrositePublicUrl }
+$MetricIntervalSeconds = [Math]::Max(30, $MetricIntervalSeconds)
+$EventSyncIntervalSeconds = [Math]::Max(60, $EventSyncIntervalSeconds)
+$SaveSnapshotSyncIntervalSeconds = [Math]::Max(300, $SaveSnapshotSyncIntervalSeconds)
 $dataDirectory = Join-Path $ProjectRoot "portal\data"
 $originUrl = "http://127.0.0.1:$Port/"
 
@@ -162,43 +165,32 @@ function Get-ActiveWatcherProcess {
         Select-Object -First 1
 }
 
-& (Join-Path $PSScriptRoot "update-microsite-metrics.ps1") | Out-Null
-
-try {
-    & (Join-Path $PSScriptRoot "verify-microsite-recovery.ps1") -Trigger microsite-startup | Out-Null
-}
-catch {
-    Write-Warning "L'audit de reprise initial sera retenté par le watcher: $($_.Exception.Message)"
-    try {
-        & (Join-Path $PSScriptRoot "sync-palworld-save-snapshot.ps1") | Out-Null
-        Write-Host "Snapshot joueurs resynchronisé après l'audit de reprise incomplet."
-    }
-    catch {
-        Write-Warning "Snapshot joueurs non resynchronisé au démarrage: $($_.Exception.Message)"
-    }
-}
+& (Join-Path $PSScriptRoot "update-microsite-metrics.ps1") -FastOnly -SkipEvents | Out-Null
 
 $watcherScript = Join-Path $PSScriptRoot "watch-microsite-metrics.ps1"
 $powerShellHost = Get-PowerShellHost
-Start-Process -FilePath $powerShellHost -ArgumentList @(
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    $watcherScript,
-    "-IntervalSeconds",
-    "$MetricIntervalSeconds",
-    "-EventSyncIntervalSeconds",
-    "$EventSyncIntervalSeconds",
-    "-EventSyncTimeoutSeconds",
-    "$EventSyncTimeoutSeconds",
-    "-SaveSnapshotSyncIntervalSeconds",
-    "$SaveSnapshotSyncIntervalSeconds",
-    "-SaveSnapshotSyncTimeoutSeconds",
-    "$SaveSnapshotSyncTimeoutSeconds",
-    "-UpdateTimeoutSeconds",
-    "$UpdateTimeoutSeconds"
-) -WindowStyle Hidden | Out-Null
+$watcherProcess = Get-ActiveWatcherProcess
+if (-not $watcherProcess) {
+    Start-Process -FilePath $powerShellHost -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $watcherScript,
+        "-IntervalSeconds",
+        "$MetricIntervalSeconds",
+        "-EventSyncIntervalSeconds",
+        "$EventSyncIntervalSeconds",
+        "-EventSyncTimeoutSeconds",
+        "$EventSyncTimeoutSeconds",
+        "-SaveSnapshotSyncIntervalSeconds",
+        "$SaveSnapshotSyncIntervalSeconds",
+        "-SaveSnapshotSyncTimeoutSeconds",
+        "$SaveSnapshotSyncTimeoutSeconds",
+        "-UpdateTimeoutSeconds",
+        "$UpdateTimeoutSeconds"
+    ) -WindowStyle Hidden | Out-Null
+}
 
 Start-Sleep -Milliseconds 500
 $watcherProcess = Get-ActiveWatcherProcess

@@ -1,7 +1,8 @@
 param(
     [switch]$SansDocker,
     [switch]$SansTestsPython,
-    [switch]$SansBash
+    [switch]$SansBash,
+    [switch]$SansGo
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,6 +35,26 @@ function Add-Warning {
 Write-Host "Validation locale du depot Gaylemon" -ForegroundColor Cyan
 Write-Host "Aucun service distant ou conteneur actif ne sera modifie." -ForegroundColor DarkGray
 Write-Host ""
+
+if (-not $SansGo) {
+    $go = Get-Command go -ErrorAction SilentlyContinue
+    if (-not $go) {
+        Write-Result $false "Outil Go disponible" "go est introuvable"
+    }
+    else {
+        $previousGoFlags = $env:GOFLAGS
+        try {
+            $env:GOFLAGS = "-mod=mod"
+            & $go.Source test ./... 2>&1 | Out-Host
+            Write-Result ($LASTEXITCODE -eq 0) "Tests Go"
+            & $go.Source vet ./... 2>&1 | Out-Host
+            Write-Result ($LASTEXITCODE -eq 0) "Analyse Go"
+        }
+        finally {
+            $env:GOFLAGS = $previousGoFlags
+        }
+    }
+}
 
 $requiredFiles = @(
     ".env.example",
@@ -134,7 +155,7 @@ Write-Result (
     $apiTunnelEntrypoint.Contains('*[!A-Za-z0-9._@:-]*')
 ) "Tunnel API Docker durci"
 Write-Result (
-    $botEnvExample -match '(?m)^GAYLEMON_PUBLIC_BASE_URL=https://gaylemon\.mathieu\.pro/?$' -and
+    $botEnvExample -match '(?m)^GAYLEMON_PUBLIC_BASE_URL=https://gaylemon\.nethercore\.dev/?$' -and
     $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_URL=$' -and
     $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_USERNAME=$' -and
     $botEnvExample -match '(?m)^BOT_PALWORLD_REST_API_PASSWORD=$'
@@ -342,11 +363,12 @@ Write-Result ($jsonErrors.Count -eq 0) "JSON versionnes" ($jsonErrors -join "; "
 try {
     . (Join-Path $PSScriptRoot "lib\Gaylemon.Config.ps1")
     . (Join-Path $PSScriptRoot "lib\Gaylemon.Deployment.ps1")
+    [void](Build-GaylemonLinuxAgent -ProjectRoot $ProjectRoot)
     $deploymentConfig = Get-GaylemonConfig -ProjectRoot $ProjectRoot
     $deploymentManifest = Get-GaylemonDeploymentManifest -ProjectRoot $ProjectRoot -Config $deploymentConfig
     $mappedSources = @($deploymentManifest.Entries | ForEach-Object Source)
     $deployableSources = @(
-        "bin", "sbin", "systemd", "sysctl", "sudoers" | ForEach-Object {
+        "bin", "build", "sbin", "systemd", "sysctl", "sudoers" | ForEach-Object {
             $directory = Join-Path $ProjectRoot "server\$_"
             Get-ChildItem -LiteralPath $directory -File | ForEach-Object {
                 $_.FullName.Substring($ProjectRoot.Length + 1).Replace("\", "/")
@@ -389,7 +411,7 @@ try {
         $recoverySource -match "RemoteSnapshotPath" -and
         $recoverySource -match "public-save-snapshot\.json" -and
         $recoverySource -match "remoteSnapshotSource" -and
-        $recoverySource -match "provenance\.sourceUpdatedAt"
+        $recoverySource -match 'Get-JsonProperty.+sourceUpdatedAt'
     ) "Audit de reprise des fiches joueurs" "le snapshot Ubuntu doit être comparé directement au snapshot local"
 
     Write-Result (
@@ -535,7 +557,19 @@ if ($git) {
                 Where-Object { $_.Extension -in @(".yml", ".yaml") }
         }
     )
-    Write-Result ($workflowFiles.Count -eq 0) "Validation GitHub automatique désactivée" (($workflowFiles | ForEach-Object Name) -join ", ")
+    $validationWorkflow = Join-Path $workflowDirectory "validation.yml"
+    $validationWorkflowSource = if (Test-Path -LiteralPath $validationWorkflow) {
+        Get-Content -LiteralPath $validationWorkflow -Raw -Encoding UTF8
+    }
+    else { "" }
+    Write-Result (
+        $workflowFiles.Count -eq 1 -and
+        (Split-Path -Leaf $workflowFiles[0].FullName) -eq "validation.yml" -and
+        $validationWorkflowSource.Contains("go test ./...") -and
+        $validationWorkflowSource.Contains("postgres:16-alpine") -and
+        $validationWorkflowSource.Contains("docker build --tag gaylemon-web:validation .") -and
+        $validationWorkflowSource -notmatch '(?m)^\s*(deploy|environment):'
+    ) "Validation GitHub bornée aux tests et au build" (($workflowFiles | ForEach-Object Name) -join ", ")
     $versionedCmdFiles = @($publishable | Where-Object { $_ -like "*.cmd" })
     Write-Result ($versionedCmdFiles.Count -eq 0) "Aucun lanceur CMD versionné" ($versionedCmdFiles -join ", ")
     $forbidden = @($publishable | Where-Object {

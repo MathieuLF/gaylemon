@@ -101,7 +101,7 @@ Le conteneur `gaylemon-microsite` sert les exports publics filtrés. Les fichier
 URL publique:
 
 ```text
-https://gaylemon.mathieu.pro/
+https://gaylemon.nethercore.dev/
 ```
 
 Origine locale:
