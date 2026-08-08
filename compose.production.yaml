@@ -1,39 +1,12 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: gaylemon
-      POSTGRES_USER: gaylemon
-      POSTGRES_PASSWORD: ${GAYLEMON_DB_PASSWORD:?GAYLEMON_DB_PASSWORD requis}
-    volumes:
-      - gaylemon-postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gaylemon -d gaylemon"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - private
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "1.00"
-        reservations:
-          memory: 256M
-
   web:
     build:
       context: .
       args:
         GAYLEMON_VERSION: ${GAYLEMON_VERSION:-dev}
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      GAYLEMON_DATABASE_URL: postgresql://gaylemon:${GAYLEMON_DB_PASSWORD}@postgres:5432/gaylemon?sslmode=disable
+      GAYLEMON_DATABASE_URL: ${GAYLEMON_DATABASE_URL:?GAYLEMON_DATABASE_URL requis}
       GAYLEMON_AGENT_PUBLIC_KEYS: ${GAYLEMON_AGENT_PUBLIC_KEYS:?GAYLEMON_AGENT_PUBLIC_KEYS requis}
       GAYLEMON_PUBLIC_BASE_URL: https://gaylemon.nethercore.dev
       GAYLEMON_LEGACY_HOSTS: gaylemon.mathieu.pro
@@ -58,9 +31,6 @@ services:
           cpus: "0.50"
         reservations:
           memory: 64M
-
-volumes:
-  gaylemon-postgres:
 
 networks:
   private:
