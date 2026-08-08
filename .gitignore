@@ -16,10 +16,12 @@ output/
 vendor/PalworldSaveTools/
 portal/assets/game/
 runtime/
+server/build/
 config/local/
 .env
 .env.*
 !.env.example
+!.env.production.example
 !*.env.example
 __pycache__/
 *.py[cod]

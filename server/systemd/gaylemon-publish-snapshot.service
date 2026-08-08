@@ -1,0 +1,25 @@
+[Unit]
+Description=Queue privacy-safe Palworld snapshot for publication
+After=palworld-save-snapshot.service
+
+[Service]
+Type=oneshot
+User=gaylemon
+Group=gaylemon
+EnvironmentFile=/etc/gaylemon/agent.env
+Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-snapshot.service/agent.key
+LoadCredential=agent.key:/etc/gaylemon/agent.key
+ExecStart=/usr/local/bin/gaylemon enqueue --source /home/gaylemon/Gaylemon/runtime/public-save-snapshot.json --prefix data/public-save-snapshot.json --stream snapshot
+ExecStart=/usr/local/bin/gaylemon enqueue --source /home/gaylemon/Gaylemon/runtime/public-save-bases.json --prefix data/public-save-bases.json --stream snapshot
+ExecStart=/usr/local/bin/gaylemon enqueue --source /home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json --prefix data/public-save-diagnostics.json --stream snapshot
+ExecStart=/usr/local/bin/gaylemon enqueue --source /home/gaylemon/Gaylemon/runtime/public-catalogs-manifest.json --prefix data/public-catalogs-manifest.json --stream snapshot
+ExecStart=/usr/local/bin/gaylemon enqueue --source /home/gaylemon/Gaylemon/runtime/public-catalogs --prefix data/public-catalogs --stream snapshot
+Nice=19
+CPUQuota=5%
+MemoryMax=256M
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/home/gaylemon/Gaylemon/runtime
+ReadWritePaths=/var/lib/gaylemon-agent

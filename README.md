@@ -8,6 +8,8 @@ Le principe est simple: Palworld reste stable, les sauvegardes sont lues en lect
 
 ## Ce que contient le dépôt
 
+- `cmd/` et `internal/`: service web Go, agent sortant, API signée et accès PostgreSQL 16.
+- `db/`: migrations PostgreSQL, historique et rétention.
 - `server/`: scripts Ubuntu, unités `systemd`, collecteurs et tests.
 - `scripts/`: console et outils Windows.
 - `portal/`: microsite statique, routes `/`, `/terminal`, `/resume`, `/classements`, `/carte`, `/github` et exemples JSON.
@@ -124,10 +126,11 @@ Le flux des échos est traité comme une donnée chaude: projection canonique pr
 - [Configuration locale](docs/CONFIGURATION-LOCALE.md)
 - [Développement](docs/DEVELOPPEMENT.md)
 - [Déploiement](docs/DEPLOIEMENT.md)
+- [Publication sur la VPS Nethercore](docs/VPS-NETHERCORE.md)
 - [Opérations](docs/OPERATIONS.md)
 - [Bot Discord](docs/BOT-DISCORD.md)
 - [Publication GitHub](docs/PUBLIC-REPOSITORY.md)
-- [Démarche GitHub du microsite](https://gaylemon.mathieu.pro/github)
+- [Démarche GitHub du microsite](https://gaylemon.nethercore.dev/github)
 
 ## Licence
 

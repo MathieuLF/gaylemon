@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       unit="$2"
-      if [[ ! "$unit" =~ ^(palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(service|timer)$ ]]; then
+      if [[ ! "$unit" =~ ^(palworld|gaylemon|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(service|timer)$ ]]; then
         echo "Unite de redemarrage invalide: $unit" >&2
         exit 2
       fi

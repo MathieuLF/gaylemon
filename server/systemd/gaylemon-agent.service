@@ -1,0 +1,45 @@
+[Unit]
+Description=Publish Gaylemon data and receive operations commands
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gaylemon
+Group=gaylemon
+EnvironmentFile=/etc/gaylemon/agent.env
+Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-agent.service/agent.key
+LoadCredential=agent.key:/etc/gaylemon/agent.key
+ExecStart=/usr/local/bin/gaylemon run
+Restart=on-failure
+RestartSec=15s
+Nice=15
+CPUQuota=10%
+CPUWeight=10
+IOWeight=10
+MemoryMax=256M
+MemorySwapMax=0
+UMask=0077
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+ReadWritePaths=/var/lib/gaylemon-agent
+
+[Install]
+WantedBy=multi-user.target

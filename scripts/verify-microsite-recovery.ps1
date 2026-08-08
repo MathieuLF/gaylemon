@@ -2,7 +2,8 @@ param(
     [ValidateSet("manual", "microsite-startup", "watcher-retry")]
     [string]$Trigger = "manual",
     [string]$ReportRoot = (Join-Path $PSScriptRoot "..\runtime\recovery"),
-    [switch]$SkipRepair
+    [switch]$SkipRepair,
+    [switch]$NoThrowOnUnhealthy
 )
 
 $ErrorActionPreference = "Stop"
@@ -144,18 +145,23 @@ function Get-EventRevisionLastId {
 function Get-EventSummaryCount {
     param($Payload)
 
-    if (-not $Payload -or -not $Payload.summary) { return 0L }
-    if ($Payload.summary.PSObject.Properties.Name -contains "totalEchoes" -and $null -ne $Payload.summary.totalEchoes) {
-        return [long]$Payload.summary.totalEchoes
+    $summary = Get-JsonProperty -Object $Payload -Name "summary"
+    if (-not $summary) { return 0L }
+    $totalEchoes = Get-JsonProperty -Object $summary -Name "totalEchoes"
+    if ($null -ne $totalEchoes) {
+        return [long]$totalEchoes
     }
-    if ($Payload.summary.PSObject.Properties.Name -contains "echoes" -and $null -ne $Payload.summary.echoes) {
-        return [long]$Payload.summary.echoes
+    $echoes = Get-JsonProperty -Object $summary -Name "echoes"
+    if ($null -ne $echoes) {
+        return [long]$echoes
     }
-    if ($Payload.summary.PSObject.Properties.Name -contains "totalEvents" -and $null -ne $Payload.summary.totalEvents) {
-        return [long]$Payload.summary.totalEvents
+    $totalEvents = Get-JsonProperty -Object $summary -Name "totalEvents"
+    if ($null -ne $totalEvents) {
+        return [long]$totalEvents
     }
-    if ($Payload.summary.PSObject.Properties.Name -contains "events" -and $null -ne $Payload.summary.events) {
-        return [long]$Payload.summary.events
+    $events = Get-JsonProperty -Object $summary -Name "events"
+    if ($null -ne $events) {
+        return [long]$events
     }
     return 0L
 }
@@ -166,12 +172,14 @@ function Select-FreshestLocalEvents {
         $IndexEvents
     )
 
-    if (-not $IndexEvents -or -not $IndexEvents.summary) {
+    $indexSummary = Get-JsonProperty -Object $IndexEvents -Name "summary"
+    if (-not $IndexEvents -or -not $indexSummary) {
         return $FullEvents
     }
+    $fullSummary = Get-JsonProperty -Object $FullEvents -Name "summary"
 
-    $fullLastAt = Convert-ToDate $FullEvents.summary.lastAt
-    $indexLastAt = Convert-ToDate $IndexEvents.summary.lastAt
+    $fullLastAt = Convert-ToDate (Get-JsonProperty -Object $fullSummary -Name "lastAt")
+    $indexLastAt = Convert-ToDate (Get-JsonProperty -Object $indexSummary -Name "lastAt")
     if ($indexLastAt -and (-not $fullLastAt -or $indexLastAt -gt $fullLastAt)) {
         return $IndexEvents
     }
@@ -225,31 +233,35 @@ function Get-RecoveryState {
 
     $remoteEventCount = Get-EventSummaryCount -Payload $remoteEvents
     $localEventCount = Get-EventSummaryCount -Payload $localEvents
-    $remoteLastEventAt = Convert-ToDate $remoteEvents.summary.lastAt
-    $localLastEventAt = Convert-ToDate $localEvents.summary.lastAt
+    $remoteEventsSummary = Get-JsonProperty -Object $remoteEvents -Name "summary"
+    $localEventsSummary = Get-JsonProperty -Object $localEvents -Name "summary"
+    $remoteLastEventAt = Convert-ToDate (Get-JsonProperty -Object $remoteEventsSummary -Name "lastAt")
+    $localLastEventAt = Convert-ToDate (Get-JsonProperty -Object $localEventsSummary -Name "lastAt")
     $remoteSnapshotSource = "recovery"
     $remoteSnapshotAt = $null
     if ($remoteSnapshot) {
-        $remoteSnapshotAt = Convert-ToDate $remoteSnapshot.provenance.sourceUpdatedAt
+        $remoteSnapshotProvenance = Get-JsonProperty -Object $remoteSnapshot -Name "provenance"
+        $remoteSnapshotAt = Convert-ToDate (Get-JsonProperty -Object $remoteSnapshotProvenance -Name "sourceUpdatedAt")
         if ($null -eq $remoteSnapshotAt) {
-            $remoteSnapshotAt = Convert-ToDate $remoteSnapshot.updatedAt
+            $remoteSnapshotAt = Convert-ToDate (Get-JsonProperty -Object $remoteSnapshot -Name "updatedAt")
         }
         if ($null -ne $remoteSnapshotAt) {
             $remoteSnapshotSource = "public-save-snapshot"
         }
     }
     if ($null -eq $remoteSnapshotAt) {
-        $remoteSnapshotAt = Convert-ToDate $remoteRecovery.currentSnapshotAt
+        $remoteSnapshotAt = Convert-ToDate (Get-JsonProperty -Object $remoteRecovery -Name "currentSnapshotAt")
     }
     if ($null -eq $remoteSnapshotAt) {
-        $remoteSnapshotAt = Convert-ToDate $remoteRecovery.lastSaveAt
+        $remoteSnapshotAt = Convert-ToDate (Get-JsonProperty -Object $remoteRecovery -Name "lastSaveAt")
     }
-    $localSnapshotAt = Convert-ToDate $localSnapshot.provenance.sourceUpdatedAt
+    $localSnapshotProvenance = Get-JsonProperty -Object $localSnapshot -Name "provenance"
+    $localSnapshotAt = Convert-ToDate (Get-JsonProperty -Object $localSnapshotProvenance -Name "sourceUpdatedAt")
     if ($null -eq $localSnapshotAt) {
-        $localSnapshotAt = Convert-ToDate $localSnapshot.updatedAt
+        $localSnapshotAt = Convert-ToDate (Get-JsonProperty -Object $localSnapshot -Name "updatedAt")
     }
-    $remoteRevisionLastId = Get-EventRevisionLastId $remoteEvents.revision
-    $localRevisionLastId = Get-EventRevisionLastId $localEvents.revision
+    $remoteRevisionLastId = Get-EventRevisionLastId (Get-JsonProperty -Object $remoteEvents -Name "revision")
+    $localRevisionLastId = Get-EventRevisionLastId (Get-JsonProperty -Object $localEvents -Name "revision")
     $eventLagSeconds = Get-DateLagSeconds -LocalValue $localLastEventAt -RemoteValue $remoteLastEventAt
     $snapshotLagSeconds = Get-DateLagSeconds -LocalValue $localSnapshotAt -RemoteValue $remoteSnapshotAt
 
@@ -494,5 +506,8 @@ if ($report.availability.status) {
 }
 
 if ($hardFailure) {
+    if ($NoThrowOnUnhealthy) {
+        exit 0
+    }
     throw "L'audit de reprise n'est pas sain. Consulte $LatestReportPath."
 }

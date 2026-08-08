@@ -14,6 +14,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 - [Configuration locale](CONFIGURATION-LOCALE.md): `.env`, chemins et secrets.
 - [Développement](DEVELOPPEMENT.md): clone local, validation et tests.
 - [Déploiement](DEPLOIEMENT.md): stage, installation et règles de redémarrage.
+- [Publication sur la VPS Nethercore](VPS-NETHERCORE.md): PostgreSQL 16, DockPanel, agent sortant et bascule DNS.
 - [Accès LAN](LAN-ACCESS.md): connexion depuis un autre poste de confiance.
 
 ## Exploiter
