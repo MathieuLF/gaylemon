@@ -11,8 +11,13 @@ Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-sn
 LoadCredential=agent.key:/home/gaylemon/.config/gaylemon/agent.key
 ExecStart=/usr/local/bin/gaylemon collect --kind snapshot
 Nice=19
-CPUQuota=5%
-MemoryMax=256M
+IOSchedulingClass=idle
+CPUQuota=10%
+CPUWeight=10
+IOWeight=10
+MemoryMax=512M
+MemorySwapMax=0
+TimeoutStartSec=300
 StateDirectory=gaylemon-agent
 StateDirectoryMode=0700
 UMask=0077
