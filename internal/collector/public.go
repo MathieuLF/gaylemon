@@ -116,7 +116,8 @@ func collectPublicEvents(_ context.Context, config PublicConfig, started time.Ti
 
 func readStats(ctx context.Context, config PublicConfig) ([]byte, error) {
 	if config.StatsSudo {
-		return exec.CommandContext(ctx, "/usr/bin/sudo", "-n", "/usr/bin/cat", config.StatsPath).Output()
+		output, err := exec.CommandContext(ctx, "/usr/bin/sudo", "-n", "/usr/bin/cat", config.StatsPath).Output()
+		return output, commandError(err)
 	}
 	return os.ReadFile(config.StatsPath)
 }
@@ -133,7 +134,7 @@ func collectMetricsAPI(ctx context.Context, config PublicConfig) (map[string]any
 		}
 		output, err := exec.CommandContext(ctx, executable, arguments...).Output()
 		if err != nil {
-			return nil, bytesRead, fmt.Errorf("API Palworld %s: %w", endpoint, err)
+			return nil, bytesRead, fmt.Errorf("API Palworld %s: %w", endpoint, commandError(err))
 		}
 		bytesRead += int64(len(output))
 		decoded, err := projection.DecodeObject(output)
@@ -157,6 +158,18 @@ func collectMetricsAPI(ctx context.Context, config PublicConfig) (map[string]any
 		},
 		"players": players["players"],
 	}, bytesRead, nil
+}
+
+func commandError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if exitError, ok := err.(*exec.ExitError); ok {
+		if details := strings.TrimSpace(string(exitError.Stderr)); details != "" {
+			return fmt.Errorf("%w: %s", err, details)
+		}
+	}
+	return err
 }
 
 func env(name, fallback string) string {
