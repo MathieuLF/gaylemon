@@ -212,7 +212,44 @@ def validate_sources(entries: list[dict[str, Any]]) -> None:
     # Full verification follows ExecStart targets and therefore needs root when
     # active scripts are intentionally unreadable by the SSH deployment user.
     if systemd_sources and os.geteuid() == 0:
-        run_checked(["/usr/bin/systemd-analyze", "verify", *systemd_sources])
+        validate_systemd_sources(systemd_sources, entries)
+
+
+def validate_systemd_sources(systemd_sources: list[str], entries: list[dict[str, Any]]) -> None:
+    command = ["/usr/bin/systemd-analyze", "verify", *systemd_sources]
+    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    if result.returncode == 0:
+        return
+
+    # Lors d'une première installation, systemd-analyze suit ExecStart avant
+    # que le binaire du même lot ait pu être copié vers sa destination finale.
+    # Cette seule absence est acceptable: le binaire a déjà passé le contrôle
+    # ELF et sera installé atomiquement avec les unités. Toute autre erreur de
+    # systemd-analyze reste bloquante.
+    binary_destinations = {
+        str(entry.get("destination") or entry["destinationPath"]).replace("\\", "/")
+        for entry in entries
+        if entry["validation"] == "binary"
+    }
+    missing_executable = re.compile(
+        r"^[^:]+: Command (?P<path>/\S+) is not executable: No such file or directory$"
+    )
+    unexpected: list[str] = []
+    accepted_missing = False
+    details = "\n".join(part for part in (result.stderr, result.stdout) if part).strip()
+    for raw_line in details.splitlines():
+        line = raw_line.strip()
+        if not line or "Support for option CPUAccounting= has been removed" in line:
+            continue
+        match = missing_executable.fullmatch(line)
+        if match and match.group("path") in binary_destinations:
+            accepted_missing = True
+            continue
+        unexpected.append(line)
+
+    if accepted_missing and not unexpected:
+        return
+    raise DeployError(f"Validation failed: {' '.join(command)}\n{details}")
 
 
 def validate_systemd_structure(path: Path) -> None:
