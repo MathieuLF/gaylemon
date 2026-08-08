@@ -118,6 +118,26 @@ func TestLegacyHostRedirectPreservesPathAndQuery(t *testing.T) {
 	}
 }
 
+func TestOpsCookiesSupportOAuthRedirect(t *testing.T) {
+	server := &Server{config: config.Web{CookieSecure: true}}
+	expires := time.Now().UTC().Add(12 * time.Hour)
+
+	session := server.opsCookie("gaylemon_ops", "session", expires, 43200, true)
+	csrf := server.opsCookie("gaylemon_csrf", "csrf", expires, 43200, false)
+
+	for _, cookie := range []*http.Cookie{session, csrf} {
+		if cookie.Path != "/ops" || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode {
+			t.Fatalf("attributs de cookie OAuth inattendus: %+v", cookie)
+		}
+	}
+	if !session.HttpOnly {
+		t.Fatal("le cookie de session doit rester HttpOnly")
+	}
+	if csrf.HttpOnly {
+		t.Fatal("le jeton CSRF doit rester lisible par l'interface ops")
+	}
+}
+
 func TestSignedIngestAndReplayProtection(t *testing.T) {
 	repository := &fakeRepository{}
 	handler, privateKey := testServer(t, repository)
