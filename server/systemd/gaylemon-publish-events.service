@@ -6,9 +6,9 @@ After=palworld-events.service
 Type=oneshot
 User=gaylemon
 Group=gaylemon
-EnvironmentFile=/etc/gaylemon/agent.env
+EnvironmentFile=/home/gaylemon/.config/gaylemon/agent.env
 Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-events.service/agent.key
-LoadCredential=agent.key:/etc/gaylemon/agent.key
+LoadCredential=agent.key:/home/gaylemon/.config/gaylemon/agent.key
 ExecStart=/usr/local/bin/gaylemon collect --kind events
 Nice=19
 CPUQuota=10%
