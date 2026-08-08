@@ -64,6 +64,43 @@ func PublicMetrics(metrics, stats map[string]any) map[string]any {
 	return result
 }
 
+// PublicUptime décrit le dernier contrôle direct de l'API Palworld. La durée
+// historique reste conservée dans les exécutions PostgreSQL; ce document sert
+// au statut immédiat affiché par le portail.
+func PublicUptime(metrics map[string]any) map[string]any {
+	ok := boolean(metrics["ok"])
+	status := "down"
+	statusCode := 0
+	message := "API REST Palworld indisponible"
+	if ok {
+		status = "up"
+		statusCode = 1
+		message = "Palworld OK"
+	}
+	updatedAt := metrics["updatedAt"]
+	values := object(metrics["metrics"])
+	beat := map[string]any{
+		"status": status, "statusCode": statusCode, "time": updatedAt, "ping": nil, "message": message,
+	}
+	monitor := map[string]any{
+		"id": "palworld-rest-api", "name": "Serveur Palworld", "type": "rest-api", "status": status,
+		"statusCode": statusCode, "lastHeartbeatAt": updatedAt, "lastProbeAt": updatedAt, "ping": nil,
+		"uptime24h": chooseNumber(ok, 100, 0), "uptimeSeconds": values["uptimeSeconds"], "uptime": values["uptime"],
+		"beats": []any{beat},
+	}
+	return map[string]any{
+		"version": 2, "ok": true, "source": "palworld-rest-api", "updatedAt": updatedAt,
+		"updatedAtLocal": metrics["updatedAtLocal"], "title": "Palworld", "monitors": []any{monitor},
+		"summary": map[string]any{
+			"total": 1, "up": statusCode, "down": 1 - statusCode, "maintenance": 0, "status": status, "monitorStatus": status,
+			"probeFresh": true, "probeAgeSeconds": 0, "heartbeatAgeSeconds": 0, "uptime24hAverage": chooseNumber(ok, 100, 0),
+			"uptimeLast24h": chooseNumber(ok, 100, 0), "unavailableSecondsLast24h": 0, "averagePing": nil,
+			"players": values["players"], "maxPlayers": values["maxPlayers"], "fps": values["fps"],
+			"fpsAverage": values["fpsAverage"], "frameMs": values["frameMs"], "gameUptimeSeconds": values["uptimeSeconds"],
+		},
+	}
+}
+
 func PublicStats(stats map[string]any) map[string]any {
 	provenance := object(stats["provenance"])
 	collection := object(stats["collection"])
@@ -303,6 +340,13 @@ func number(value any) float64 {
 func integer(value any) int64 { return int64(number(value)) }
 
 func choose(condition bool, yes, no string) string {
+	if condition {
+		return yes
+	}
+	return no
+}
+
+func chooseNumber(condition bool, yes, no float64) float64 {
 	if condition {
 		return yes
 	}
