@@ -1,7 +1,9 @@
 import importlib.util
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "deploy" / "gaylemon_deploy.py"
@@ -63,6 +65,39 @@ class GaylemonDeployTests(unittest.TestCase):
             invalid.write_text("[Unit]\nDescription=Invalid\n", encoding="utf-8")
             with self.assertRaises(DEPLOY.DeployError):
                 DEPLOY.validate_systemd_structure(invalid)
+
+    def test_systemd_verify_accepts_missing_binary_from_same_first_install(self):
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "unit.service: Command /usr/local/bin/gaylemon is not executable: "
+                "No such file or directory\n"
+            ),
+        )
+        entries = [
+            {
+                "validation": "binary",
+                "destinationPath": Path("/usr/local/bin/gaylemon"),
+            }
+        ]
+        with mock.patch.object(DEPLOY.subprocess, "run", return_value=result):
+            DEPLOY.validate_systemd_sources(["unit.service"], entries)
+
+    def test_systemd_verify_rejects_missing_unmanaged_executable(self):
+        result = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "unit.service: Command /usr/local/bin/inconnu is not executable: "
+                "No such file or directory\n"
+            ),
+        )
+        with mock.patch.object(DEPLOY.subprocess, "run", return_value=result):
+            with self.assertRaises(DEPLOY.DeployError):
+                DEPLOY.validate_systemd_sources(["unit.service"], [])
 
 
 if __name__ == "__main__":
