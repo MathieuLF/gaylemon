@@ -8,6 +8,7 @@ User=gaylemon
 Group=gaylemon
 EnvironmentFile=/home/gaylemon/.config/gaylemon/agent.env
 Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-snapshot.service/agent.key
+Environment=GOMEMLIMIT=640MiB
 LoadCredential=agent.key:/home/gaylemon/.config/gaylemon/agent.key
 ExecStart=/usr/local/bin/gaylemon collect --kind snapshot
 Nice=19
@@ -15,7 +16,7 @@ IOSchedulingClass=idle
 CPUQuota=10%
 CPUWeight=10
 IOWeight=10
-MemoryMax=512M
+MemoryMax=768M
 MemorySwapMax=0
 TimeoutStartSec=300
 StateDirectory=gaylemon-agent
