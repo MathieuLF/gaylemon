@@ -36,7 +36,6 @@ RestrictNamespaces=true
 RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
-CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
