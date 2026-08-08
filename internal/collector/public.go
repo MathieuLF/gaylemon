@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +24,11 @@ type PublicConfig struct {
 	StatsSudo        bool
 	EventsPath       string
 	RecentEventsPath string
+	SnapshotPath     string
+	BasesPath        string
+	DiagnosticsPath  string
+	CatalogManifest  string
+	CatalogsRoot     string
 }
 
 func PublicConfigFromEnv() PublicConfig {
@@ -31,6 +39,11 @@ func PublicConfigFromEnv() PublicConfig {
 		StatsSudo:        boolEnv("GAYLEMON_STATS_SUDO", true),
 		EventsPath:       env("GAYLEMON_EVENTS_PATH", "/home/gaylemon/Gaylemon/runtime/public-events.json"),
 		RecentEventsPath: env("GAYLEMON_RECENT_EVENTS_PATH", "/home/gaylemon/Gaylemon/runtime/public-events-recent.json"),
+		SnapshotPath:     env("GAYLEMON_SNAPSHOT_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json"),
+		BasesPath:        env("GAYLEMON_BASES_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-bases.json"),
+		DiagnosticsPath:  env("GAYLEMON_DIAGNOSTICS_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json"),
+		CatalogManifest:  env("GAYLEMON_CATALOG_MANIFEST_PATH", "/home/gaylemon/Gaylemon/runtime/public-catalogs-manifest.json"),
+		CatalogsRoot:     env("GAYLEMON_CATALOGS_ROOT", "/home/gaylemon/Gaylemon/runtime/public-catalogs"),
 	}
 }
 
@@ -44,6 +57,9 @@ func CollectPublic(ctx context.Context, config PublicConfig, kind string) (Publi
 	started := time.Now()
 	if kind == "events" {
 		return collectPublicEvents(ctx, config, started)
+	}
+	if kind == "snapshot" {
+		return collectPublicSnapshot(ctx, config, started)
 	}
 	statsBytes, err := readStats(ctx, config)
 	if err != nil {
@@ -82,6 +98,102 @@ func CollectPublic(ctx context.Context, config PublicConfig, kind string) (Publi
 	var memory runtime.MemStats
 	runtime.ReadMemStats(&memory)
 	return PublicResult{Documents: documents, Usage: model.ResourceUsage{DurationMS: time.Since(started).Milliseconds(), MaxRSSBytes: int64(memory.Sys), BytesRead: bytesRead}, Summary: summary}, nil
+}
+
+func collectPublicSnapshot(_ context.Context, config PublicConfig, started time.Time) (PublicResult, error) {
+	read := func(label, path string) ([]byte, error) {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("lecture de %s: %w", label, err)
+		}
+		return content, nil
+	}
+	snapshotBytes, err := read("la sauvegarde publique intermédiaire", config.SnapshotPath)
+	if err != nil {
+		return PublicResult{}, err
+	}
+	basesBytes, err := read("la projection des bases", config.BasesPath)
+	if err != nil {
+		return PublicResult{}, err
+	}
+	diagnosticsBytes, err := read("le diagnostic de sauvegarde", config.DiagnosticsPath)
+	if err != nil {
+		return PublicResult{}, err
+	}
+	documents, err := projection.SaveDocuments(snapshotBytes, basesBytes, diagnosticsBytes)
+	if err != nil {
+		return PublicResult{}, err
+	}
+	if len(documents) == 0 {
+		return PublicResult{}, fmt.Errorf("la projection de sauvegarde est vide")
+	}
+	index := documents[len(documents)-1]
+	documents = documents[:len(documents)-1]
+	bytesRead := int64(len(snapshotBytes) + len(basesBytes) + len(diagnosticsBytes))
+
+	manifestBytes, err := read("le manifeste des catalogues", config.CatalogManifest)
+	if err != nil {
+		return PublicResult{}, err
+	}
+	if !json.Valid(manifestBytes) {
+		return PublicResult{}, fmt.Errorf("manifeste des catalogues invalide")
+	}
+	manifest, err := projection.DecodeObject(manifestBytes)
+	if err != nil || !booleanValue(manifest["ok"]) {
+		return PublicResult{}, fmt.Errorf("manifeste des catalogues incomplet")
+	}
+	catalogGeneration := strings.TrimSpace(fmt.Sprint(manifest["generationId"]))
+	if catalogGeneration == "" || strings.ContainsAny(catalogGeneration, "/\\") {
+		return PublicResult{}, fmt.Errorf("génération des catalogues invalide")
+	}
+	documents = append(documents, model.Document{Path: "data/public-catalogs-manifest.json", Content: manifestBytes, CachePolicy: model.CacheRevalidate, GenerationID: catalogGeneration})
+	bytesRead += int64(len(manifestBytes))
+
+	var catalogDocuments []model.Document
+	err = filepath.WalkDir(config.CatalogsRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") || strings.HasSuffix(strings.ToLower(entry.Name()), ".example.json") {
+			return nil
+		}
+		relative, err := filepath.Rel(config.CatalogsRoot, path)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if !json.Valid(content) {
+			return fmt.Errorf("catalogue JSON invalide: %s", path)
+		}
+		bytesRead += int64(len(content))
+		catalogDocuments = append(catalogDocuments, model.Document{Path: "data/public-catalogs/" + filepath.ToSlash(relative), Content: content, CachePolicy: model.CacheRevalidate, GenerationID: catalogGeneration})
+		return nil
+	})
+	if err != nil {
+		return PublicResult{}, fmt.Errorf("lecture des catalogues: %w", err)
+	}
+	sort.Slice(catalogDocuments, func(i, j int) bool { return catalogDocuments[i].Path < catalogDocuments[j].Path })
+	documents = append(documents, catalogDocuments...)
+	// L'index reste le dernier pointeur publié, après les données lourdes.
+	documents = append(documents, index)
+
+	var memory runtime.MemStats
+	runtime.ReadMemStats(&memory)
+	return PublicResult{
+		Documents: documents,
+		Usage:     model.ResourceUsage{DurationMS: time.Since(started).Milliseconds(), MaxRSSBytes: int64(memory.Sys), BytesRead: bytesRead},
+		Summary:   map[string]any{"collector": "save-public-projection", "kind": "snapshot", "documents": len(documents)},
+	}, nil
+}
+
+func booleanValue(value any) bool {
+	if typed, ok := value.(bool); ok {
+		return typed
+	}
+	return strings.EqualFold(strings.TrimSpace(fmt.Sprint(value)), "true")
 }
 
 func collectPublicEvents(_ context.Context, config PublicConfig, started time.Time) (PublicResult, error) {
