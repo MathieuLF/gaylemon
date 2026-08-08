@@ -6,9 +6,9 @@ After=palworld-save-snapshot.service
 Type=oneshot
 User=gaylemon
 Group=gaylemon
-EnvironmentFile=/etc/gaylemon/agent.env
+EnvironmentFile=/etc/example/game-agent/agent.env
 Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-snapshot.service/agent.key
-LoadCredential=agent.key:/etc/gaylemon/agent.key
+LoadCredential=agent.key:/etc/example/game-agent/agent.key
 ExecStart=/usr/local/bin/gaylemon enqueue --source /srv/example/game-project/runtime/public-save-snapshot.json --prefix data/public-save-snapshot.json --stream snapshot
 ExecStart=/usr/local/bin/gaylemon enqueue --source /srv/example/game-project/runtime/public-save-bases.json --prefix data/public-save-bases.json --stream snapshot
 ExecStart=/usr/local/bin/gaylemon enqueue --source /srv/example/game-project/runtime/public-save-diagnostics.json --prefix data/public-save-diagnostics.json --stream snapshot

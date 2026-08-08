@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=gaylemon
 Group=gaylemon
-EnvironmentFile=/etc/gaylemon/agent.env
+EnvironmentFile=/etc/example/game-agent/agent.env
 Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-agent.service/agent.key
-LoadCredential=agent.key:/etc/gaylemon/agent.key
+LoadCredential=agent.key:/etc/example/game-agent/agent.key
 ExecStart=/usr/local/bin/gaylemon run
 Restart=on-failure
 RestartSec=15s
