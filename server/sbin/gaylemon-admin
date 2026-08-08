@@ -53,7 +53,7 @@ case "$action" in
         if [[ "$operation" == "pause" ]]; then
           exec /usr/bin/systemctl disable --now "${timers[@]}"
         fi
-        exec /usr/bin/systemctl enable --now "${timers[@]}"
+        exec /usr/bin/systemctl enable --now gaylemon-agent.service "${timers[@]}"
         ;;
       run)
         if [[ "$stream" == "all" ]]; then
