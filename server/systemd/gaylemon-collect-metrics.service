@@ -6,9 +6,9 @@ After=palworld.service
 Type=oneshot
 User=gaylemon
 Group=gaylemon
-EnvironmentFile=/etc/gaylemon/agent.env
+EnvironmentFile=/home/gaylemon/.config/gaylemon/agent.env
 Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-collect-metrics.service/agent.key
-LoadCredential=agent.key:/etc/gaylemon/agent.key
+LoadCredential=agent.key:/home/gaylemon/.config/gaylemon/agent.key
 ExecStart=/usr/local/bin/gaylemon collect --kind metrics
 Nice=15
 CPUQuota=5%
@@ -37,4 +37,3 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 ReadWritePaths=/var/lib/gaylemon-agent
-

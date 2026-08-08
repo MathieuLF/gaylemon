@@ -33,14 +33,15 @@ Le tableau `/ops` n'accepte que l'identifiant GitHub numérique `753560`. Change
 
 ## Clé de l'agent Ubuntu
 
-La clé privée reste sur Ubuntu dans `/etc/gaylemon/agent.key` et n'entre jamais dans Git.
+La clé privée reste sur Ubuntu dans `/home/gaylemon/.config/gaylemon/agent.key` et n'entre jamais dans Git.
 
 ```bash
 gaylemon keygen --private /tmp/gaylemon-agent.key
 sudo install -o root -g root -m 0750 -d /etc/gaylemon
 sudo install -o gaylemon -g gaylemon -m 0750 -d /var/lib/gaylemon-agent
-sudo install -o root -g root -m 0600 /tmp/gaylemon-agent.key /etc/gaylemon/agent.key
-sudo install -o root -g root -m 0640 server/agent.env.example /etc/gaylemon/agent.env
+install -d -m 0700 /home/gaylemon/.config/gaylemon
+install -m 0600 /tmp/gaylemon-agent.key /home/gaylemon/.config/gaylemon/agent.key
+install -m 0600 server/agent.env.example /home/gaylemon/.config/gaylemon/agent.env
 ```
 
 La commande affiche uniquement la clé publique à placer dans `GAYLEMON_AGENT_PUBLIC_KEYS` sur la VPS. Le fichier temporaire privé doit ensuite être retiré.
