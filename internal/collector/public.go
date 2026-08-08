@@ -87,11 +87,17 @@ func CollectPublic(ctx context.Context, config PublicConfig, kind string) (Publi
 			metrics = map[string]any{"ok": false, "updatedAt": now.Format(time.RFC3339), "updatedAtLocal": now.Format("2006-01-02 15:04:05")}
 			summary["sourceError"] = apiErr.Error()
 		}
-		content, err := json.Marshal(projection.PublicMetrics(metrics, stats))
+		publicMetrics := projection.PublicMetrics(metrics, stats)
+		content, err := json.Marshal(publicMetrics)
 		if err != nil {
 			return PublicResult{}, err
 		}
 		documents = append(documents, model.Document{Path: "data/public-metrics.json", Content: content, CachePolicy: model.CacheNoStore})
+		uptime, err := json.Marshal(projection.PublicUptime(publicMetrics))
+		if err != nil {
+			return PublicResult{}, err
+		}
+		documents = append(documents, model.Document{Path: "data/public-uptime.json", Content: uptime, CachePolicy: model.CacheNoStore})
 	default:
 		return PublicResult{}, fmt.Errorf("collecteur inconnu: %s", kind)
 	}
