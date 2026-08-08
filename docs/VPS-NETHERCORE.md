@@ -1,6 +1,6 @@
 # Publication sur la VPS Nethercore
 
-Le microsite, son API et PostgreSQL 16 vivent sur la VPS. Le serveur Ubuntu du jeu ne reçoit aucune connexion entrante depuis la VPS : l'agent Gaylémon pousse uniquement des données publiques filtrées par HTTPS signé.
+Le microsite, son API et PostgreSQL 16 vivent sur la VPS. PostgreSQL est une base distincte gérée par DockPanel, pas un service du Compose applicatif. Le serveur Ubuntu du jeu ne reçoit aucune connexion entrante depuis la VPS : l'agent Gaylémon pousse uniquement des données publiques filtrées par HTTPS signé.
 
 ## Dépôt et livraison
 
@@ -17,11 +17,26 @@ Les fonctionnalités passent par des branches courtes et une pull request. La VP
 
 ## Secrets de la VPS
 
-Copier `.env.production.example` vers un fichier privé géré par DockPanel, puis renseigner :
+Copier `.env.production.example` vers `/etc/gaylemon/production.env`, conservé en `root:root` avec le mode `0600`, puis renseigner :
 
-- un mot de passe PostgreSQL aléatoire;
+- l'URL PostgreSQL du rôle applicatif `gaylemon`;
 - la ou les clés publiques Ed25519 des agents;
 - l'identifiant et le secret de l'application OAuth GitHub.
+
+Dans DockPanel, rattacher une base `gaylemon` au site `gaylemon.nethercore.dev` avec PostgreSQL 16. Son conteneur `dockpanel-db-gaylemon` reste sur le réseau privé `dockpanel-db`, est publié seulement sur `127.0.0.1:5435` et rejoint aussi le réseau Docker `gaylemon_private`. DockPanel génère le mot de passe du rôle propriétaire `gaylemon`; l'application le reçoit uniquement dans son URL de connexion :
+
+```text
+postgresql://gaylemon:MOT_DE_PASSE_APPLICATION@dockpanel-db-gaylemon:5432/gaylemon?sslmode=disable
+```
+
+La limite par défaut de 256 Mio du conteneur PostgreSQL ne suffit pas à restaurer la table de contenus. Conserver une limite de 1 Gio et 2 Gio avec l'espace d'échange :
+
+```bash
+sudo docker update --memory 1g --memory-swap 2g dockpanel-db-gaylemon
+sudo docker network connect gaylemon_private dockpanel-db-gaylemon
+```
+
+La seconde commande est idempotente seulement si le réseau n'est pas déjà raccordé : vérifier les réseaux du conteneur avant de la relancer. Le site `gaylemon.nethercore.dev` doit aussi apparaître dans la section **Sites** de DockPanel comme proxy HTTPS vers le port local `18081`.
 
 L'application OAuth utilise ce rappel exact :
 
@@ -48,7 +63,7 @@ La commande affiche uniquement la clé publique à placer dans `GAYLEMON_AGENT_P
 
 ## Démarrage progressif
 
-1. Déployer PostgreSQL et le service web sans modifier le DNS.
+1. Créer PostgreSQL 16 dans DockPanel, le relier au réseau `gaylemon_private`, puis déployer le service web sans modifier le DNS.
 2. Importer les JSON publics actuels avec une clé d'amorçage distincte.
 3. Publier l'agent Ubuntu en mode `--shadow` et comparer `/ops` avec les fichiers actuels.
 4. Activer les lots de l'agent quand les volumes, durées et documents correspondent.
@@ -95,7 +110,7 @@ Tant que la migration reste en observation, l'ancien microsite continue de fonct
 
 1. remettre le DNS du nouveau domaine sur la cible précédente si le service public est indisponible;
 2. arrêter les timers `gaylemon-publish-*` et l'agent sans toucher aux collecteurs Palworld;
-3. restaurer le volume PostgreSQL depuis sa sauvegarde si les données sont en cause;
+3. restaurer la sauvegarde PostgreSQL depuis DockPanel si les données sont en cause;
 4. redéployer le dernier commit validé dans DockPanel.
 
-Le volume PostgreSQL et `/var/lib/gaylemon-agent/spool.db` ne doivent pas être supprimés pendant un retour arrière ordinaire.
+Les sauvegardes PostgreSQL DockPanel et `/var/lib/gaylemon-agent/spool.db` ne doivent pas être supprimés pendant un retour arrière ordinaire. Après une migration de base, conserver l'ancien conteneur arrêté et son volume jusqu'à la validation du nouveau service et de sa première sauvegarde DockPanel.
