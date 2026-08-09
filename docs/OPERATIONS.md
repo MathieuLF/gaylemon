@@ -68,9 +68,8 @@ Bilan complet:
 .\scripts\auditer-maintenance.ps1
 ```
 
-PalworldSaveTools est aussi vérifié par la tâche Windows `Gaylemon PalworldSaveTools Maintenance`.
-Le passage génère `portal/data/palworld-save-tools-update-report.md` et `.json`: révisions comparées, zones touchées, nouveautés utiles, risques et pistes d'optimisation pour Gaylémon.
-La mise à jour Ubuntu n'est activée qu'après les tests upstream et un snapshot réel validé; `palworld.service` n'est pas redémarré.
+PalworldSaveTools est vérifié directement sur Ubuntu contre `dependencies/palworld-save-tools.lock.json`.
+La mise à jour n'est activée qu'après les tests upstream et un snapshot réel validé; `palworld.service` n'est pas redémarré.
 
 ## Services Ubuntu
 
@@ -271,7 +270,9 @@ Synchronisations utiles:
 .\scripts\sync-palworld-game-assets.ps1
 ```
 
-Les métriques rapides, les échos et les fiches joueurs ont des cadences distinctes. Par défaut, le watcher local relit les métriques aux 20 secondes, tente la sync des échos aux 20 secondes et lance une synchronisation indépendante des snapshots joueurs aux 45 secondes, sans chevauchement si la copie précédente est encore en cours. Au démarrage, l'audit compare directement le snapshot public Ubuntu avec le snapshot local; si les fiches sont en retard, il force une resynchronisation avant de servir une nouvelle génération. Les données joueurs, profils, Pals, bases, fichiers `players/{slug}.json` et index publics ne dépendent donc plus de la réussite des métriques rapides. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue restaure le lot précédent. Le navigateur sonde uniquement la petite tête v6 toutes les 20 secondes, avec validation conditionnelle, puis charge un fragment journalier seulement lorsque son curseur ou sa génération change. Le panneau technique `Données du monde` garde son dernier diagnostic publié et le rafraîchit aux deux heures, sur les créneaux impairs `01:00`, `03:00`, ..., `21:00`, `23:00`.
+Les métriques rapides, les échos et les fiches joueurs ont des cadences distinctes sur Ubuntu. Les métriques passent toutes les cinq minutes. Le journal léger passe toutes les cinq minutes; chaque réussite déclenche immédiatement sa publication. Le snapshot de sauvegarde passe toutes les trente minutes et déclenche ensuite le journal, puis l'envoi PostgreSQL, sans chevauchement. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue conserve le lot précédent.
+
+Le Terminal interroge d'abord l'API paginée PostgreSQL. Les fragments v6 et les deux exports JSON Ubuntu restent un repli borné; ils ne sont plus la source normale de pagination ou de recherche. Les documents JSON mutables ne conservent pas d'historique de versions et les documents immuables sont limités à trois générations.
 
 `public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
 
@@ -299,9 +300,9 @@ La projection canonique est calculée près de SQLite. Les observations brutes r
 
 ### Reprojection publique contrôlée
 
-Le passage courant met à jour `public-events-recent.json` depuis la queue matérialisée. L'export complet v5 reste froid: il est régénéré au démarrage de la projection, après une reprojection, sur demande, ou au plus tard toutes les 900 secondes. Il peut donc accuser jusqu'à 15 minutes de retard; la synchronisation rapide doit continuer de lire l'export récent.
+Le passage courant met à jour `public-events-recent.json` depuis la queue matérialisée. L'export complet alimente transactionnellement `gaylemon_public.events`; la pagination, la recherche et les filtres du Terminal lisent ensuite cette table. Les fichiers restent disponibles seulement comme repli de continuité.
 
-Une correction ou un backfill antérieur à la queue ouverte produit `canonicalExport.status=reprojection-required` dans le rapport de reprise. Ce statut conserve la projection matérialisée et les deux JSON précédents. Lorsque le poste Windows détecte que la tête chaude est plus avancée que l'export complet froid, il dépose automatiquement une demande de rattrapage complet, puis réessaie la réconciliation jusqu'à retrouver une continuité prouvée. Pour une correction historique volontaire, l'exploitant peut aussi déposer une demande ponctuelle sans arrêter le minuteur:
+Une correction ou un backfill antérieur à la queue ouverte produit `canonicalExport.status=reprojection-required` dans le rapport de reprise. Ce statut conserve la projection matérialisée et les deux JSON précédents. L'agent Ubuntu attend alors un checkpoint complet cohérent avant de remplacer la projection PostgreSQL. Pour une correction historique volontaire, l'exploitant peut aussi déposer une demande ponctuelle sans arrêter le minuteur:
 
 ```bash
 install -m 600 /dev/null \
@@ -324,9 +325,9 @@ sudo systemctl start palworld-events.timer
 
 Vérifier ensuite que `canonicalExport.projectionSync=reprojected`, que `canonicalExport.fullExport=written`, que `canonicalExport.reprojectionRequestConsumed=true` pour la voie par fichier et que le rapport ne contient plus `reprojection-required`. `--write-full-export` peut aussi produire un checkpoint complet hors cadence sans refaire la projection. Cette opération ne redémarre pas Palworld.
 
-Le contrat v6 découpe l'historique en fragments journaliers immuables et prépare les résumés quotidiens côté synchronisation. Le terminal reste un journal filtrable par curseur sans paramètre de journée; `/resume` ne recalcule plus la journée depuis des milliers de pages. Le pointeur actif est remplacé en dernier, après vérification des manifestes, têtes, hachages et comptes. Une correction historique réécrit seulement le jour touché. Voir [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
+Le contrat v6 prépare encore des fragments journaliers immuables et les résumés quotidiens nécessaires à `/resume`, à l'accueil et au repli du Terminal. Le pointeur actif est remplacé en dernier, après vérification des manifestes, têtes, hachages et comptes. PostgreSQL demeure la source principale du Terminal. Voir [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
 
-Les échos publics sont synchronisés en priorité avec le watcher local, avant les métriques générales. La voie rapide remplace la queue canonique couverte par `projectionWindow`, met à jour la fenêtre v5 récente et la génération v6, sans republier les pages ordinales. Une réconciliation complète initiale puis espacée construit le manifeste et les journées. Si le poste redémarre après plusieurs heures et que le complet froid n'a pas encore rattrapé la tête, la synchronisation locale demande un checkpoint complet depuis SQLite côté Ubuntu au lieu de déclarer l'historique à jour. `portal/public-events-channel.json` active v6: le navigateur sonde le petit pointeur avec revalidation conditionnelle; l'export complet v5 reste froid et réservé au repli temporaire.
+Les échos publics sont envoyés directement par l'agent Ubuntu à la VPS. L'ingestion active remplace la projection relationnelle dans la même transaction que les documents de repli. Si l'agent reprend après une interruption, il publie d'abord la génération cohérente complète; la base refuse les séquences plus anciennes. `portal/public-events-channel.json` conserve v6 comme repli contrôlé.
 
 Lors d'un repli explicite sur v5, le navigateur applique aussi `projectionWindow` à l'historique complet et à la première fenêtre paginée : la queue froide couverte est retirée avant d'ajouter la queue récente canonique. Le total affiché vient alors du flux récent. Les pages ordinales plus profondes restent celles du dernier checkpoint froid et sont réalignées par la prochaine synchronisation complète; elles ne sont jamais décalées ou réécrites partiellement par la voie rapide.
 

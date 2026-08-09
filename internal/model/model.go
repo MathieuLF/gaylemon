@@ -64,6 +64,33 @@ type PublicDocument struct {
 	UpdatedAt   time.Time
 }
 
+type PublicEventQuery struct {
+	Offset int
+	Limit  int
+	Type   string
+	Player string
+	Search string
+}
+
+type PublicEventFacet struct {
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+type PublicEventPage struct {
+	OK            bool                          `json:"ok"`
+	SchemaVersion int                           `json:"schemaVersion"`
+	Source        string                        `json:"source"`
+	Revision      string                        `json:"revision"`
+	UpdatedAt     time.Time                     `json:"updatedAt"`
+	Offset        int                           `json:"offset"`
+	Limit         int                           `json:"limit"`
+	Total         int64                         `json:"total"`
+	Events        []json.RawMessage             `json:"events"`
+	Facets        map[string][]PublicEventFacet `json:"facets"`
+	Summary       json.RawMessage               `json:"summary,omitempty"`
+}
+
 type AgentStatus struct {
 	AgentID       string    `json:"agentId"`
 	LastSeenAt    time.Time `json:"lastSeenAt"`

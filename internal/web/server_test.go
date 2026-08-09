@@ -22,9 +22,10 @@ import (
 )
 
 type fakeRepository struct {
-	document model.PublicDocument
-	batch    model.Batch
-	nonces   map[string]bool
+	document  model.PublicDocument
+	eventPage model.PublicEventPage
+	batch     model.Batch
+	nonces    map[string]bool
 }
 
 func (f *fakeRepository) Close()                        {}
@@ -63,6 +64,16 @@ func (f *fakeRepository) GetPublicDocument(_ context.Context, path string) (mode
 		return model.PublicDocument{}, false, nil
 	}
 	return f.document, true, nil
+}
+
+func (f *fakeRepository) QueryPublicEvents(_ context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+	if !f.eventPage.OK {
+		return model.PublicEventPage{}, false, nil
+	}
+	page := f.eventPage
+	page.Offset = query.Offset
+	page.Limit = query.Limit
+	return page, true, nil
 }
 
 func (f *fakeRepository) PendingCommands(context.Context, string, int64) ([]model.Command, error) {
@@ -195,6 +206,31 @@ func TestPublicDocumentUsesETag(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNotModified {
 		t.Fatalf("revalidation inattendue: status=%d", recorder.Code)
+	}
+}
+
+func TestPublicEventsAreServedFromPostgresProjection(t *testing.T) {
+	repository := &fakeRepository{eventPage: model.PublicEventPage{
+		OK: true, SchemaVersion: 1, Source: "postgresql", Revision: "events-42", Total: 1,
+		Events: []json.RawMessage{json.RawMessage(`{"key":"evt-42","type":"craft","player":"MathieuLF"}`)},
+		Facets: map[string][]model.PublicEventFacet{
+			"types": []model.PublicEventFacet{{Value: "craft", Count: 1}},
+		},
+	}}
+	handler, _ := testServer(t, repository)
+	request := httptest.NewRequest(http.MethodGet, "/api/public/events/v1?limit=12&offset=24&type=craft", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("API publique inattendue: status=%d cache=%s body=%s", recorder.Code, recorder.Header().Get("Cache-Control"), recorder.Body.String())
+	}
+	var payload model.PublicEventPage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Source != "postgresql" || payload.Offset != 24 || payload.Limit != 12 || len(payload.Events) != 1 {
+		t.Fatalf("page PostgreSQL inattendue: %#v", payload)
 	}
 }
 

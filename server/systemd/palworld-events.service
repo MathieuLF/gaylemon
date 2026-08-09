@@ -1,6 +1,7 @@
 [Unit]
 Description=Collect privacy-safe Palworld public events
 After=local-fs.target
+OnSuccess=gaylemon-publish-events.service
 
 [Service]
 Type=oneshot

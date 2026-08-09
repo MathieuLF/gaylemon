@@ -397,7 +397,9 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /function terminalEventHasHiddenDetails/);
   assert.match(app, /function terminalEventPreviewHeadline/);
   assert.match(app, /function terminalEventPreviewBody/);
-  assert.match(app, /terminalEventHasHiddenDetails\(event, bullets\) \? "Écho relevé"/);
+  assert.match(app, /function terminalEventPreviewHeadline\(event, detailHeadline, bullets\) \{[\s\S]{0,80}return detailHeadline/);
+  assert.match(app, /function terminalEventPreviewBody\(event, detailBody, bullets\) \{[\s\S]{0,80}return detailBody/);
+  assert.doesNotMatch(app, /"Écho relevé"/);
   assert.match(app, /const headline = terminalRoute \? terminalEventPreviewHeadline\(event, detailHeadline, bullets\) : detailHeadline/);
   assert.match(app, /const body = terminalRoute \? terminalEventPreviewBody\(event, detailBody, bullets\) : detailBody/);
   assert.match(app, /body: detailBody/);
@@ -544,6 +546,25 @@ test("le terminal v6 ne limite pas les filtres à la tête courte", async () => 
   assert.match(renderer, /terminalHistoryComplete \? filtered : filtered\.slice/);
 });
 
+test("le terminal interroge PostgreSQL avant le repli JSON", async () => {
+  const app = await portalFile("assets/app.js");
+  const databaseLoader = app.slice(
+    app.indexOf("async function loadTerminalEventsDatabase"),
+    app.indexOf("async function loadTerminalEventsPreferred"),
+  );
+  const preferredLoader = app.slice(
+    app.indexOf("async function loadTerminalEventsPreferred"),
+    app.indexOf("function primaryEventRevision"),
+  );
+
+  assert.match(app, /api\/public\/events\/v1/);
+  assert.match(databaseLoader, /payload\.source !== "postgresql"/);
+  assert.match(databaseLoader, /eventsContractMode = "database"/);
+  assert.match(databaseLoader, /renderDatabaseTerminalEvents/);
+  assert.doesNotMatch(databaseLoader, /public-events-(?:head|manifest|recent)/);
+  assert.match(preferredLoader, /loadTerminalEventsDatabase\(silent\)[\s\S]*loadTerminalEventsV6/);
+});
+
 test("les snapshots publics refusent les mélanges de générations", async () => {
   const app = await portalFile("assets/app.js");
   const generationId = extractFunction(app, "publicSaveGenerationId");
@@ -655,7 +676,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260726\.1/);
-    assert.match(html, /app\.js\?v=20260726\.1/);
+    assert.match(html, /styles\.css\?v=20260808\.1/);
+    assert.match(html, /app\.js\?v=20260808\.1/);
   }
 });

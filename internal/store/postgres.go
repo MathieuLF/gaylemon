@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -174,10 +175,19 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 	}
 	if activate {
 		var promotedSaveGeneration string
+		var promotedEventGeneration string
 		if batch.Stream == "snapshot" {
 			for _, document := range payload.Documents {
 				if document.Path == "data/public-save-index.json" {
 					promotedSaveGeneration = document.GenerationID
+					break
+				}
+			}
+		}
+		if batch.Stream == "events" {
+			for _, document := range payload.Documents {
+				if document.Path == "data/public-events-head-v6.json" && document.GenerationID != "" {
+					promotedEventGeneration = document.GenerationID
 					break
 				}
 			}
@@ -191,6 +201,15 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 				return model.IngestResult{}, err
 			}
 		}
+		if promotedEventGeneration != "" {
+			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.documents
+				WHERE generation_id<>$1 AND (
+					path LIKE 'data/public-events-v6/%' OR
+					path LIKE 'data/public-daily/%'
+				)`, promotedEventGeneration); err != nil {
+				return model.IngestResult{}, err
+			}
+		}
 		for _, document := range payload.Documents {
 			contentHash := sha256.Sum256(document.Content)
 			sha := hex.EncodeToString(contentHash[:])
@@ -201,14 +220,48 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 				VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256,cache_policy=excluded.cache_policy,generation_id=excluded.generation_id,batch_id=excluded.batch_id,updated_at=now()`, document.Path, sha, document.CachePolicy, document.GenerationID, batch.ID); err != nil {
 				return model.IngestResult{}, err
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO gaylemon_public.document_versions
-				(path,sha256,cache_policy,generation_id,batch_id,agent_id,stream,captured_at,daily_checkpoint)
-				VALUES($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,
-					$7::text='snapshot' AND NOT EXISTS (
-						SELECT 1 FROM gaylemon_public.document_versions
-						WHERE path=$1 AND daily_checkpoint=true AND captured_at::date=($8::timestamptz)::date
-					)
-				) ON CONFLICT DO NOTHING`, document.Path, sha, document.CachePolicy, document.GenerationID, batch.ID, batch.AgentID, batch.Stream, batch.CapturedAt); err != nil {
+			recordVersion := batch.Stream != "events" || document.CachePolicy == model.CacheImmutable
+			if recordVersion {
+				if _, err := tx.Exec(ctx, `INSERT INTO gaylemon_public.document_versions
+					(path,sha256,cache_policy,generation_id,batch_id,agent_id,stream,captured_at,daily_checkpoint)
+					VALUES($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,
+						$7::text='snapshot' AND NOT EXISTS (
+							SELECT 1 FROM gaylemon_public.document_versions
+							WHERE path=$1 AND daily_checkpoint=true AND captured_at::date=($8::timestamptz)::date
+						)
+					) ON CONFLICT DO NOTHING`, document.Path, sha, document.CachePolicy, document.GenerationID, batch.ID, batch.AgentID, batch.Stream, batch.CapturedAt); err != nil {
+					return model.IngestResult{}, err
+				}
+			}
+			if batch.Stream == "events" && document.Path == "data/public-events.json" {
+				var projected int64
+				if err := tx.QueryRow(ctx, `SELECT gaylemon_public.replace_events_from_document($1::jsonb,$2)`, string(document.Content), batch.ID).Scan(&projected); err != nil {
+					return model.IngestResult{}, err
+				}
+			}
+		}
+		if batch.Stream == "events" {
+			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.document_versions
+				WHERE stream='events' AND cache_policy<>'immutable'`); err != nil {
+				return model.IngestResult{}, err
+			}
+			if _, err := tx.Exec(ctx, `WITH generations AS (
+					SELECT generation_id,
+						dense_rank() OVER (ORDER BY max(captured_at) DESC, generation_id DESC) AS position
+					FROM gaylemon_public.document_versions
+					WHERE stream='events' AND cache_policy='immutable' AND generation_id<>''
+					GROUP BY generation_id
+				), retired AS (
+					SELECT generation_id FROM generations WHERE position>3
+				)
+				DELETE FROM gaylemon_public.document_versions versions
+				USING retired
+				WHERE versions.stream='events' AND versions.generation_id=retired.generation_id`); err != nil {
+				return model.IngestResult{}, err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.document_contents contents
+				WHERE NOT EXISTS (SELECT 1 FROM gaylemon_public.documents documents WHERE documents.sha256=contents.sha256)
+				  AND NOT EXISTS (SELECT 1 FROM gaylemon_public.document_versions versions WHERE versions.sha256=contents.sha256)`); err != nil {
 				return model.IngestResult{}, err
 			}
 		}
@@ -273,6 +326,90 @@ func (p *Postgres) GetPublicDocument(ctx context.Context, documentPath string) (
 	}
 	document.CachePolicy = model.CachePolicy(cache)
 	return document, true, nil
+}
+
+func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+	if query.Limit < 1 {
+		query.Limit = 6
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+
+	page := model.PublicEventPage{
+		OK:            true,
+		SchemaVersion: 1,
+		Source:        "postgresql",
+		Offset:        query.Offset,
+		Limit:         query.Limit,
+		Facets:        map[string][]model.PublicEventFacet{},
+	}
+	var stateTotal int64
+	var facetsJSON []byte
+	var summaryJSON []byte
+	err := p.pool.QueryRow(ctx, `SELECT revision,source_updated_at,total_echoes,facets::text,summary::text
+		FROM gaylemon_public.event_state WHERE singleton=true`).
+		Scan(&page.Revision, &page.UpdatedAt, &stateTotal, &facetsJSON, &summaryJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.PublicEventPage{}, false, nil
+	}
+	if err != nil {
+		return model.PublicEventPage{}, false, err
+	}
+	if err := json.Unmarshal(facetsJSON, &page.Facets); err != nil {
+		return model.PublicEventPage{}, false, err
+	}
+	page.Summary = append(json.RawMessage(nil), summaryJSON...)
+
+	conditions := []string{"true"}
+	arguments := []any{}
+	if value := strings.TrimSpace(query.Type); value != "" && value != "all" {
+		arguments = append(arguments, value)
+		conditions = append(conditions, fmt.Sprintf("$%d=ANY(facet_types)", len(arguments)))
+	}
+	if value := strings.TrimSpace(query.Player); value != "" && value != "all" {
+		arguments = append(arguments, value)
+		conditions = append(conditions, fmt.Sprintf("player=$%d", len(arguments)))
+	}
+	if value := strings.ToLower(strings.TrimSpace(query.Search)); value != "" {
+		arguments = append(arguments, value)
+		conditions = append(conditions, fmt.Sprintf("search_text LIKE '%%'||$%d||'%%'", len(arguments)))
+	}
+	where := strings.Join(conditions, " AND ")
+
+	if len(arguments) == 0 {
+		page.Total = stateTotal
+	} else if err := p.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_public.events WHERE `+where, arguments...).Scan(&page.Total); err != nil {
+		return model.PublicEventPage{}, false, err
+	}
+
+	pageArguments := append(append([]any{}, arguments...), query.Limit, query.Offset)
+	rows, err := p.pool.Query(ctx, `SELECT payload::text
+		FROM gaylemon_public.events
+		WHERE `+where+`
+		ORDER BY occurred_at DESC,event_id DESC,event_key DESC
+		LIMIT $`+strconv.Itoa(len(arguments)+1)+` OFFSET $`+strconv.Itoa(len(arguments)+2), pageArguments...)
+	if err != nil {
+		return model.PublicEventPage{}, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return model.PublicEventPage{}, false, err
+		}
+		page.Events = append(page.Events, append(json.RawMessage(nil), payload...))
+	}
+	if err := rows.Err(); err != nil {
+		return model.PublicEventPage{}, false, err
+	}
+	if page.Events == nil {
+		page.Events = []json.RawMessage{}
+	}
+	return page, true, nil
 }
 
 func (p *Postgres) Maintain(ctx context.Context) (json.RawMessage, error) {

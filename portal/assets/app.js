@@ -168,6 +168,7 @@ let eventsRecentSnapshot = null;
 let eventsManifestV6 = null;
 let eventsHeadV6 = null;
 let eventsActivePointerV6 = null;
+let eventsDatabasePage = null;
 let eventsContractMode = "v5";
 let eventsPreferredContract = "v5";
 let eventsContractChannelCheckedAt = 0;
@@ -185,9 +186,11 @@ let eventsFullLoaded = false;
 let eventsV6FullLoadPromise = null;
 let eventsV6HistoryLoadPromise = null;
 let eventsV6HistorySignature = "";
+let terminalSearchDebounce = 0;
 let lastEventRecentRefreshAt = 0;
 const dashboardEventPageSize = 5;
 const terminalV6EchoLimit = 6;
+const terminalDatabasePageSize = 6;
 let terminalEventPageSize = 8;
 let dailySelectedDateKey = "";
 let dailyAvailableDateKeys = [];
@@ -3906,7 +3909,95 @@ async function loadHomeEchoes(silent = false) {
   }
 }
 
+function terminalDatabaseQueryPath() {
+  const filters = currentTerminalFilters();
+  const parameters = new URLSearchParams({
+    limit: String(terminalDatabasePageSize),
+    offset: String(Math.max(0, eventCurrentPage - 1) * terminalDatabasePageSize),
+  });
+  const rawSearch = String(eventSearch?.value || "").trim();
+  if (rawSearch) parameters.set("q", rawSearch);
+  if (filters.type && filters.type !== "all") parameters.set("type", filters.type);
+  if (filters.player && filters.player !== "all") parameters.set("player", filters.player);
+  return `api/public/events/v1?${parameters}`;
+}
+
+function renderDatabaseTerminalEvents(options = {}) {
+  if (!isTerminalRoute() || eventsContractMode !== "database" || !eventsDatabasePage) return false;
+  const total = Math.max(0, Number(eventsDatabasePage.total || 0));
+  const pageCount = Math.max(1, Math.ceil(total / terminalDatabasePageSize));
+  eventCurrentPage = Math.min(Math.max(1, eventCurrentPage), pageCount);
+  const visible = dedupeSessionFallbackEvents(eventsDatabasePage.events || []);
+  terminalEventWindowStart = Math.max(0, Number(eventsDatabasePage.offset || 0));
+  terminalVisibleEvents = visible;
+  if (eventResultCount) {
+    const displayed = dailyPlural(visible.length, "écho affiché", "échos affichés");
+    const synchronized = `${formatInteger(total)} synchronisé${total > 1 ? "s" : ""}`;
+    eventResultCount.textContent = pageCount > 1
+      ? `${displayed} · ${synchronized} · page ${eventCurrentPage} sur ${pageCount}`
+      : `${displayed} · ${synchronized}`;
+  }
+  renderEventStreamItems(visible, true, false, { preserveDom: Boolean(options.preserveDom) });
+  renderEventPaginationControls(pageCount);
+  return true;
+}
+
+async function loadTerminalEventsDatabase(silent = false) {
+  const previousSignature = eventsDatabasePage
+    ? `${eventsDatabasePage.revision || ""}:${eventsDatabasePage.offset || 0}:${eventsDatabasePage.total || 0}:${(eventsDatabasePage.events || []).map(eventIdentity).join(",")}`
+    : "";
+  try {
+    const payload = await readJson(terminalDatabaseQueryPath());
+    if (!payload?.ok || payload.source !== "postgresql" || !Array.isArray(payload.events)) {
+      throw new Error("invalid-database-events");
+    }
+    const nextSignature = `${payload.revision || ""}:${payload.offset || 0}:${payload.total || 0}:${payload.events.map(eventIdentity).join(",")}`;
+    eventsDatabasePage = payload;
+    eventsContractMode = "database";
+    eventsFullLoaded = false;
+    eventsSnapshot = {
+      ...payload,
+      version: 7,
+      schemaVersion: 7,
+      recent: true,
+      terminalDatabase: true,
+      updatedAt: payload.updatedAt,
+      summary: {
+        ...(payload.summary || {}),
+        events: payload.events.length,
+        totalEvents: Number(payload.total || 0),
+        firstAt: payload.events.at(-1)?.occurredAt || null,
+        lastAt: payload.events[0]?.occurredAt || null,
+      },
+    };
+    eventsRecentSnapshot = eventsSnapshot;
+    eventsIndexSnapshot = {
+      schemaVersion: 7,
+      source: "postgresql",
+      revision: payload.revision,
+      updatedAt: payload.updatedAt,
+      facets: payload.facets || {},
+      summary: eventsSnapshot.summary,
+    };
+    registerPayloadDataUpdate("events", eventsSnapshot);
+    renderEventSummaryCards(eventsSnapshot);
+    renderEventSyncStatus(new Date(), eventsSnapshot.updatedAt);
+    renderEventFiltersFromFacets(eventsIndexSnapshot);
+    renderDatabaseTerminalEvents({ preserveDom: Boolean(silent) });
+    return { ok: true, changed: previousSignature !== nextSignature, mode: "database" };
+  } catch (error) {
+    registerSourceHealth("events", "transient-error", "stale");
+    if (eventsContractMode === "database" && eventsDatabasePage) {
+      if (!silent) renderDatabaseTerminalEvents();
+      return { ok: true, changed: false, stale: true, error, mode: "database" };
+    }
+    return { ok: false, changed: false, fallback: true, error };
+  }
+}
+
 async function loadTerminalEventsPreferred(silent = false) {
+  const database = await loadTerminalEventsDatabase(silent);
+  if (database.ok && eventsContractMode === "database") return database;
   const v6 = await loadTerminalEventsV6(true);
   if (v6.ok && eventsContractMode === "v6") return v6;
   eventDateNavigation?.setAttribute("hidden", "");
@@ -4394,17 +4485,11 @@ function terminalEventHasHiddenDetails(event, bullets) {
 }
 
 function terminalEventPreviewHeadline(event, detailHeadline, bullets) {
-  return terminalEventHasHiddenDetails(event, bullets) ? "Écho relevé" : detailHeadline;
+  return detailHeadline;
 }
 
 function terminalEventPreviewBody(event, detailBody, bullets) {
-  if (!terminalEventHasHiddenDetails(event, bullets)) return detailBody;
-  const player = String(event.player || "").trim();
-  const base = String(event.base || "").trim();
-  if (player && base) return `${player} laisse une nouvelle trace à ${base}.`;
-  if (player) return `${player} laisse une nouvelle trace.`;
-  if (base) return `Nouvelle trace à ${base}.`;
-  return "Nouvelle trace dans le journal.";
+  return detailBody;
 }
 
 function publicEventGuildName(event) {
@@ -4843,6 +4928,12 @@ async function renderPagedTerminalEvents(refinePageSize = true, options = {}) {
 }
 
 async function updateTerminalEvents(refinePageSize = true) {
+  if (isTerminalRoute() && eventsContractMode === "database") {
+    await loadTerminalEventsDatabase(true);
+    renderDatabaseTerminalEvents({ preserveDom: true });
+    writeTerminalState();
+    return;
+  }
   if (isTerminalRoute() && eventsContractMode === "v6") {
     if (eventFiltersRequireFullHistory() && !terminalV6HistoryCoversActiveFilters() && !eventsFullLoaded) {
       await loadTerminalHistoryForFiltersV6();
@@ -8106,7 +8197,11 @@ if (isTerminalRoute()) {
     terminalEventsLoad,
   ]).then(() => {
     document.documentElement.classList.add("data-loaded");
-    if (eventsContractMode === "v6" && eventsSnapshot) {
+    if (eventsContractMode === "database" && eventsDatabasePage) {
+      renderEventFiltersFromFacets(eventsIndexSnapshot);
+      renderDatabaseTerminalEvents();
+      writeTerminalState();
+    } else if (eventsContractMode === "v6" && eventsSnapshot) {
       renderEventFiltersFromFacets(eventsIndexSnapshot);
       if (!eventFiltersRequireFullHistory() && !eventsFullLoaded && eventCurrentPage > 1) {
         void renderPagedTerminalEventsV6().then(() => writeTerminalState());
@@ -8243,6 +8338,10 @@ eventsDisclosure?.addEventListener("toggle", () => {
     return;
   }
   if (!eventsDisclosure.open) return;
+  if (eventsContractMode === "database") {
+    void updateTerminalEvents(false);
+    return;
+  }
   if (eventsContractMode === "v6") {
     if (eventFiltersRequireFullHistory() && !terminalV6HistoryCoversActiveFilters() && !eventsFullLoaded) {
       void loadTerminalHistoryForFiltersV6().then(() => {
@@ -8500,7 +8599,13 @@ if (isMapRoute()) {
   });
 }
 
-eventSearch?.addEventListener("input", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
+eventSearch?.addEventListener("input", () => {
+  eventCurrentPage = 1;
+  eventCursor = "";
+  syncEventControlsState();
+  window.clearTimeout(terminalSearchDebounce);
+  terminalSearchDebounce = window.setTimeout(() => void updateTerminalEvents(), 250);
+});
 eventTypeFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
 eventPlayerFilter?.addEventListener("change", () => { eventCurrentPage = 1; eventCursor = ""; syncEventControlsState(); void updateTerminalEvents(); });
 eventControls?.addEventListener("toggle", () => {

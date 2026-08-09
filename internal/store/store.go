@@ -27,6 +27,7 @@ type Repository interface {
 	ClaimNonce(context.Context, string, string, time.Time) error
 	IngestBatch(context.Context, model.Batch, string, bool) (model.IngestResult, error)
 	GetPublicDocument(context.Context, string) (model.PublicDocument, bool, error)
+	QueryPublicEvents(context.Context, model.PublicEventQuery) (model.PublicEventPage, bool, error)
 	UpsertHeartbeat(context.Context, model.AgentStatus) error
 	PendingCommands(context.Context, string, int64) ([]model.Command, error)
 	AckCommand(context.Context, string, string, model.CommandAck) error
