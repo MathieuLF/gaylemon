@@ -56,9 +56,13 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 		t.Fatalf("octets JSON modifiés: %q", document.Content)
 	}
 	eventsDocument := json.RawMessage(`{"ok":true,"revision":"events-integration-1","updatedAt":"2026-08-08T21:49:00-04:00","summary":{"totalEchoes":2},"events":[{"key":"evt-2","id":2,"occurredAt":"2026-08-08T21:49:00-04:00","type":"craft","player":"MathieuLF","title":"Fabrications terminées","message":"Deux fabrications.","details":{"types":["craft"]}},{"key":"evt-1","id":1,"occurredAt":"2026-08-08T21:48:00-04:00","type":"capture","player":"Sprince","title":"Première capture","message":"Une capture.","details":{}}]}`)
-	eventsPayload, err := json.Marshal(model.BatchPayload{Documents: []model.Document{{
-		Path: "data/public-events.json", Content: eventsDocument, CachePolicy: model.CacheNoStore,
-	}}})
+	eventsPayload, err := json.Marshal(model.BatchPayload{Documents: []model.Document{
+		{Path: "data/public-events.json", Content: eventsDocument, CachePolicy: model.CacheNoStore},
+		{Path: "data/public-events-head-v6.json", Content: json.RawMessage(`{"ok":true,"manifest":{"path":"data/public-events-v6/g-old/manifest.json"}}`), CachePolicy: model.CacheRevalidate, GenerationID: "g-old"},
+		{Path: "data/public-events-v6/g-old/manifest.json", Content: json.RawMessage(`{"ok":true,"generationId":"g-old"}`), CachePolicy: model.CacheImmutable, GenerationID: "g-old"},
+		{Path: "data/public-events-v6/d-old/2026-08-08.json", Content: json.RawMessage(`{"ok":true,"events":[]}`), CachePolicy: model.CacheImmutable, GenerationID: "d-old"},
+		{Path: "data/public-daily/d-old/2026-08-08.json", Content: json.RawMessage(`{"ok":true,"events":[]}`), CachePolicy: model.CacheImmutable, GenerationID: "d-old"},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,16 +70,44 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	if _, err := repository.IngestBatch(ctx, eventsBatch, "integration-events-hash", true); err != nil {
 		t.Fatal(err)
 	}
+	nextEventsPayload, err := json.Marshal(model.BatchPayload{Documents: []model.Document{
+		{Path: "data/public-events.json", Content: eventsDocument, CachePolicy: model.CacheNoStore},
+		{Path: "data/public-events-head-v6.json", Content: json.RawMessage(`{"ok":true,"manifest":{"path":"data/public-events-v6/g-current/manifest.json"}}`), CachePolicy: model.CacheRevalidate, GenerationID: "g-current"},
+		{Path: "data/public-events-v6/g-current/manifest.json", Content: json.RawMessage(`{"ok":true,"generationId":"g-current"}`), CachePolicy: model.CacheImmutable, GenerationID: "g-current"},
+		{Path: "data/public-events-v6/d-current/2026-08-08.json", Content: json.RawMessage(`{"ok":true,"events":[]}`), CachePolicy: model.CacheImmutable, GenerationID: "d-current"},
+		{Path: "data/public-daily/d-current/2026-08-08.json", Content: json.RawMessage(`{"ok":true,"events":[]}`), CachePolicy: model.CacheImmutable, GenerationID: "d-current"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextEventsBatch := model.Batch{ID: "integration-events-batch-current", AgentID: "integration", Stream: "events", SchemaVersion: 1, Sequence: 2, CapturedAt: time.Now().UTC(), Payload: nextEventsPayload}
+	if _, err := repository.IngestBatch(ctx, nextEventsBatch, "integration-events-hash-current", true); err != nil {
+		t.Fatal(err)
+	}
 	eventsPage, found, err := repository.QueryPublicEvents(ctx, model.PublicEventQuery{Limit: 10, Type: "craft"})
 	if err != nil || !found || eventsPage.Source != "postgresql" || eventsPage.Total != 1 || len(eventsPage.Events) != 1 {
 		t.Fatalf("projection relationnelle absente: found=%v page=%#v err=%v", found, eventsPage, err)
 	}
-	var mutableEventVersions int
-	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_public.document_versions WHERE stream='events' AND cache_policy<>'immutable'`).Scan(&mutableEventVersions); err != nil {
+	var eventVersions int
+	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_public.document_versions WHERE stream='events'`).Scan(&eventVersions); err != nil {
 		t.Fatal(err)
 	}
-	if mutableEventVersions != 0 {
-		t.Fatalf("versions JSON mutables conservées: %d", mutableEventVersions)
+	if eventVersions != 0 {
+		t.Fatalf("versions JSON d'événements conservées: %d", eventVersions)
+	}
+	var activeFallbackDocuments int
+	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_public.documents
+		WHERE path LIKE 'data/public-events-v6/%' OR path LIKE 'data/public-daily/%'`).Scan(&activeFallbackDocuments); err != nil {
+		t.Fatal(err)
+	}
+	if activeFallbackDocuments != 3 {
+		t.Fatalf("génération JSON active incohérente: %d documents", activeFallbackDocuments)
+	}
+	if _, found, err := repository.GetPublicDocument(ctx, "data/public-events-v6/d-old/2026-08-08.json"); err != nil || found {
+		t.Fatalf("ancienne génération JSON encore active: found=%v err=%v", found, err)
+	}
+	if _, found, err := repository.GetPublicDocument(ctx, "data/public-events-v6/d-current/2026-08-08.json"); err != nil || !found {
+		t.Fatalf("génération JSON courante absente: found=%v err=%v", found, err)
 	}
 	snapshot, err := repository.Dashboard(ctx)
 	if err != nil || len(snapshot.RecentRuns) == 0 || snapshot.DatabaseBytes <= 0 {

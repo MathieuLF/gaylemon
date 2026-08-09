@@ -272,7 +272,7 @@ Synchronisations utiles:
 
 Les métriques rapides, les échos et les fiches joueurs ont des cadences distinctes sur Ubuntu. Les métriques passent toutes les cinq minutes. Le journal léger passe toutes les cinq minutes; chaque réussite déclenche immédiatement sa publication. Le snapshot de sauvegarde passe toutes les trente minutes et déclenche ensuite le journal, puis l'envoi PostgreSQL, sans chevauchement. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue conserve le lot précédent.
 
-Le Terminal interroge d'abord l'API paginée PostgreSQL. Les fragments v6 et les deux exports JSON Ubuntu restent un repli borné; ils ne sont plus la source normale de pagination ou de recherche. Les documents JSON mutables ne conservent pas d'historique de versions et les documents immuables sont limités à trois générations.
+Le Terminal interroge d'abord l'API paginée PostgreSQL. Les fragments v6 et les deux exports JSON Ubuntu restent un repli borné; ils ne sont plus la source normale de pagination ou de recherche. Aucun document JSON d'événement ne conserve d'historique de versions dans PostgreSQL: seule la génération active cohérente reste servie.
 
 `public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
 
