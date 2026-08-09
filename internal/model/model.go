@@ -47,6 +47,8 @@ type Batch struct {
 	SourceRevision string          `json:"sourceRevision,omitempty"`
 	CapturedAt     time.Time       `json:"capturedAt"`
 	Payload        json.RawMessage `json:"payload"`
+	TransportBytes int64           `json:"-"`
+	Compressed     bool            `json:"-"`
 }
 
 type IngestResult struct {

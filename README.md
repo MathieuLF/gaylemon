@@ -110,12 +110,12 @@ Les exports publics réels restent non versionnés. Le site lit notamment:
 - `public-stats.json` pour les sessions et agrégats joueurs;
 - `public-save-index.json`, `public-save-snapshot.json`, `public-save-bases.json`, `public-save-diagnostics.json` et `players/{slug}.json` pour les fiches, Pals, bases et exports JSON d'analyse; ces fichiers partagent une génération et l'index devient actif en dernier;
 - l'API paginée `/api/public/events/v1`, alimentée par `gaylemon_public.events`, pour le Terminal;
-- `public-events-channel.json`, la tête v6, les générations immuables et les contrats `public-events*.json` comme repli borné et pour les résumés quotidiens;
+- `public-events-recent.json` comme petit repli de continuité lorsque PostgreSQL est momentanément indisponible;
 - `public-uptime.json`, `public-uptime-history.json` et `public-availability.json` pour la disponibilité calculée depuis l'API REST Palworld.
 
-Le service Go sert les pages, l'API PostgreSQL et les documents de repli. Les JSON mutables sont servis en `no-store`; le pointeur et le manifeste v6 sont revalidés avec ETag.
+Le service Go sert les pages, l'API PostgreSQL et les petits documents de repli. Les JSON mutables sont servis en `no-store`.
 
-Le flux des échos est traité comme une donnée chaude: projection canonique près de SQLite, ingestion relationnelle transactionnelle dans PostgreSQL, pagination et recherche en base. Les JSON d'événements n'ont pas d'historique de versions; seule la génération active nécessaire au repli reste en base.
+Le flux des échos est traité comme une donnée chaude: projection canonique près de SQLite, transport compressé, ingestion relationnelle différentielle dans PostgreSQL, pagination et recherche indexées. L'export complet sert uniquement de véhicule transactionnel et n'est pas conservé dans la base; seul le petit repli récent reste servi.
 
 ## Documentation
 

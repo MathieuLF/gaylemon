@@ -685,6 +685,6 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260808\.1/);
-    assert.match(html, /app\.js\?v=20260808\.2/);
+    assert.match(html, /app\.js\?v=20260808\.3/);
   }
 });

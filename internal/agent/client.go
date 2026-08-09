@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,8 @@ import (
 	"github.com/MathieuLF/gaylemon/internal/auth"
 	"github.com/MathieuLF/gaylemon/internal/model"
 )
+
+const compressRequestThreshold = 32 << 10
 
 type Client struct {
 	config     Config
@@ -32,15 +35,20 @@ func (c *Client) SendBatch(ctx context.Context, batch model.Batch) (model.Ingest
 	if err != nil {
 		return model.IngestResult{}, 0, err
 	}
+	return c.SendBatchBody(ctx, body)
+}
+
+func (c *Client) SendBatchBody(ctx context.Context, body []byte) (model.IngestResult, int64, error) {
 	path := "/api/ingest/v1/batches"
 	if c.Shadow {
 		path += "?shadow=1"
 	}
 	var result model.IngestResult
-	if err := c.doJSON(ctx, http.MethodPost, path, body, &result); err != nil {
-		return result, int64(len(body)), err
+	bytesSent, err := c.sendJSON(ctx, http.MethodPost, path, body, &result)
+	if err != nil {
+		return result, bytesSent, err
 	}
-	return result, int64(len(body)), nil
+	return result, bytesSent, nil
 }
 
 func (c *Client) Heartbeat(ctx context.Context, status model.AgentStatus) error {
@@ -71,37 +79,67 @@ func (c *Client) Ack(ctx context.Context, commandID string, ack model.CommandAck
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body []byte, target any) error {
-	request, err := http.NewRequestWithContext(ctx, method, c.config.APIBaseURL+path, bytes.NewReader(body))
+	_, err := c.sendJSON(ctx, method, path, body, target)
+	return err
+}
+
+func (c *Client) sendJSON(ctx context.Context, method, path string, body []byte, target any) (int64, error) {
+	wireBody, contentEncoding, err := compressJSONBody(body)
 	if err != nil {
-		return err
+		return 0, err
+	}
+	request, err := http.NewRequestWithContext(ctx, method, c.config.APIBaseURL+path, bytes.NewReader(wireBody))
+	if err != nil {
+		return 0, err
 	}
 	request.Header.Set("Accept", "application/json")
 	if len(body) > 0 {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	if err := auth.SignRequest(request, body, c.config.AgentID, c.config.PrivateKey, time.Now().UTC()); err != nil {
-		return err
+	if contentEncoding != "" {
+		request.Header.Set("Content-Encoding", contentEncoding)
+	}
+	if err := auth.SignRequest(request, wireBody, c.config.AgentID, c.config.PrivateKey, time.Now().UTC()); err != nil {
+		return 0, err
 	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return err
+		return int64(len(wireBody)), err
 	}
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
 	if err != nil {
-		return err
+		return int64(len(wireBody)), err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		message := strings.TrimSpace(string(responseBody))
 		if len(message) > 500 {
 			message = message[:500]
 		}
-		return fmt.Errorf("API %s: HTTP %d: %s", path, response.StatusCode, message)
+		return int64(len(wireBody)), fmt.Errorf("API %s: HTTP %d: %s", path, response.StatusCode, message)
 	}
 	if target != nil && len(responseBody) > 0 {
 		if err := json.Unmarshal(responseBody, target); err != nil {
-			return errors.New("réponse API invalide")
+			return int64(len(wireBody)), errors.New("réponse API invalide")
 		}
 	}
-	return nil
+	return int64(len(wireBody)), nil
+}
+
+func compressJSONBody(body []byte) ([]byte, string, error) {
+	if len(body) < compressRequestThreshold {
+		return body, "", nil
+	}
+	var compressed bytes.Buffer
+	writer, err := gzip.NewWriterLevel(&compressed, gzip.BestSpeed)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := writer.Write(body); err != nil {
+		return nil, "", err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", err
+	}
+	return compressed.Bytes(), "gzip", nil
 }

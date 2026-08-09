@@ -27,7 +27,7 @@ func TestSpoolKeepsOrderAndFailures(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("lot attendu: found=%v err=%v", found, err)
 	}
-	if pending.ID != "first" || pending.Batch.Sequence != 1 {
+	if pending.ID != "first" || pending.Sequence != 1 || !json.Valid(pending.Body) {
 		t.Fatalf("premier lot inattendu: %#v", pending)
 	}
 	if err := spool.Fail(ctx, pending.ID, context.DeadlineExceeded); err != nil {
@@ -41,7 +41,7 @@ func TestSpoolKeepsOrderAndFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending, found, err = spool.Peek(ctx)
-	if err != nil || !found || pending.ID != "second" || pending.Batch.Sequence != 2 {
+	if err != nil || !found || pending.ID != "second" || pending.Sequence != 2 {
 		t.Fatalf("second lot inattendu: %#v found=%v err=%v", pending, found, err)
 	}
 }
@@ -76,5 +76,34 @@ func TestCommandResultSurvivesAcknowledgementRetry(t *testing.T) {
 	got, found, err := spool.CommandResult(ctx, command.ID)
 	if err != nil || !found || got != want {
 		t.Fatalf("résultat perdu: got=%#v found=%v err=%v", got, found, err)
+	}
+}
+
+func TestSpoolDeduplicatesCompletedSourceRevision(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	ctx := context.Background()
+	document := model.Document{Path: "data/public-events.json", Content: json.RawMessage(`{"ok":true}`), CachePolicy: model.CacheNoStore}
+	batches, err := EnqueueDocuments(ctx, spool, "test", "events", "revision-42", []model.Document{document}, model.ResourceUsage{}, nil)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("première révision non ajoutée: batches=%d err=%v", len(batches), err)
+	}
+	repeated, err := EnqueueDocuments(ctx, spool, "test", "events", "revision-42", []model.Document{document}, model.ResourceUsage{}, nil)
+	if err != nil || len(repeated) != 0 {
+		t.Fatalf("révision en attente dupliquée: batches=%d err=%v", len(repeated), err)
+	}
+	pending, found, err := spool.Peek(ctx)
+	if err != nil || !found {
+		t.Fatalf("lot absent: found=%v err=%v", found, err)
+	}
+	if err := spool.Complete(ctx, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	repeated, err = EnqueueDocuments(ctx, spool, "test", "events", "revision-42", []model.Document{document}, model.ResourceUsage{}, nil)
+	if err != nil || len(repeated) != 0 {
+		t.Fatalf("révision terminée dupliquée: batches=%d err=%v", len(repeated), err)
 	}
 }

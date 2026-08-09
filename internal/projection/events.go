@@ -1,11 +1,13 @@
 package projection
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,6 +22,72 @@ var (
 	privateEventKey = regexp.MustCompile(`(?i)^(?:ip|ipaddress|address|host|hostname|port|endpoint|url|uri|uid|guid|instance|container|account(?:name)?|playerid|userid|steam(?:id)?|password|token|dynamic_id|position|coordinates?|map[xyz]|world[xyz])$`)
 	ipv4Literal     = regexp.MustCompile(`(?:^|[^0-9])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:[^0-9]|$)`)
 )
+
+// ValidatePublicEvents vérifie le contrat complet sans matérialiser tout le
+// journal en maps Go. Un seul écho est décodé à la fois, ce qui garde la
+// validation de confidentialité tout en bornant la mémoire du collecteur.
+func ValidatePublicEvents(content []byte) (string, int, error) {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	opening, err := decoder.Token()
+	if err != nil || opening != json.Delim('{') {
+		return "", 0, errors.New("journal public invalide")
+	}
+	revision := ""
+	eventCount := 0
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return "", 0, fmt.Errorf("lecture du journal public: %w", err)
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return "", 0, errors.New("clé de journal public invalide")
+		}
+		switch key {
+		case "revision":
+			if err := decoder.Decode(&revision); err != nil {
+				return "", 0, errors.New("révision du journal public invalide")
+			}
+		case "events":
+			openingEvents, err := decoder.Token()
+			if err != nil || openingEvents != json.Delim('[') {
+				return "", 0, errors.New("liste des échos publics invalide")
+			}
+			for decoder.More() {
+				var event map[string]any
+				if err := decoder.Decode(&event); err != nil {
+					return "", 0, fmt.Errorf("écho public invalide: %w", err)
+				}
+				if err := validatePublicEvent(event); err != nil {
+					return "", 0, err
+				}
+				eventCount++
+			}
+			if closingEvents, err := decoder.Token(); err != nil || closingEvents != json.Delim(']') {
+				return "", 0, errors.New("fin de liste des échos publics invalide")
+			}
+		default:
+			var discarded json.RawMessage
+			if err := decoder.Decode(&discarded); err != nil {
+				return "", 0, fmt.Errorf("champ public %s invalide: %w", key, err)
+			}
+		}
+	}
+	if closing, err := decoder.Token(); err != nil || closing != json.Delim('}') {
+		return "", 0, errors.New("fin du journal public invalide")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", 0, errors.New("contenu présent après le journal public")
+	}
+	if strings.TrimSpace(revision) == "" {
+		return "", 0, errors.New("révision du journal public absente")
+	}
+	if eventCount == 0 {
+		return "", 0, errors.New("aucun écho public à projeter")
+	}
+	return revision, eventCount, nil
+}
 
 func EventsV6(source map[string]any) ([]model.Document, error) {
 	events := objectSlice(source["events"])

@@ -92,7 +92,8 @@ func collect(arguments []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	batches, err := agent.EnqueueDocuments(ctx, spool, config.AgentID, *kind, "", result.Documents, result.Usage, result.Summary)
+	revision, _ := result.Summary["revision"].(string)
+	batches, err := agent.EnqueueDocuments(ctx, spool, config.AgentID, *kind, revision, result.Documents, result.Usage, result.Summary)
 	if err != nil {
 		return err
 	}

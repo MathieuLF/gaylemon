@@ -72,10 +72,7 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	}
 	nextEventsPayload, err := json.Marshal(model.BatchPayload{Documents: []model.Document{
 		{Path: "data/public-events.json", Content: eventsDocument, CachePolicy: model.CacheNoStore},
-		{Path: "data/public-events-head-v6.json", Content: json.RawMessage(`{"ok":true,"manifest":{"path":"data/public-events-v6/g-current/manifest.json"}}`), CachePolicy: model.CacheRevalidate, GenerationID: "g-current"},
-		{Path: "data/public-events-v6/g-current/manifest.json", Content: json.RawMessage(`{"ok":true,"generationId":"g-current"}`), CachePolicy: model.CacheImmutable, GenerationID: "g-current"},
-		{Path: "data/public-events-v6/d-current/2026-08-08.json", Content: json.RawMessage(`{"ok":true,"events":[]}`), CachePolicy: model.CacheImmutable, GenerationID: "d-current"},
-		{Path: "data/public-daily/d-current/2026-08-08.json", Content: json.RawMessage(`{"ok":true,"events":[]}`), CachePolicy: model.CacheImmutable, GenerationID: "d-current"},
+		{Path: "data/public-events-recent.json", Content: json.RawMessage(`{"ok":true,"revision":"recent-current","events":[]}`), CachePolicy: model.CacheNoStore},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -100,14 +97,17 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 		WHERE path LIKE 'data/public-events-v6/%' OR path LIKE 'data/public-daily/%'`).Scan(&activeFallbackDocuments); err != nil {
 		t.Fatal(err)
 	}
-	if activeFallbackDocuments != 3 {
+	if activeFallbackDocuments != 0 {
 		t.Fatalf("génération JSON active incohérente: %d documents", activeFallbackDocuments)
 	}
 	if _, found, err := repository.GetPublicDocument(ctx, "data/public-events-v6/d-old/2026-08-08.json"); err != nil || found {
 		t.Fatalf("ancienne génération JSON encore active: found=%v err=%v", found, err)
 	}
-	if _, found, err := repository.GetPublicDocument(ctx, "data/public-events-v6/d-current/2026-08-08.json"); err != nil || !found {
-		t.Fatalf("génération JSON courante absente: found=%v err=%v", found, err)
+	if _, found, err := repository.GetPublicDocument(ctx, "data/public-events.json"); err != nil || found {
+		t.Fatalf("export complet encore conservé: found=%v err=%v", found, err)
+	}
+	if _, found, err := repository.GetPublicDocument(ctx, "data/public-events-recent.json"); err != nil || !found {
+		t.Fatalf("repli récent absent: found=%v err=%v", found, err)
 	}
 	snapshot, err := repository.Dashboard(ctx)
 	if err != nil || len(snapshot.RecentRuns) == 0 || snapshot.DatabaseBytes <= 0 {

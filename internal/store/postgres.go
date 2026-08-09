@@ -175,23 +175,11 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 	}
 	if activate {
 		var promotedSaveGeneration string
-		var promotedEventPaths []string
-		promotesEventGeneration := false
 		if batch.Stream == "snapshot" {
 			for _, document := range payload.Documents {
 				if document.Path == "data/public-save-index.json" {
 					promotedSaveGeneration = document.GenerationID
 					break
-				}
-			}
-		}
-		if batch.Stream == "events" {
-			for _, document := range payload.Documents {
-				if document.Path == "data/public-events-head-v6.json" {
-					promotesEventGeneration = true
-				}
-				if strings.HasPrefix(document.Path, "data/public-events-v6/") || strings.HasPrefix(document.Path, "data/public-daily/") {
-					promotedEventPaths = append(promotedEventPaths, document.Path)
 				}
 			}
 		}
@@ -204,16 +192,14 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 				return model.IngestResult{}, err
 			}
 		}
-		if promotesEventGeneration && len(promotedEventPaths) > 0 {
-			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.documents
-				WHERE NOT (path=ANY($1::text[])) AND (
-					path LIKE 'data/public-events-v6/%' OR
-					path LIKE 'data/public-daily/%'
-				)`, promotedEventPaths); err != nil {
-				return model.IngestResult{}, err
-			}
-		}
 		for _, document := range payload.Documents {
+			if batch.Stream == "events" && document.Path == "data/public-events.json" {
+				var projected int64
+				if err := tx.QueryRow(ctx, `SELECT gaylemon_public.replace_events_from_document($1::jsonb,$2)`, string(document.Content), batch.ID).Scan(&projected); err != nil {
+					return model.IngestResult{}, err
+				}
+				continue
+			}
 			contentHash := sha256.Sum256(document.Content)
 			sha := hex.EncodeToString(contentHash[:])
 			if _, err := tx.Exec(ctx, `INSERT INTO gaylemon_public.document_contents(sha256,content,content_bytes) VALUES($1,$2::jsonb,$3) ON CONFLICT DO NOTHING`, sha, string(document.Content), []byte(document.Content)); err != nil {
@@ -236,16 +222,16 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 					return model.IngestResult{}, err
 				}
 			}
-			if batch.Stream == "events" && document.Path == "data/public-events.json" {
-				var projected int64
-				if err := tx.QueryRow(ctx, `SELECT gaylemon_public.replace_events_from_document($1::jsonb,$2)`, string(document.Content), batch.ID).Scan(&projected); err != nil {
-					return model.IngestResult{}, err
-				}
-			}
 		}
 		if batch.Stream == "events" {
 			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.document_versions
 				WHERE stream='events'`); err != nil {
+				return model.IngestResult{}, err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.documents
+				WHERE path IN ('data/public-events.json','data/public-events-manifest-v6.json','data/public-events-head-v6.json','public-events-channel.json')
+				   OR path LIKE 'data/public-events-v6/%'
+				   OR path LIKE 'data/public-daily/%'`); err != nil {
 				return model.IngestResult{}, err
 			}
 			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.document_contents contents
@@ -260,6 +246,12 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 		return model.IngestResult{}, err
 	}
 	u := payload.Usage
+	if batch.TransportBytes > 0 {
+		u.BytesSent = batch.TransportBytes
+		if batch.Compressed {
+			u.BytesCompressed = batch.TransportBytes
+		}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO gaylemon_ops.sync_runs(batch_id,agent_id,stream,captured_at,duration_ms,cpu_user_ms,cpu_system_ms,max_rss_bytes,io_read_bytes,io_write_bytes,bytes_read,bytes_compressed,bytes_sent,status)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, batch.ID, batch.AgentID, batch.Stream, batch.CapturedAt, u.DurationMS, u.CPUUserMS, u.CPUSystemMS, u.MaxRSSBytes, u.IOReadBytes, u.IOWriteBytes, u.BytesRead, u.BytesCompressed, u.BytesSent, status); err != nil {
 		return model.IngestResult{}, err
@@ -376,11 +368,17 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 	}
 
 	pageArguments := append(append([]any{}, arguments...), query.Limit, query.Offset)
-	rows, err := p.pool.Query(ctx, `SELECT payload::text
-		FROM gaylemon_public.events
-		WHERE `+where+`
-		ORDER BY occurred_at DESC,event_id DESC,event_key DESC
-		LIMIT $`+strconv.Itoa(len(arguments)+1)+` OFFSET $`+strconv.Itoa(len(arguments)+2), pageArguments...)
+	rows, err := p.pool.Query(ctx, `WITH page AS MATERIALIZED (
+			SELECT event_key,occurred_at,event_id
+			FROM gaylemon_public.events
+			WHERE `+where+`
+			ORDER BY occurred_at DESC,event_id DESC,event_key DESC
+			LIMIT $`+strconv.Itoa(len(arguments)+1)+` OFFSET $`+strconv.Itoa(len(arguments)+2)+`
+		)
+		SELECT stored.payload::text
+		FROM page
+		JOIN gaylemon_public.events stored USING(event_key)
+		ORDER BY page.occurred_at DESC,page.event_id DESC,page.event_key DESC`, pageArguments...)
 	if err != nil {
 		return model.PublicEventPage{}, false, err
 	}

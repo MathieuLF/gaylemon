@@ -27,7 +27,7 @@ func (r *Runner) Flush(ctx context.Context) (int, error) {
 		if !found {
 			return completed, nil
 		}
-		result, bytesSent, err := r.Client.SendBatch(ctx, pending.Batch)
+		result, bytesSent, err := r.Client.SendBatchBody(ctx, pending.Body)
 		if err != nil {
 			_ = r.Spool.Fail(ctx, pending.ID, err)
 			return completed, err
@@ -36,7 +36,7 @@ func (r *Runner) Flush(ctx context.Context) (int, error) {
 			return completed, err
 		}
 		completed++
-		r.Logger.Info("lot publié", "batch", result.BatchID, "stream", pending.Batch.Stream, "documents", result.Documents, "bytes", bytesSent)
+		r.Logger.Info("lot publié", "batch", result.BatchID, "stream", pending.Stream, "documents", result.Documents, "bytes", bytesSent)
 	}
 }
 

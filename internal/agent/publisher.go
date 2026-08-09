@@ -89,6 +89,13 @@ func EnqueueDocuments(ctx context.Context, spool *Spool, agentID, stream, revisi
 	if len(documents) == 0 {
 		return nil, errors.New("aucun document JSON à publier")
 	}
+	duplicate, err := spool.HasRevision(ctx, stream, revision)
+	if err != nil {
+		return nil, err
+	}
+	if duplicate {
+		return []model.Batch{}, nil
+	}
 	chunks, err := documentChunks(documents, maxBatchContentBytes)
 	if err != nil {
 		return nil, err
@@ -114,11 +121,6 @@ func EnqueueDocuments(ctx context.Context, spool *Spool, agentID, stream, revisi
 			Summary:   chunkSummary,
 		}
 		payload, err := json.Marshal(batchPayload)
-		if err != nil {
-			return nil, err
-		}
-		batchPayload.Usage.BytesSent = int64(len(payload))
-		payload, err = json.Marshal(batchPayload)
 		if err != nil {
 			return nil, err
 		}

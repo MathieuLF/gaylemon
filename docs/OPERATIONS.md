@@ -251,13 +251,6 @@ portal/data/public-save-diagnostics.json
 portal/data/players/{slug}.json
 portal/data/public-events.json
 portal/data/public-events-recent.json
-portal/data/public-events-index.json
-portal/data/public-events-page-0001.json
-portal/data/public-events-manifest-v6.json
-portal/data/public-events-head-v6.json
-portal/data/public-events-v6/{fragmentGenerationId}/{jour}.json
-portal/data/public-daily/{dailyGenerationId}/{jour}.json
-portal/public-events-channel.json
 ```
 
 Synchronisations utiles:
@@ -270,9 +263,9 @@ Synchronisations utiles:
 .\scripts\sync-palworld-game-assets.ps1
 ```
 
-Les métriques rapides, les échos et les fiches joueurs ont des cadences distinctes sur Ubuntu. Les métriques passent toutes les cinq minutes. Le journal léger passe toutes les cinq minutes; chaque réussite déclenche immédiatement sa publication. Le snapshot de sauvegarde passe toutes les trente minutes et déclenche ensuite le journal, puis l'envoi PostgreSQL, sans chevauchement. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue conserve le lot précédent.
+Les métriques rapides, les statistiques, les échos et les fiches joueurs ont des cadences distinctes sur Ubuntu. Les métriques sont publiées toutes les 30 secondes, les statistiques toutes les 5 minutes, les échos toutes les 30 minutes et le snapshot toutes les 2 heures. Les collecteurs auxiliaires sont limités en CPU, mémoire et priorité d'E/S afin de laisser Palworld prioritaire. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue conserve le lot précédent.
 
-Le Terminal interroge d'abord l'API paginée PostgreSQL. Les fragments v6 et les deux exports JSON Ubuntu restent un repli borné; ils ne sont plus la source normale de pagination ou de recherche. Aucun document JSON d'événement ne conserve d'historique de versions dans PostgreSQL: seule la génération active cohérente reste servie.
+Le Terminal et l'accueil interrogent directement l'API paginée PostgreSQL. Seul `public-events-recent.json` reste un repli borné. Aucun export complet ni fragment JSON d'événement n'est conservé dans PostgreSQL.
 
 `public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
 
@@ -300,7 +293,7 @@ La projection canonique est calculée près de SQLite. Les observations brutes r
 
 ### Reprojection publique contrôlée
 
-Le passage courant met à jour `public-events-recent.json` depuis la queue matérialisée. L'export complet alimente transactionnellement `gaylemon_public.events`; la pagination, la recherche et les filtres du Terminal lisent ensuite cette table. Les fichiers restent disponibles seulement comme repli de continuité.
+Le passage courant met à jour `public-events-recent.json` depuis la queue matérialisée. L'export complet validé alimente transactionnellement `gaylemon_public.events`, puis il est écarté au lieu d'être stocké comme document. Les révisions identiques ne sont pas remises en file et le transport vers la VPS est compressé.
 
 Une correction ou un backfill antérieur à la queue ouverte produit `canonicalExport.status=reprojection-required` dans le rapport de reprise. Ce statut conserve la projection matérialisée et les deux JSON précédents. L'agent Ubuntu attend alors un checkpoint complet cohérent avant de remplacer la projection PostgreSQL. Pour une correction historique volontaire, l'exploitant peut aussi déposer une demande ponctuelle sans arrêter le minuteur:
 
