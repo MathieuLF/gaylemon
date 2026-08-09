@@ -24,8 +24,8 @@
     <link rel="manifest" href="/site.webmanifest?v=20260712.1">
     <link rel="preload" href="/assets/fonts/nunito-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/assets/fonts/baloo-2-latin.woff2?v=20260712.1" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260726.1">
-  <script src="/assets/app.js?v=20260726.1" defer></script>
+  <link rel="stylesheet" href="/assets/styles.css?v=20260808.1">
+  <script src="/assets/app.js?v=20260808.1" defer></script>
 
     <!-- Google Analytics is queued immediately, then downloaded once the page is idle. -->
     <script>
@@ -105,7 +105,7 @@
         <article class="github-card">
           <p class="eyebrow">Rôle des dossiers</p>
           <h2>Ce que contient le dépôt</h2>
-          <p><code>portal/</code> contient le tableau de bord, <code>/terminal</code>, <code>/resume</code>, <code>/classements</code>, <code>/carte</code>, <code>/github</code>, les styles, <code>assets/app.js</code> et les exemples des contrats <code>public-*.json</code>. <code>scripts/</code> contient la console PowerShell, les synchronisations, les audits et le déploiement Windows vers Ubuntu. <code>server/</code> contient les scripts exécutés sur Ubuntu, les unités <code>systemd</code>, les sudoers, les réglages <code>sysctl</code> et les tests Python. <code>docker/</code> sert le microsite local avec Nginx.</p>
+          <p><code>portal/</code> contient le tableau de bord et ses routes publiques. <code>cmd/</code>, <code>internal/</code> et <code>db/</code> portent l'agent Ubuntu, le service web et la projection PostgreSQL. <code>server/</code> contient les collecteurs Ubuntu, les unités <code>systemd</code>, les garde-fous d'exploitation et les tests Python.</p>
           <p>Les fichiers réellement actifs sur Ubuntu sont décrits dans <code>server/deployment-manifest.json</code>: source, destination, propriétaire, mode, validation et politique de redémarrage.</p>
         </article>
         <article class="github-card github-card--dark">
@@ -134,7 +134,7 @@
           <li><strong>Snapshots de saves</strong><span><code>palworld-save-snapshot.timer</code> travaille sur une copie de sauvegarde terminée, lit les données avec PalworldSaveTools, puis écrit <code>public-save-index.json</code>, <code>public-save-snapshot.json</code>, <code>public-save-bases.json</code> et <code>players/{slug}.json</code> pour les fiches joueurs.</span></li>
           <li><strong>Journal d'événements</strong><span><code>palworld-events.timer</code> alimente SQLite aux 20 secondes et met à jour une projection publique matérialisée. La fenêtre récente est exportée immédiatement; l’export v5 complet reste un checkpoint froid. Le portail privilégie une génération v6 atomique composée d’un manifeste, de fragments journaliers immuables, d’une tête légère et de bilans quotidiens précalculés.</span></li>
           <li><strong>Déploiement Ubuntu</strong><span><code>scripts/deployer-ubuntu.ps1</code> prépare le manifeste résolu, met en scène sous <code>/tmp/gaylemon-staging</code>, valide Bash/Python/systemd/sudoers/sysctl, puis sauvegarde sous <code>/var/backups/gaylemon-deploy</code> avant installation.</span></li>
-          <li><strong>Publication statique</strong><span>Les synchronisations PowerShell recopient uniquement les exports publics dans <code>portal/data/</code>. Nginx revalide le manifeste avec son ETag, garde la tête, les fragments et les ressources versionnées en cache immuable, laisse les pages se rafraîchir et bloque les chemins privés.</span></li>
+          <li><strong>Publication PostgreSQL</strong><span>L'agent Ubuntu envoie les projections publiques à la VPS. Le Terminal pagine et filtre directement en base; les fragments JSON restent un repli borné et les chemins privés demeurent inaccessibles.</span></li>
         </ol>
       </section>
 

@@ -1,6 +1,7 @@
 [Unit]
 Description=Build a privacy-filtered Palworld save snapshot
 After=local-fs.target
+OnSuccess=palworld-events.service
 
 [Service]
 Type=oneshot

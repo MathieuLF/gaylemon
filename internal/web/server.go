@@ -85,6 +85,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/agent/v1/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/agent/v1/commands", s.handlePendingCommands)
 	s.mux.HandleFunc("POST /api/agent/v1/commands/{id}/ack", s.handleCommandAck)
+	s.mux.HandleFunc("GET /api/public/events/v1", s.handlePublicEvents)
 	s.mux.HandleFunc("GET /data/{path...}", s.handlePublicData)
 	s.mux.HandleFunc("GET /public-events-channel.json", s.handlePublicChannel)
 	s.mux.HandleFunc("GET /ops/auth/login", s.handleOAuthLogin)
@@ -215,6 +216,48 @@ func (s *Server) handlePublicData(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePublicChannel(w http.ResponseWriter, r *http.Request) {
 	s.servePublicDocument(w, r, "public-events-channel.json")
+}
+
+func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit < 1 {
+		limit = 6
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
+	if err != nil || offset < 0 {
+		offset = 0
+	}
+	if offset > 10_000_000 {
+		writeError(w, http.StatusBadRequest, "events-offset-invalid")
+		return
+	}
+	query := model.PublicEventQuery{
+		Offset: offset,
+		Limit:  limit,
+		Type:   strings.TrimSpace(r.URL.Query().Get("type")),
+		Player: strings.TrimSpace(r.URL.Query().Get("player")),
+		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+	}
+	if len(query.Type) > 80 || len(query.Player) > 120 || len(query.Search) > 200 {
+		writeError(w, http.StatusBadRequest, "events-filter-invalid")
+		return
+	}
+	page, found, err := s.repo.QueryPublicEvents(r.Context(), query)
+	if err != nil {
+		s.logger.Warn("lecture des échos PostgreSQL impossible", "error", err)
+		writeError(w, http.StatusInternalServerError, "events-unavailable")
+		return
+	}
+	if !found {
+		writeError(w, http.StatusServiceUnavailable, "events-not-ready")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) servePublicDocument(w http.ResponseWriter, r *http.Request, documentPath string) {

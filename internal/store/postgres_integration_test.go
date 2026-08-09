@@ -55,6 +55,28 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	if string(document.Content) != `{"ok":true,"players":[]}` {
 		t.Fatalf("octets JSON modifiés: %q", document.Content)
 	}
+	eventsDocument := json.RawMessage(`{"ok":true,"revision":"events-integration-1","updatedAt":"2026-08-08T21:49:00-04:00","summary":{"totalEchoes":2},"events":[{"key":"evt-2","id":2,"occurredAt":"2026-08-08T21:49:00-04:00","type":"craft","player":"MathieuLF","title":"Fabrications terminées","message":"Deux fabrications.","details":{"types":["craft"]}},{"key":"evt-1","id":1,"occurredAt":"2026-08-08T21:48:00-04:00","type":"capture","player":"Sprince","title":"Première capture","message":"Une capture.","details":{}}]}`)
+	eventsPayload, err := json.Marshal(model.BatchPayload{Documents: []model.Document{{
+		Path: "data/public-events.json", Content: eventsDocument, CachePolicy: model.CacheNoStore,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventsBatch := model.Batch{ID: "integration-events-batch", AgentID: "integration", Stream: "events", SchemaVersion: 1, Sequence: 1, CapturedAt: time.Now().UTC(), Payload: eventsPayload}
+	if _, err := repository.IngestBatch(ctx, eventsBatch, "integration-events-hash", true); err != nil {
+		t.Fatal(err)
+	}
+	eventsPage, found, err := repository.QueryPublicEvents(ctx, model.PublicEventQuery{Limit: 10, Type: "craft"})
+	if err != nil || !found || eventsPage.Source != "postgresql" || eventsPage.Total != 1 || len(eventsPage.Events) != 1 {
+		t.Fatalf("projection relationnelle absente: found=%v page=%#v err=%v", found, eventsPage, err)
+	}
+	var mutableEventVersions int
+	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_public.document_versions WHERE stream='events' AND cache_policy<>'immutable'`).Scan(&mutableEventVersions); err != nil {
+		t.Fatal(err)
+	}
+	if mutableEventVersions != 0 {
+		t.Fatalf("versions JSON mutables conservées: %d", mutableEventVersions)
+	}
 	snapshot, err := repository.Dashboard(ctx)
 	if err != nil || len(snapshot.RecentRuns) == 0 || snapshot.DatabaseBytes <= 0 {
 		t.Fatalf("tableau incomplet: %#v err=%v", snapshot, err)
