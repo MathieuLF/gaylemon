@@ -672,11 +672,19 @@ test("la synchronisation v6 demande un backfill autonome quand le complet est de
   assert.match(script, /facets = \$dayFacets/);
 });
 
+test("la fraîcheur reste nominale sur les pages sans bloc de disponibilité", async () => {
+  const app = await portalFile("assets/app.js");
+
+  assert.match(app, /if \(uptimeSummary\) uptimeSummary\.textContent/);
+  assert.match(app, /if \(uptimeBars\) uptimeBars\.innerHTML/);
+  assert.match(app, /if \(!uptimeSummary \|\| !uptimeBars\) return/);
+});
+
 test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260808\.1/);
-    assert.match(html, /app\.js\?v=20260808\.1/);
+    assert.match(html, /app\.js\?v=20260808\.2/);
   }
 });

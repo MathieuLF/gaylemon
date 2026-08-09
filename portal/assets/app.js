@@ -1823,9 +1823,9 @@ function renderMetrics(payload) {
 
 function renderUptime(payload) {
   if (!payload?.ok) {
-    uptimeSummary.textContent = payload?.error || "La disponibilité sera affichée au prochain passage du collecteur.";
-    uptimeBars.innerHTML = createPlaceholderBars();
     registerPayloadDataUpdate("uptime", payload);
+    if (uptimeSummary) uptimeSummary.textContent = payload?.error || "La disponibilité sera affichée au prochain passage du collecteur.";
+    if (uptimeBars) uptimeBars.innerHTML = createPlaceholderBars();
     return;
   }
 
@@ -1838,6 +1838,7 @@ function renderUptime(payload) {
   const gameUptime = monitor?.uptime || summary.uptime || (gameUptimeSeconds != null ? formatCompactDuration(gameUptimeSeconds) : null);
 
   registerPayloadDataUpdate("uptime", payload);
+  if (!uptimeSummary || !uptimeBars) return;
   const pingText = ping != null ? ` · réponse ${ping} ms` : "";
   uptimeSummary.textContent = payload.source === "palworld-rest-api"
     ? `${getStatusSentence(status)}${gameUptime ? ` · serveur actif depuis ${gameUptime}` : ""}${pingText}`
