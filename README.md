@@ -115,7 +115,7 @@ Les exports publics réels restent non versionnés. Le site lit notamment:
 
 Le service Go sert les pages, l'API PostgreSQL et les documents de repli. Les JSON mutables sont servis en `no-store`; le pointeur et le manifeste v6 sont revalidés avec ETag.
 
-Le flux des échos est traité comme une donnée chaude: projection canonique près de SQLite, ingestion relationnelle transactionnelle dans PostgreSQL, pagination et recherche en base. Les gros JSON mutables n'ont pas d'historique de versions; le repli immuable est limité à trois générations.
+Le flux des échos est traité comme une donnée chaude: projection canonique près de SQLite, ingestion relationnelle transactionnelle dans PostgreSQL, pagination et recherche en base. Les JSON d'événements n'ont pas d'historique de versions; seule la génération active nécessaire au repli reste en base.
 
 ## Documentation
 

@@ -175,7 +175,8 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 	}
 	if activate {
 		var promotedSaveGeneration string
-		var promotedEventGeneration string
+		var promotedEventPaths []string
+		promotesEventGeneration := false
 		if batch.Stream == "snapshot" {
 			for _, document := range payload.Documents {
 				if document.Path == "data/public-save-index.json" {
@@ -186,9 +187,11 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 		}
 		if batch.Stream == "events" {
 			for _, document := range payload.Documents {
-				if document.Path == "data/public-events-head-v6.json" && document.GenerationID != "" {
-					promotedEventGeneration = document.GenerationID
-					break
+				if document.Path == "data/public-events-head-v6.json" {
+					promotesEventGeneration = true
+				}
+				if strings.HasPrefix(document.Path, "data/public-events-v6/") || strings.HasPrefix(document.Path, "data/public-daily/") {
+					promotedEventPaths = append(promotedEventPaths, document.Path)
 				}
 			}
 		}
@@ -201,12 +204,12 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 				return model.IngestResult{}, err
 			}
 		}
-		if promotedEventGeneration != "" {
+		if promotesEventGeneration && len(promotedEventPaths) > 0 {
 			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.documents
-				WHERE generation_id<>$1 AND (
+				WHERE NOT (path=ANY($1::text[])) AND (
 					path LIKE 'data/public-events-v6/%' OR
 					path LIKE 'data/public-daily/%'
-				)`, promotedEventGeneration); err != nil {
+				)`, promotedEventPaths); err != nil {
 				return model.IngestResult{}, err
 			}
 		}
@@ -220,7 +223,7 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 				VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256,cache_policy=excluded.cache_policy,generation_id=excluded.generation_id,batch_id=excluded.batch_id,updated_at=now()`, document.Path, sha, document.CachePolicy, document.GenerationID, batch.ID); err != nil {
 				return model.IngestResult{}, err
 			}
-			recordVersion := batch.Stream != "events" || document.CachePolicy == model.CacheImmutable
+			recordVersion := batch.Stream != "events"
 			if recordVersion {
 				if _, err := tx.Exec(ctx, `INSERT INTO gaylemon_public.document_versions
 					(path,sha256,cache_policy,generation_id,batch_id,agent_id,stream,captured_at,daily_checkpoint)
@@ -242,21 +245,7 @@ func (p *Postgres) IngestBatch(ctx context.Context, batch model.Batch, bodyHash 
 		}
 		if batch.Stream == "events" {
 			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.document_versions
-				WHERE stream='events' AND cache_policy<>'immutable'`); err != nil {
-				return model.IngestResult{}, err
-			}
-			if _, err := tx.Exec(ctx, `WITH generations AS (
-					SELECT generation_id,
-						dense_rank() OVER (ORDER BY max(captured_at) DESC, generation_id DESC) AS position
-					FROM gaylemon_public.document_versions
-					WHERE stream='events' AND cache_policy='immutable' AND generation_id<>''
-					GROUP BY generation_id
-				), retired AS (
-					SELECT generation_id FROM generations WHERE position>3
-				)
-				DELETE FROM gaylemon_public.document_versions versions
-				USING retired
-				WHERE versions.stream='events' AND versions.generation_id=retired.generation_id`); err != nil {
+				WHERE stream='events'`); err != nil {
 				return model.IngestResult{}, err
 			}
 			if _, err := tx.Exec(ctx, `DELETE FROM gaylemon_public.document_contents contents
