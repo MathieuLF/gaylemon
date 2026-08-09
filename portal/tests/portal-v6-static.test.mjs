@@ -112,6 +112,36 @@ test("les fragments et bilans v6 restent liés au generationId actif", async () 
   assert.match(app, /sortEventsNewestFirst\(\[\.\.\.byKey\.values\(\)\], \{ canonical: true \}\)/);
 });
 
+test("le repli du terminal fusionne les transitions REST retardées sans masquer une vraie session", async () => {
+  const app = await portalFile("assets/app.js");
+  const eventCanBePublished = extractFunction(app, "eventCanBePublished");
+  const dedupe = extractFunction(app, "dedupeSessionFallbackEvents");
+  const globals = {
+    eventCanBePublished,
+    parseDate: (value) => value ? new Date(value) : null,
+    sessionSourceMatchToleranceMs: 6 * 60 * 1000,
+  };
+  Object.assign(globalThis, globals);
+  try {
+    const events = [
+      { id: 1, occurredAt: "2026-08-09T01:20:59-04:00", type: "leave", player: "Sprince", source: "players" },
+      { id: 2, occurredAt: "2026-08-09T01:18:55-04:00", type: "leave", player: "Sprince", source: "journal" },
+      { id: 3, occurredAt: "2026-08-08T23:43:35-04:00", type: "join", player: "Shiki_Knight", source: "players" },
+      { id: 4, occurredAt: "2026-08-08T23:38:47-04:00", type: "join", player: "Shiki_Knight", source: "journal" },
+      { id: 5, occurredAt: "2026-08-08T20:00:00-04:00", type: "join", player: "Brian", source: "players" },
+      { id: 6, occurredAt: "2026-08-08T20:00:30-04:00", type: "leave", player: "Brian", source: "journal" },
+      { id: 7, occurredAt: "2026-08-08T20:05:00-04:00", type: "join", player: "Brian", source: "journal" },
+      { id: 8, occurredAt: "2026-08-08T19:00:00-04:00", type: "join", player: "Alyross", source: "journal" },
+      { id: 9, occurredAt: "2026-08-08T19:02:00-04:00", type: "server", source: "journal" },
+      { id: 10, occurredAt: "2026-08-08T19:04:00-04:00", type: "join", player: "Alyross", source: "players" },
+    ];
+
+    assert.deepEqual(dedupe(events).map((event) => event.id), [2, 4, 5, 6, 7, 8, 9, 10]);
+  } finally {
+    Object.keys(globals).forEach((name) => delete globalThis[name]);
+  }
+});
+
 test("le repli v5 remplace la queue froide couverte par le récent canonique", async () => {
   const app = await portalFile("assets/app.js");
   const replacementWindow = extractFunction(app, "v5TailReplacementWindow");
@@ -685,6 +715,6 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260808\.1/);
-    assert.match(html, /app\.js\?v=20260808\.3/);
+    assert.match(html, /app\.js\?v=20260809\.1/);
   }
 });
