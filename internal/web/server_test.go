@@ -115,7 +115,7 @@ func testServer(t *testing.T, repository *fakeRepository) (http.Handler, ed25519
 	}
 	cfg := config.Web{
 		PublicBaseURL:       "https://gaylemon.nethercore.dev",
-		LegacyHosts:         []string{"gaylemon.mathieu.pro"},
+		LegacyHosts:         []string{"gaylemon.mathieu.pro", "www.gaylemon.nethercore.dev"},
 		AgentPublicKeys:     map[string]ed25519.PublicKey{"test-agent": publicKey},
 		SignatureMaxSkew:    5 * time.Minute,
 		GitHubAllowedUserID: 753560,
@@ -123,13 +123,17 @@ func testServer(t *testing.T, repository *fakeRepository) (http.Handler, ed25519
 	return NewServer(cfg, repository, slog.New(slog.NewTextHandler(testWriter{t}, nil))).Handler(), privateKey
 }
 
-func TestLegacyHostRedirectPreservesPathAndQuery(t *testing.T) {
-	handler, _ := testServer(t, &fakeRepository{})
-	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.mathieu.pro/resume?jour=2026-08-08", nil)
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusMovedPermanently || recorder.Header().Get("Location") != "https://gaylemon.nethercore.dev/resume?jour=2026-08-08" {
-		t.Fatalf("redirection inattendue: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
+func TestLegacyHostsRedirectPreservesPathAndQuery(t *testing.T) {
+	for _, host := range []string{"gaylemon.mathieu.pro", "www.gaylemon.nethercore.dev"} {
+		t.Run(host, func(t *testing.T) {
+			handler, _ := testServer(t, &fakeRepository{})
+			request := httptest.NewRequest(http.MethodGet, "https://"+host+"/resume?jour=2026-08-08", nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusMovedPermanently || recorder.Header().Get("Location") != "https://gaylemon.nethercore.dev/resume?jour=2026-08-08" {
+				t.Fatalf("redirection inattendue: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
+			}
+		})
 	}
 }
 

@@ -64,6 +64,8 @@ sudo docker network connect gaylemon_private dockpanel-db-gaylemon
 
 La seconde commande est idempotente seulement si le réseau n'est pas déjà raccordé : vérifier les réseaux du conteneur avant de la relancer. Le site `gaylemon.nethercore.dev` doit aussi apparaître dans la section **Sites** de DockPanel comme proxy HTTPS vers le port local `18081`.
 
+Le nom `www.gaylemon.nethercore.dev` doit pointer vers la même VPS, présenter son propre certificat TLS valide, puis répondre en `301` vers `https://gaylemon.nethercore.dev` en conservant le chemin et les paramètres. Le certificat doit être en place avant la redirection, puisque le domaine `.dev` impose HTTPS.
+
 L'application OAuth utilise ce rappel exact :
 
 ```text
@@ -94,8 +96,9 @@ La commande affiche uniquement la clé publique à placer dans `GAYLEMON_AGENT_P
 3. Publier l'agent Ubuntu en mode `--shadow` et comparer `/ops` avec les fichiers actuels.
 4. Activer les lots de l'agent quand les volumes, durées et documents correspondent.
 5. Pointer `gaylemon.nethercore.dev` vers la VPS et vérifier toutes les routes.
-6. Pointer ensuite `gaylemon.mathieu.pro` vers la même application. Le service répond en `301` vers la nouvelle URL en conservant chemin et query.
-7. Désactiver les anciennes tâches Windows seulement après plusieurs cycles stables.
+6. Pointer `www.gaylemon.nethercore.dev` vers la VPS, installer son certificat TLS et vérifier son `301` vers le domaine sans `www`, chemin et paramètres compris.
+7. Pointer ensuite `gaylemon.mathieu.pro` vers la même application. Le service répond en `301` vers la nouvelle URL en conservant chemin et query.
+8. Désactiver les anciennes tâches Windows seulement après plusieurs cycles stables.
 
 L'amorçage depuis le poste actuel peut utiliser un agent temporaire nommé `bootstrap-windows`. Le répertoire `portal/data` est découpé automatiquement en lots inférieurs à 64 Mio et les fichiers `*.example.json` sont ignorés.
 
