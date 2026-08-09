@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -138,6 +140,22 @@ func TestOpsCookiesSupportOAuthRedirect(t *testing.T) {
 	}
 }
 
+func TestOpsPageWaitsForTheAgentResult(t *testing.T) {
+	required := []string{
+		"waitForCommand(d.id)",
+		"current.status!=='pending'",
+		"Commande transmise, en attente du serveur",
+		"shortResult(x.message)",
+		"Reconnectez-vous à l’exploitation",
+		"Message dans le chat du jeu",
+	}
+	for _, fragment := range required {
+		if !strings.Contains(opsHTML, fragment) {
+			t.Fatalf("retour de commande Ops incomplet: %s", fragment)
+		}
+	}
+}
+
 func TestSignedIngestAndReplayProtection(t *testing.T) {
 	repository := &fakeRepository{}
 	handler, privateKey := testServer(t, repository)
@@ -177,6 +195,21 @@ func TestPublicDocumentUsesETag(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNotModified {
 		t.Fatalf("revalidation inattendue: status=%d", recorder.Code)
+	}
+}
+
+func TestGameAssetsHideTheSourceMarker(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".source-commit"), []byte("private-build-marker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{config: config.Web{AssetRoot: root}}
+	request := httptest.NewRequest(http.MethodGet, "/assets/game/.source-commit", nil)
+	request.SetPathValue("path", ".source-commit")
+	recorder := httptest.NewRecorder()
+	server.handleGameAsset(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("marqueur de source exposé: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

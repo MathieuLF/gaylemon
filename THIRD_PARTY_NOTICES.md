@@ -4,7 +4,7 @@
 
 Palworld, ses noms, images, icônes, cartes et autres ressources appartiennent à Pocketpair ou à leurs ayants droit. Gaylémon est un projet communautaire indépendant, sans affiliation ni approbation officielle.
 
-Les ressources extraites localement sont placées sous `portal/assets/game/` et exclues du dépôt public.
+Les ressources extraites localement sont placées sous `portal/assets/game/` et exclues du dépôt public. La construction de l’image de production récupère les icônes et cartes depuis la révision PalworldSaveTools verrouillée; elles sont alors incluses dans l’image d’exécution pour être servies par le portail.
 
 Le favicon, la carte sociale et les illustrations d'interface versionnés sous `portal/assets/` sont des créations propres à Gaylémon. Ils n'incorporent aucune image, icône ou carte extraite de Palworld.
 

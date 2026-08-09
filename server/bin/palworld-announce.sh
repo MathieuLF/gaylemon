@@ -14,5 +14,5 @@ if [ -z "$message" ]; then
 fi
 
 payload="$(jq -nc --arg message "$message" '{message:$message}')"
-/srv/storage/steam/bin/palworld-api.sh POST /announce "$payload"
-printf '\n'
+/srv/storage/steam/bin/palworld-api.sh POST /announce "$payload" >/dev/null
+printf 'Annonce transmise au chat du jeu.\n'
