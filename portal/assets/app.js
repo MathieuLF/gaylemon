@@ -3897,13 +3897,24 @@ async function selectEventDate(dateKey, updateUrl = true) {
 }
 
 async function loadHomeEchoes(silent = false) {
-  const v6 = await loadEventsV6State(true, true);
-  if (v6.ok && eventsHeadV6) return v6;
-  try {
-    const payload = await readJson("data/public-events-recent.json");
-    renderHomeLatestEchoes(payload);
-    registerPayloadDataUpdate("events", payload);
-    return { ok: true, changed: isNewDataRevision("events", payload), mode: "v5" };
+	try {
+		const payload = await readJson("api/public/events/v1?limit=5&offset=0");
+		if (!payload?.ok || payload.source !== "postgresql" || !Array.isArray(payload.events)) {
+			throw new Error("invalid-database-events");
+		}
+		const changed = isNewDataRevision("events", payload);
+		renderHomeLatestEchoes(payload);
+		registerPayloadDataUpdate("events", payload);
+		return { ok: true, changed, mode: "database" };
+	} catch {
+		// Le petit export récent reste le seul repli JSON de continuité.
+	}
+	try {
+		const payload = await readJson("data/public-events-recent.json");
+		const changed = isNewDataRevision("events", payload);
+		renderHomeLatestEchoes(payload);
+		registerPayloadDataUpdate("events", payload);
+		return { ok: true, changed, mode: "recent-fallback" };
   } catch {
     if (!silent && homeEchoesStatus) homeEchoesStatus.textContent = "Les échos sont momentanément indisponibles.";
     return { ok: false, changed: false };
@@ -7946,12 +7957,15 @@ async function loadBases(silent = false) {
 }
 
 async function loadEventsFreshness(silent = true, force = false) {
-  try {
-    const candidate = await fetchEventsV6Candidate(silent, force);
-    if (candidate.ok) return commitEventsV6Candidate(candidate);
-    registerSourceHealth("events", "transient-error", "stale");
-    return { ok: false, changed: false };
-  } catch {
+	try {
+		const payload = await readJson(`api/public/events/v1?limit=1&offset=0${force ? `&t=${Date.now()}` : ""}`);
+		if (!payload?.ok || payload.source !== "postgresql" || !Array.isArray(payload.events)) {
+			throw new Error("invalid-database-events");
+		}
+		const changed = isNewDataRevision("events", payload);
+		registerPayloadDataUpdate("events", payload);
+		return { ok: true, changed, mode: "database" };
+	} catch {
     registerSourceHealth("events", "transient-error", "stale");
     return { ok: false, changed: false };
   }

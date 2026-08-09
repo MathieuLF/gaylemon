@@ -52,11 +52,11 @@ Principaux contrats:
 - sessions et statistiques: `public-stats.json`;
 - snapshots joueurs: `public-save-index.json`, `public-save-snapshot.json`, `players/{slug}.json`;
 - bases et constructions: `public-save-bases.json`;
-- échos v6: `public-events-manifest-v6.json`, `public-events-head-v6.json`, `public-events-v6/`, `public-daily/`;
-- compatibilité v5: `public-events.json`, `public-events-recent.json`, `public-events-index.json`, `public-events-page-*.json`;
+- échos: table `gaylemon_public.events` et route `/api/public/events/v1`;
+- continuité des échos: `public-events-recent.json` seulement;
 - disponibilité: `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`.
 
-Git versionne seulement les exemples `*.example.json`. Quand un contrat change, mettre à jour le producteur, la synchronisation Windows, le microsite, les tests et l'exemple correspondant.
+Git versionne seulement les exemples `*.example.json`. Quand un contrat change, mettre à jour le producteur Ubuntu, l'agent, le microsite, les tests et l'exemple correspondant.
 
 ## Routes du microsite
 

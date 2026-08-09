@@ -8,6 +8,7 @@ User=gaylemon
 Group=gaylemon
 EnvironmentFile=/home/gaylemon/.config/gaylemon/agent.env
 Environment=GAYLEMON_AGENT_PRIVATE_KEY_FILE=/run/credentials/gaylemon-publish-events.service/agent.key
+Environment=GOMEMLIMIT=384MiB
 LoadCredential=agent.key:/home/gaylemon/.config/gaylemon/agent.key
 ExecStart=/usr/local/bin/gaylemon collect --kind events
 Nice=19

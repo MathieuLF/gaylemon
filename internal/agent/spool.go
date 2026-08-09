@@ -20,9 +20,12 @@ type Spool struct {
 }
 
 type PendingBatch struct {
-	ID       string
-	Batch    model.Batch
-	Attempts int
+	ID             string
+	Stream         string
+	Sequence       int64
+	SourceRevision string
+	Body           []byte
+	Attempts       int
 }
 
 func OpenSpool(path string) (*Spool, error) {
@@ -38,17 +41,25 @@ func OpenSpool(path string) (*Spool, error) {
 		`PRAGMA journal_mode=WAL`,
 		`PRAGMA synchronous=FULL`,
 		`PRAGMA busy_timeout=5000`,
+		`PRAGMA wal_autocheckpoint=64`,
+		`PRAGMA journal_size_limit=8388608`,
 		`CREATE TABLE IF NOT EXISTS stream_sequences (stream TEXT PRIMARY KEY, sequence INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS batches (
 			id TEXT PRIMARY KEY,
 			stream TEXT NOT NULL,
 			sequence INTEGER NOT NULL,
+			source_revision TEXT NOT NULL DEFAULT '',
 			body BLOB NOT NULL,
 			created_at TEXT NOT NULL,
 			attempts INTEGER NOT NULL DEFAULT 0,
 			last_error TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS batches_order_idx ON batches(created_at, sequence)`,
+		`CREATE TABLE IF NOT EXISTS completed_stream_revisions (
+			stream TEXT PRIMARY KEY,
+			source_revision TEXT NOT NULL,
+			completed_at TEXT NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS command_results (
 			command_id TEXT PRIMARY KEY,
 			sequence INTEGER NOT NULL,
@@ -62,6 +73,21 @@ func OpenSpool(path string) (*Spool, error) {
 			db.Close()
 			return nil, fmt.Errorf("initialisation de la file: %w", err)
 		}
+	}
+	var sourceRevisionColumn int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('batches') WHERE name='source_revision'`).Scan(&sourceRevisionColumn); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspection de la file: %w", err)
+	}
+	if sourceRevisionColumn == 0 {
+		if _, err := db.Exec(`ALTER TABLE batches ADD COLUMN source_revision TEXT NOT NULL DEFAULT ''`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("mise à niveau de la file: %w", err)
+		}
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS batches_revision_idx ON batches(stream, source_revision)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("indexation de la file: %w", err)
 	}
 	return &Spool{db: db}, nil
 }
@@ -104,31 +130,63 @@ func (s *Spool) Enqueue(ctx context.Context, batch *model.Batch) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO batches(id, stream, sequence, body, created_at) VALUES(?, ?, ?, ?, ?)`, batch.ID, batch.Stream, batch.Sequence, body, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO batches(id, stream, sequence, source_revision, body, created_at) VALUES(?, ?, ?, ?, ?, ?)`, batch.ID, batch.Stream, batch.Sequence, batch.SourceRevision, body, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
+func (s *Spool) HasRevision(ctx context.Context, stream, revision string) (bool, error) {
+	if revision == "" {
+		return false, nil
+	}
+	var present int
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM batches WHERE stream = ? AND source_revision = ?
+		UNION ALL
+		SELECT 1 FROM completed_stream_revisions WHERE stream = ? AND source_revision = ?
+	)`, stream, revision, stream, revision).Scan(&present)
+	return present != 0, err
+}
+
 func (s *Spool) Peek(ctx context.Context) (PendingBatch, bool, error) {
 	var pending PendingBatch
-	var body []byte
-	err := s.db.QueryRowContext(ctx, `SELECT id, body, attempts FROM batches ORDER BY created_at, sequence LIMIT 1`).Scan(&pending.ID, &body, &pending.Attempts)
+	err := s.db.QueryRowContext(ctx, `SELECT id, stream, sequence, source_revision, body, attempts FROM batches ORDER BY created_at, sequence LIMIT 1`).
+		Scan(&pending.ID, &pending.Stream, &pending.Sequence, &pending.SourceRevision, &pending.Body, &pending.Attempts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return PendingBatch{}, false, nil
 	}
 	if err != nil {
 		return PendingBatch{}, false, err
 	}
-	if err := json.Unmarshal(body, &pending.Batch); err != nil {
-		return PendingBatch{}, false, fmt.Errorf("lot local illisible: %w", err)
-	}
 	return pending, true, nil
 }
 
 func (s *Spool) Complete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM batches WHERE id = ?`, id)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var stream, revision string
+	if err := tx.QueryRowContext(ctx, `SELECT stream, source_revision FROM batches WHERE id = ?`, id).Scan(&stream, &revision); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM batches WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if revision != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO completed_stream_revisions(stream, source_revision, completed_at)
+			VALUES(?, ?, ?) ON CONFLICT(stream) DO UPDATE SET source_revision=excluded.source_revision, completed_at=excluded.completed_at`,
+			stream, revision, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, _ = s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	return nil
 }
 
 func (s *Spool) Fail(ctx context.Context, id string, failure error) error {

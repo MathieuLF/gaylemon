@@ -64,3 +64,25 @@ func TestEventsV6RejectsPrivateFields(t *testing.T) {
 		t.Fatalf("champ privé accepté: %v", err)
 	}
 }
+
+func TestValidatePublicEventsStreamsTheFullJournal(t *testing.T) {
+	source := map[string]any{
+		"revision": "events-stream-42",
+		"events": []any{
+			map[string]any{"key": "craft:42", "id": 42, "occurredAt": "2026-08-08T10:00:00-04:00", "type": "craft", "player": "Alice"},
+			map[string]any{"key": "capture:41", "id": 41, "occurredAt": "2026-08-08T09:00:00-04:00", "type": "capture", "player": "Bob"},
+		},
+	}
+	content, _ := json.Marshal(source)
+	revision, count, err := ValidatePublicEvents(content)
+	if err != nil || revision != "events-stream-42" || count != 2 {
+		t.Fatalf("validation inattendue: revision=%q count=%d err=%v", revision, count, err)
+	}
+}
+
+func TestValidatePublicEventsKeepsPrivacyChecks(t *testing.T) {
+	content := []byte(`{"revision":"private","events":[{"key":"bad","id":1,"occurredAt":"2026-08-08T10:00:00-04:00","type":"note","accountName":"private"}]}`)
+	if _, _, err := ValidatePublicEvents(content); err == nil || !strings.Contains(err.Error(), "privé") {
+		t.Fatalf("champ privé accepté: %v", err)
+	}
+}

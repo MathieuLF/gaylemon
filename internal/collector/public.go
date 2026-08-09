@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -211,24 +212,23 @@ func collectPublicEvents(_ context.Context, config PublicConfig, started time.Ti
 	if err != nil {
 		return PublicResult{}, fmt.Errorf("lecture des échos récents: %w", err)
 	}
-	full, err := projection.DecodeObject(fullBytes)
+	revision, eventCount, err := projection.ValidatePublicEvents(fullBytes)
 	if err != nil {
 		return PublicResult{}, fmt.Errorf("échos publics invalides: %w", err)
 	}
-	documents, err := projection.EventsV6(full)
-	if err != nil {
-		return PublicResult{}, err
+	if !json.Valid(recentBytes) {
+		return PublicResult{}, errors.New("échos publics récents invalides")
 	}
-	documents = append(documents,
+	documents := []model.Document{
 		model.Document{Path: "data/public-events.json", Content: fullBytes, CachePolicy: model.CacheNoStore},
 		model.Document{Path: "data/public-events-recent.json", Content: recentBytes, CachePolicy: model.CacheNoStore},
-	)
+	}
 	var memory runtime.MemStats
 	runtime.ReadMemStats(&memory)
 	return PublicResult{
 		Documents: documents,
 		Usage:     model.ResourceUsage{DurationMS: time.Since(started).Milliseconds(), MaxRSSBytes: int64(memory.Sys), BytesRead: int64(len(fullBytes) + len(recentBytes))},
-		Summary:   map[string]any{"collector": "events-v6", "kind": "events", "documents": len(documents), "revision": full["revision"]},
+		Summary:   map[string]any{"collector": "events-postgresql", "kind": "events", "documents": len(documents), "revision": revision, "events": eventCount},
 	}, nil
 }
 

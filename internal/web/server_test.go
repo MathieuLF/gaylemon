@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -188,6 +190,33 @@ func TestSignedIngestAndReplayProtection(t *testing.T) {
 	handler.ServeHTTP(replayRecorder, replay)
 	if replayRecorder.Code != http.StatusConflict {
 		t.Fatalf("rejeu accepté: status=%d", replayRecorder.Code)
+	}
+}
+
+func TestSignedGzipIngestTracksWireBytes(t *testing.T) {
+	repository := &fakeRepository{}
+	handler, privateKey := testServer(t, repository)
+	payload, _ := json.Marshal(model.BatchPayload{Documents: []model.Document{{Path: "data/public-stats.json", Content: json.RawMessage(`{"ok":true}`), CachePolicy: model.CacheRevalidate}}})
+	batch := model.Batch{ID: "batch-gzip", AgentID: "test-agent", Stream: "stats", SchemaVersion: 1, Sequence: 1, CapturedAt: time.Now().UTC(), Payload: payload}
+	body, _ := json.Marshal(batch)
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wireBody := compressed.Bytes()
+	request := httptest.NewRequest(http.MethodPost, "https://gaylemon.nethercore.dev/api/ingest/v1/batches", bytes.NewReader(wireBody))
+	request.Header.Set("Content-Encoding", "gzip")
+	if err := auth.SignRequest(request, wireBody, "test-agent", privateKey, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted || !repository.batch.Compressed || repository.batch.TransportBytes != int64(len(wireBody)) {
+		t.Fatalf("ingestion gzip inattendue: status=%d batch=%#v body=%s", recorder.Code, repository.batch, recorder.Body.String())
 	}
 }
 

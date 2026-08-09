@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -37,6 +39,14 @@ type Server struct {
 }
 
 type sessionContextKey struct{}
+
+type verifiedPayload struct {
+	Body       []byte
+	Request    auth.VerifiedRequest
+	WireSHA256 string
+	WireBytes  int64
+	Compressed bool
+}
 
 func NewServer(cfg config.Web, repo store.Repository, logger *slog.Logger) *Server {
 	if logger == nil {
@@ -112,47 +122,74 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *Server) verifiedBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, auth.VerifiedRequest, bool) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+func (s *Server) verifiedBody(w http.ResponseWriter, r *http.Request, limit int64) (verifiedPayload, bool) {
+	wireBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "request-too-large")
-		return nil, auth.VerifiedRequest{}, false
+		return verifiedPayload{}, false
 	}
-	verified, err := auth.VerifyRequest(r, body, s.config.AgentPublicKeys, time.Now().UTC(), s.config.SignatureMaxSkew)
+	verified, err := auth.VerifyRequest(r, wireBody, s.config.AgentPublicKeys, time.Now().UTC(), s.config.SignatureMaxSkew)
 	if err != nil {
 		s.logger.Warn("requête agent refusée", "remote", r.RemoteAddr, "reason", err)
 		writeError(w, http.StatusUnauthorized, "signature-refused")
-		return nil, auth.VerifiedRequest{}, false
+		return verifiedPayload{}, false
+	}
+	body := wireBody
+	compressed := false
+	switch strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding"))) {
+	case "":
+	case "gzip":
+		reader, err := gzip.NewReader(bytes.NewReader(wireBody))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid-compression")
+			return verifiedPayload{}, false
+		}
+		body, err = io.ReadAll(io.LimitReader(reader, limit+1))
+		closeErr := reader.Close()
+		if err != nil || closeErr != nil {
+			writeError(w, http.StatusBadRequest, "invalid-compression")
+			return verifiedPayload{}, false
+		}
+		if int64(len(body)) > limit {
+			writeError(w, http.StatusRequestEntityTooLarge, "request-too-large")
+			return verifiedPayload{}, false
+		}
+		compressed = true
+	default:
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported-compression")
+		return verifiedPayload{}, false
 	}
 	if err := s.repo.ClaimNonce(r.Context(), verified.AgentID, verified.Nonce, verified.ExpiresAt); err != nil {
 		writeError(w, http.StatusConflict, "request-replayed")
-		return nil, auth.VerifiedRequest{}, false
+		return verifiedPayload{}, false
 	}
-	return body, verified, true
+	return verifiedPayload{Body: body, Request: verified, WireSHA256: auth.BodySHA256(wireBody), WireBytes: int64(len(wireBody)), Compressed: compressed}, true
 }
 
 func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
-	body, verified, ok := s.verifiedBody(w, r, maxIngestBody)
+	payload, ok := s.verifiedBody(w, r, maxIngestBody)
 	if !ok {
 		return
 	}
 	var batch model.Batch
-	if err := json.Unmarshal(body, &batch); err != nil {
+	if err := json.Unmarshal(payload.Body, &batch); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid-json")
 		return
 	}
-	if batch.AgentID != verified.AgentID {
+	if batch.AgentID != payload.Request.AgentID {
 		writeError(w, http.StatusForbidden, "agent-mismatch")
 		return
 	}
+	batch.TransportBytes = payload.WireBytes
+	batch.Compressed = payload.Compressed
 	activate := r.URL.Query().Get("shadow") != "1"
-	result, err := s.repo.IngestBatch(r.Context(), batch, auth.BodySHA256(body), activate)
+	result, err := s.repo.IngestBatch(r.Context(), batch, payload.WireSHA256, activate)
 	if err != nil {
 		status := http.StatusUnprocessableEntity
 		if errors.Is(err, store.ErrStaleBatch) {
 			status = http.StatusConflict
 		}
-		s.logger.Warn("lot refusé", "agent", verified.AgentID, "stream", batch.Stream, "batch", batch.ID, "error", err)
+		s.logger.Warn("lot refusé", "agent", payload.Request.AgentID, "stream", batch.Stream, "batch", batch.ID, "error", err)
 		writeError(w, status, "batch-refused")
 		return
 	}
@@ -160,12 +197,12 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
-	body, verified, ok := s.verifiedBody(w, r, 1<<20)
+	payload, ok := s.verifiedBody(w, r, 1<<20)
 	if !ok {
 		return
 	}
 	var status model.AgentStatus
-	if err := json.Unmarshal(body, &status); err != nil || status.AgentID != verified.AgentID {
+	if err := json.Unmarshal(payload.Body, &status); err != nil || status.AgentID != payload.Request.AgentID {
 		writeError(w, http.StatusBadRequest, "invalid-heartbeat")
 		return
 	}
@@ -180,12 +217,12 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePendingCommands(w http.ResponseWriter, r *http.Request) {
-	_, verified, ok := s.verifiedBody(w, r, 1)
+	payload, ok := s.verifiedBody(w, r, 1)
 	if !ok {
 		return
 	}
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
-	commands, err := s.repo.PendingCommands(r.Context(), verified.AgentID, after)
+	commands, err := s.repo.PendingCommands(r.Context(), payload.Request.AgentID, after)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "commands-unavailable")
 		return
@@ -194,16 +231,16 @@ func (s *Server) handlePendingCommands(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCommandAck(w http.ResponseWriter, r *http.Request) {
-	body, verified, ok := s.verifiedBody(w, r, 1<<20)
+	payload, ok := s.verifiedBody(w, r, 1<<20)
 	if !ok {
 		return
 	}
 	var ack model.CommandAck
-	if err := json.Unmarshal(body, &ack); err != nil {
+	if err := json.Unmarshal(payload.Body, &ack); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid-ack")
 		return
 	}
-	if err := s.repo.AckCommand(r.Context(), verified.AgentID, r.PathValue("id"), ack); err != nil {
+	if err := s.repo.AckCommand(r.Context(), payload.Request.AgentID, r.PathValue("id"), ack); err != nil {
 		writeError(w, http.StatusConflict, "ack-refused")
 		return
 	}

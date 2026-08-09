@@ -80,11 +80,8 @@ Contrats principaux:
 - `public-save-snapshot.json`: projection complète publique v3;
 - `public-save-bases.json`: bases, constructions, travailleurs, stockage agrégé et productions;
 - `public-save-diagnostics.json`: état public filtré de la dernière analyse de sauvegarde;
-- `public-events-manifest-v6.json`: génération active, curseurs, comptes, provenance et hachages;
-- `public-events-head-v6.json`: petit pointeur actif revalidé par ETag vers le manifeste et la tête immuables;
-- `public-events-v6/{génération}/{jour}.json`: fragments journaliers immuables du journal public;
-- `public-daily/{génération}/{jour}.json`: résumés quotidiens précalculés;
-- `public-events.json`, `public-events-recent.json`, `public-events-index.json` et `public-events-page-*.json`: contrats v5 conservés durant la transition;
+- `/api/public/events/v1`: historique, pagination, recherche et facettes servis depuis PostgreSQL;
+- `public-events-recent.json`: petite fenêtre de continuité, conservée sans historique de versions;
 - `public-uptime.json`, `public-uptime-history.json`, `public-availability.json`: disponibilité et historique calculés depuis les sondes REST Palworld.
 
 `public-events-sync-state.json` peut exister localement dans `portal/data/`; il est ignoré, refusé par Nginx et sert seulement à retenir la dernière révision distante déjà synchronisée. Le détail du contrat et de sa publication atomique est décrit dans [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
@@ -94,7 +91,7 @@ prépare snapshot, bases, diagnostic, fiches et pages joueurs avant de remplacer
 l'index actif en dernier. Le portail conserve la génération déjà rendue si un
 artefact ne correspond pas à cet index; il ne compose jamais deux captures.
 
-La projection canonique des échos est matérialisée dans SQLite. Le collecteur met à jour sa queue récente sans réconcilier tout l'historique brut et publie la borne ainsi que les révisions couvertes par cette queue. Le poste Windows la remplace comme un bloc canonique, ce qui prend en charge les ajouts, retraits et regroupements récents sans reproduire les règles métier. L'export complet v5 est un checkpoint froid produit au plus toutes les 15 minutes ou sur demande. Une correction ancienne exige une reprojection explicite et conserve jusque-là la génération publique précédente.
+La projection canonique des échos est matérialisée dans SQLite sur Ubuntu. Le collecteur valide le checkpoint complet en flux, évite de remettre en file une révision déjà publiée et l'envoie compressé. PostgreSQL compare cette révision dans une table temporaire, ne réécrit que les échos modifiés et retire transactionnellement ceux qui ne sont plus présents. L'export complet n'est jamais conservé comme document public sur la VPS.
 
 Ne pas publier:
 
