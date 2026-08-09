@@ -24,9 +24,18 @@ version="$(/usr/bin/git -C "$project_root" rev-parse HEAD)"
 compose=(/usr/bin/docker compose --project-directory "$project_root" --env-file "$production_env" -f "$compose_file")
 
 GAYLEMON_VERSION="$version" "${compose[@]}" config --quiet
-GAYLEMON_VERSION="$version" "${compose[@]}" up -d --build --remove-orphans web
+GAYLEMON_VERSION="$version" "${compose[@]}" up -d --build web
 
-if ! /usr/bin/curl --fail --silent --show-error --max-time 15 --output /dev/null http://127.0.0.1:18081/; then
+portal_ready=false
+for _attempt in {1..30}; do
+    if /usr/bin/curl --fail --silent --max-time 3 --output /dev/null http://127.0.0.1:18081/ 2>/dev/null; then
+        portal_ready=true
+        break
+    fi
+    /usr/bin/sleep 1
+done
+
+if [[ "$portal_ready" != true ]]; then
     echo "ERREUR: le portail Gaylémon ne répond pas après le déploiement." >&2
     exit 1
 fi
