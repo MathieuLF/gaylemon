@@ -203,6 +203,7 @@ let dailyCurrentSummary = null;
 let dailyHighlightTypeFilter = "";
 const siteTimeZone = "America/Toronto";
 const eventExportPageSizeFallback = 250;
+const sessionSourceMatchToleranceMs = 6 * 60 * 1000;
 const eventPageCache = new Map();
 const eventPagePromises = new Map();
 const eventDayCache = new Map();
@@ -3076,26 +3077,67 @@ function eventCanBePublished(event) {
 
 function dedupeSessionFallbackEvents(events) {
   const sourceEvents = (Array.isArray(events) ? events : []).filter(eventCanBePublished);
-  const journalTransitions = sourceEvents
-    .filter((event) => event?.source === "journal" && ["join", "leave"].includes(event.type) && event.player)
-    .map((event) => ({
-      player: String(event.player).toLocaleLowerCase("fr-CA"),
-      type: event.type,
-      occurredAt: parseDate(event.occurredAt),
-    }))
-    .filter((event) => event.occurredAt);
-
-  return sourceEvents.filter((event) => {
-    if (event?.source !== "players" || !["join", "leave"].includes(event.type) || !event.player) return true;
+  const transitions = sourceEvents.map((event, index) => {
+    const type = String(event?.type || "");
+    if (!["join", "leave", "server"].includes(type)) return null;
+    if (type !== "server" && (!event?.player || !["journal", "players"].includes(event?.source))) return null;
     const occurredAt = parseDate(event.occurredAt);
-    if (!occurredAt) return true;
-    const player = String(event.player).toLocaleLowerCase("fr-CA");
-    return !journalTransitions.some((journalEvent) => (
-      journalEvent.player === player &&
-      journalEvent.type === event.type &&
-      Math.abs(journalEvent.occurredAt.getTime() - occurredAt.getTime()) <= 120000
-    ));
+    if (!occurredAt) return null;
+    return {
+      index,
+      player: event?.player ? String(event.player).toLocaleLowerCase("fr-CA") : "",
+      type,
+      source: String(event?.source || ""),
+      occurredAt: occurredAt.getTime(),
+    };
+  }).filter(Boolean);
+  const journalTransitions = transitions.filter((event) => event.source === "journal" && event.type !== "server");
+  const playerTransitions = transitions.filter((event) => event.source === "players" && event.type !== "server");
+  const candidates = [];
+
+  playerTransitions.forEach((playerEvent) => {
+    journalTransitions.forEach((journalEvent) => {
+      if (journalEvent.player !== playerEvent.player || journalEvent.type !== playerEvent.type) return;
+      const distance = Math.abs(journalEvent.occurredAt - playerEvent.occurredAt);
+      if (distance > sessionSourceMatchToleranceMs) return;
+      const lower = Math.min(journalEvent.occurredAt, playerEvent.occurredAt);
+      const upper = Math.max(journalEvent.occurredAt, playerEvent.occurredAt);
+      const hasBarrier = transitions.some((transition) => (
+        transition.occurredAt > lower &&
+        transition.occurredAt < upper &&
+        (
+          transition.type === "server" ||
+          (transition.player === playerEvent.player && transition.type !== playerEvent.type)
+        )
+      ));
+      if (!hasBarrier) {
+        candidates.push({
+          distance,
+          occurredAt: lower,
+          journalIndex: journalEvent.index,
+          playerIndex: playerEvent.index,
+        });
+      }
+    });
   });
+
+  candidates.sort((left, right) => (
+    left.distance - right.distance ||
+    left.occurredAt - right.occurredAt ||
+    left.playerIndex - right.playerIndex ||
+    left.journalIndex - right.journalIndex
+  ));
+  const suppressedPlayerIndexes = new Set();
+  const matchedJournalIndexes = new Set();
+  candidates.forEach((candidate) => {
+    if (
+      suppressedPlayerIndexes.has(candidate.playerIndex) ||
+      matchedJournalIndexes.has(candidate.journalIndex)
+    ) return;
+    suppressedPlayerIndexes.add(candidate.playerIndex);
+    matchedJournalIndexes.add(candidate.journalIndex);
+  });
+  return sourceEvents.filter((_event, index) => !suppressedPlayerIndexes.has(index));
 }
 
 function selectedEventTypeValue() {

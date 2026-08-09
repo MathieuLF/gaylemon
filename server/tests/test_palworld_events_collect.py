@@ -1342,9 +1342,9 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertEqual([event["type"] for event in events], ["join", "leave", "join"])
 
     def test_rest_session_duplicate_is_hidden_when_journal_transition_exists(self):
-        self.add_transition("2026-07-13T10:00:25-04:00", "join", source="players")
+        self.add_transition("2026-07-13T10:05:45-04:00", "join", source="players")
         self.add_transition("2026-07-13T10:01:30-04:00", "join", source="journal")
-        self.add_transition("2026-07-13T11:00:00-04:00", "leave", source="players")
+        self.add_transition("2026-07-13T11:05:20-04:00", "leave", source="players")
         self.add_transition("2026-07-13T11:00:42-04:00", "leave", source="journal")
 
         events, reconnects = self.public_events()
@@ -1353,6 +1353,62 @@ class SessionReconciliationTests(unittest.TestCase):
         self.assertEqual(
             [(event["type"], event["source"]) for event in events],
             [("leave", "journal"), ("join", "journal")],
+        )
+
+    def test_rest_session_matching_does_not_cross_an_opposite_transition(self):
+        self.add_transition("2026-07-13T10:00:30-04:00", "leave", source="journal")
+        self.add_transition("2026-07-13T10:05:00-04:00", "join", source="journal")
+        self.assertFalse(EVENTS.event_exists_near(
+            self.connection,
+            "Alyross",
+            "join",
+            "2026-07-13T10:00:00-04:00",
+        ))
+        self.add_transition("2026-07-13T10:00:00-04:00", "join", source="players")
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual(
+            [(event["type"], event["source"]) for event in events],
+            [("join", "journal"), ("leave", "journal"), ("join", "players")],
+        )
+
+    def test_rest_session_matching_does_not_cross_a_server_transition(self):
+        self.add_transition("2026-07-13T11:00:00-04:00", "join", source="journal")
+        EVENTS.add_event(
+            self.connection,
+            fingerprint="journal:server-restart",
+            occurred_at="2026-07-13T11:02:00-04:00",
+            event_type="server",
+            title="L'aventure reprend",
+            message="Les portes de Palpagos sont ouvertes.",
+            source="journal",
+        )
+        self.add_transition("2026-07-13T11:04:00-04:00", "join", source="players")
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual(
+            [(event["type"], event["source"]) for event in events],
+            [("join", "players"), ("server", "journal"), ("join", "journal")],
+        )
+
+    def test_rest_session_matching_pairs_each_journal_transition_once(self):
+        self.add_transition("2026-07-13T12:00:00-04:00", "leave", source="journal")
+        self.add_transition("2026-07-13T12:03:00-04:00", "leave", source="players")
+        self.add_transition("2026-07-13T12:04:00-04:00", "leave", source="players")
+
+        events, reconnects = self.public_events()
+
+        self.assertEqual(reconnects, 0)
+        self.assertEqual(
+            [(event["occurredAt"], event["source"]) for event in events],
+            [
+                ("2026-07-13T12:04:00-04:00", "players"),
+                ("2026-07-13T12:00:00-04:00", "journal"),
+            ],
         )
 
     def test_public_order_places_leave_before_same_second_save_activity(self):
@@ -2340,7 +2396,7 @@ class PublicExportTests(unittest.TestCase):
         self.assertFalse(payload["truncated"])
         self.assertEqual(payload["projectionWindow"], {
             "mode": "replace-tail",
-            "replaceFrom": "2026-07-13T10:00:00-04:00",
+            "replaceFrom": "2026-07-13T09:55:00-04:00",
             "complete": True,
             "fromProjectionRevision": standalone["projectionRevision"],
             "throughProjectionRevision": payload["projectionRevision"],
@@ -2416,7 +2472,7 @@ class PublicExportTests(unittest.TestCase):
 
         initial = add_server_event(1, "2026-07-13T10:00:00-04:00")
         first_delta = add_server_event(2, "2026-07-13T10:10:00-04:00")
-        second_delta = add_server_event(3, "2026-07-13T10:20:00-04:00")
+        second_delta = add_server_event(3, "2026-07-13T10:21:00-04:00")
 
         self.assertTrue(second_delta["truncated"])
         self.assertTrue(second_delta["projectionWindow"]["complete"])

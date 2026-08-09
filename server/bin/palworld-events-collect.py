@@ -36,7 +36,11 @@ DEFAULT_PUBLIC_REPROJECTION_REQUEST = Path(
 
 JOIN_RE = re.compile(r"\] \[LOG\] (?P<player>.+?) joined the server\.")
 LEAVE_RE = re.compile(r"\] \[LOG\] (?P<player>.+?) left the server\.")
-SESSION_EVENT_TOLERANCE_SECONDS = 120
+# L'historique REST est observé toutes les cinq minutes et peut donc dater une
+# transition plusieurs minutes après journald. Une minute de marge absorbe la
+# dérive de la collecte sans confondre deux sessions séparées par une vraie
+# transition opposée.
+SESSION_EVENT_TOLERANCE_SECONDS = 6 * 60
 SAVE_ACTIVITY_TOLERANCE_SECONDS = 0
 POST_SESSION_SAVE_GRACE_SECONDS = 180
 RECONNECT_WINDOW_SECONDS = 120
@@ -51,7 +55,7 @@ PUBLIC_IPV6_CANDIDATE_RE = re.compile(
 )
 PUBLIC_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 PUBLIC_EVENT_VERSION = 6
-PUBLIC_PROJECTION_SCHEMA_VERSION = 3
+PUBLIC_PROJECTION_SCHEMA_VERSION = 4
 DEFAULT_BACKFILL_FROM = "2026-07-09T00:00:00-04:00"
 RECENT_EVENT_LIMIT = 2000
 DEFAULT_FULL_EXPORT_INTERVAL_SECONDS = 15 * 60
@@ -557,6 +561,31 @@ def parse_timestamp(value: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def session_transition_has_barrier(
+    transitions: list[dict],
+    *,
+    player_key: str,
+    event_type: str,
+    first_at: datetime,
+    second_at: datetime,
+) -> bool:
+    lower, upper = sorted((first_at, second_at))
+    if lower == upper:
+        return False
+    return any(
+        lower < transition["occurredAt"] < upper
+        and (
+            transition["type"] == "server"
+            or (
+                transition.get("player") == player_key
+                and transition["type"] in {"join", "leave"}
+                and transition["type"] != event_type
+            )
+        )
+        for transition in transitions
+    )
+
+
 def event_exists_near(
     connection: sqlite3.Connection,
     player: str,
@@ -569,16 +598,35 @@ def event_exists_near(
         return True
     rows = connection.execute(
         """
-        SELECT occurred_at
+        SELECT occurred_at, type, player
         FROM events
-        WHERE type = ? AND player IS NOT NULL AND lower(player) = lower(?)
+        WHERE type = 'server'
+           OR (type IN ('join', 'leave') AND player IS NOT NULL AND lower(player) = lower(?))
         """,
-        (event_type, player),
+        (player,),
     ).fetchall()
-    return any(
-        timestamp is not None and abs((timestamp - target).total_seconds()) <= tolerance_seconds
+    player_key = player.casefold()
+    transitions = [
+        {
+            "occurredAt": occurred_at,
+            "type": str(row["type"]),
+            "player": str(row["player"] or "").casefold() or None,
+        }
         for row in rows
-        if (timestamp := parse_timestamp(row["occurred_at"])) is not None
+        if (occurred_at := parse_timestamp(row["occurred_at"])) is not None
+    ]
+    return any(
+        transition["type"] == event_type
+        and transition.get("player") == player_key
+        and abs((transition["occurredAt"] - target).total_seconds()) <= tolerance_seconds
+        and not session_transition_has_barrier(
+            transitions,
+            player_key=player_key,
+            event_type=event_type,
+            first_at=target,
+            second_at=transition["occurredAt"],
+        )
+        for transition in transitions
     )
 
 
@@ -1594,36 +1642,68 @@ def duplicate_session_event_ids(
     events: list[dict],
     tolerance_seconds: int = SESSION_EVENT_TOLERANCE_SECONDS,
 ) -> set[int]:
-    journal_transitions = []
-    player_transitions = []
+    transitions = []
     for event in events:
-        if event.get("type") not in {"join", "leave"} or not event.get("player"):
+        event_type = event.get("type")
+        if event_type not in {"join", "leave", "server"}:
             continue
         occurred_at = parse_timestamp(event.get("occurredAt"))
         if occurred_at is None:
             continue
+        if event_type != "server" and not event.get("player"):
+            continue
         transition = {
             "id": int(event["id"]),
-            "player": str(event["player"]).casefold(),
-            "type": event["type"],
+            "player": str(event.get("player") or "").casefold() or None,
+            "type": event_type,
             "occurredAt": occurred_at,
             "source": event.get("source"),
         }
-        if event.get("source") == "journal":
-            journal_transitions.append(transition)
-        elif event.get("source") == "players":
-            player_transitions.append(transition)
+        transitions.append(transition)
+
+    journal_transitions = [
+        transition
+        for transition in transitions
+        if transition["source"] == "journal" and transition["type"] in {"join", "leave"}
+    ]
+    player_transitions = [
+        transition
+        for transition in transitions
+        if transition["source"] == "players" and transition["type"] in {"join", "leave"}
+    ]
+    candidates = []
+    for player_event in player_transitions:
+        for journal_event in journal_transitions:
+            if (
+                journal_event["player"] != player_event["player"]
+                or journal_event["type"] != player_event["type"]
+            ):
+                continue
+            distance = abs(
+                (journal_event["occurredAt"] - player_event["occurredAt"]).total_seconds()
+            )
+            if distance > tolerance_seconds or session_transition_has_barrier(
+                transitions,
+                player_key=str(player_event["player"]),
+                event_type=str(player_event["type"]),
+                first_at=player_event["occurredAt"],
+                second_at=journal_event["occurredAt"],
+            ):
+                continue
+            candidates.append((
+                distance,
+                min(player_event["occurredAt"], journal_event["occurredAt"]),
+                player_event["id"],
+                journal_event["id"],
+            ))
 
     suppressed = set()
-    for player_event in player_transitions:
-        if any(
-            journal_event["player"] == player_event["player"]
-            and journal_event["type"] == player_event["type"]
-            and abs((journal_event["occurredAt"] - player_event["occurredAt"]).total_seconds())
-            <= tolerance_seconds
-            for journal_event in journal_transitions
-        ):
-            suppressed.add(player_event["id"])
+    matched_journal_ids = set()
+    for _distance, _occurred_at, player_id, journal_id in sorted(candidates):
+        if player_id in suppressed or journal_id in matched_journal_ids:
+            continue
+        suppressed.add(player_id)
+        matched_journal_ids.add(journal_id)
     return suppressed
 
 
