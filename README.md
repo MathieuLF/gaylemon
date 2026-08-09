@@ -102,6 +102,8 @@ Ne jamais versionner:
 
 Les exemples `*.example.json` sont fictifs et servent au développement local.
 
+Les ressources Palworld ne sont pas versionnées dans ce dépôt. L’image de production récupère uniquement les icônes et cartes nécessaires depuis la révision PalworldSaveTools verrouillée dans `dependencies/palworld-save-tools.lock.json`, puis les sert sous `/assets/game/`.
+
 Les exports publics réels restent non versionnés. Le site lit notamment:
 
 - `public-metrics.json` pour l'état live, les joueurs connectés et `onlineSinceAt`;

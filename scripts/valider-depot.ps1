@@ -85,6 +85,25 @@ foreach ($relativePath in $requiredFiles) {
     Write-Result (Test-Path -LiteralPath (Join-Path $ProjectRoot $relativePath)) "Fichier requis: $relativePath"
 }
 
+$dockerfileSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "Dockerfile") -Raw -Encoding UTF8
+$saveToolsLock = Get-Content -LiteralPath (Join-Path $ProjectRoot "dependencies\palworld-save-tools.lock.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+Write-Result (
+    $dockerfileSource.Contains("ARG PALWORLD_SAVE_TOOLS_REPOSITORY=$($saveToolsLock.repository)") -and
+    $dockerfileSource.Contains("ARG PALWORLD_SAVE_TOOLS_COMMIT=$($saveToolsLock.commit)") -and
+    $dockerfileSource.Contains('fetch --quiet --filter=blob:none --depth 1 origin "${PALWORLD_SAVE_TOOLS_COMMIT}"') -and
+    $dockerfileSource.Contains('sparse-checkout set resources/game_data/icons resources/assets/maps') -and
+    $dockerfileSource.Contains('COPY --from=game-assets --chown=gaylemon:gaylemon /assets/ /app/runtime/public-assets/')
+) "Assets Palworld reproductibles dans l'image" "Le Dockerfile doit suivre exactement la dépendance verrouillée."
+
+$adminHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\sbin\gaylemon-admin") -Raw -Encoding UTF8
+$announceHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\bin\palworld-announce.sh") -Raw -Encoding UTF8
+Write-Result (
+    $adminHelperSource.Contains('/usr/bin/systemctl start --no-block palworld-backup.service') -and
+    $adminHelperSource.Contains('/usr/bin/systemctl start --no-block palworld-update.service') -and
+    $adminHelperSource.Contains('/usr/bin/systemd-run --quiet --collect --on-active=5s --unit=gaylemon-agent-restart') -and
+    $announceHelperSource.Contains('Annonce transmise au chat du jeu.')
+) "Commandes Ops avec retour non bloquant" "Sauvegarde, mise à jour, agent et annonce doivent rendre un résultat exploitable."
+
 $licenseText = Get-Content -LiteralPath (Join-Path $ProjectRoot "LICENSE") -Raw -Encoding UTF8
 Write-Result (
     $licenseText -match '^MIT License' -and
