@@ -82,13 +82,28 @@ func collect(arguments []string, logger *slog.Logger) error {
 		return err
 	}
 	defer spool.Close()
+	publicConfig := collector.PublicConfigFromEnv()
+	if *kind == "events" {
+		fingerprint, err := collector.PublicEventsFingerprint(publicConfig.EventsPath)
+		if err != nil {
+			return err
+		}
+		duplicate, err := spool.HasRevision(context.Background(), *kind, fingerprint)
+		if err != nil {
+			return err
+		}
+		if duplicate {
+			logger.Info("projection déjà présente", "kind", *kind, "batches", 0)
+			return nil
+		}
+	}
 	timeout := 2 * time.Minute
 	if *kind == "snapshot" {
 		timeout = 10 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	result, err := collector.CollectPublic(ctx, collector.PublicConfigFromEnv(), *kind)
+	result, err := collector.CollectPublic(ctx, publicConfig, *kind)
 	if err != nil {
 		return err
 	}

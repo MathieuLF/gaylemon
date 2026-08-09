@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,25 @@ func PublicConfigFromEnv() PublicConfig {
 		CatalogManifest:  env("GAYLEMON_CATALOG_MANIFEST_PATH", "/home/gaylemon/Gaylemon/runtime/public-catalogs-manifest.json"),
 		CatalogsRoot:     env("GAYLEMON_CATALOGS_ROOT", "/home/gaylemon/Gaylemon/runtime/public-catalogs"),
 	}
+}
+
+func PublicEventsFingerprint(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("lecture des échos publics: %w", err)
+	}
+	var envelope struct {
+		Revision string `json:"revision"`
+	}
+	if err := json.Unmarshal(content, &envelope); err != nil || strings.TrimSpace(envelope.Revision) == "" {
+		return "", errors.New("révision des échos publics invalide")
+	}
+	return publicEventsFingerprint(content, envelope.Revision), nil
+}
+
+func publicEventsFingerprint(content []byte, revision string) string {
+	digest := sha256.Sum256(content)
+	return fmt.Sprintf("%s:sha256:%x", revision, digest[:12])
 }
 
 type PublicResult struct {
@@ -212,7 +232,7 @@ func collectPublicEvents(_ context.Context, config PublicConfig, started time.Ti
 	if err != nil {
 		return PublicResult{}, fmt.Errorf("lecture des échos récents: %w", err)
 	}
-	revision, eventCount, err := projection.ValidatePublicEvents(fullBytes)
+	sourceRevision, eventCount, err := projection.ValidatePublicEvents(fullBytes)
 	if err != nil {
 		return PublicResult{}, fmt.Errorf("échos publics invalides: %w", err)
 	}
@@ -228,7 +248,7 @@ func collectPublicEvents(_ context.Context, config PublicConfig, started time.Ti
 	return PublicResult{
 		Documents: documents,
 		Usage:     model.ResourceUsage{DurationMS: time.Since(started).Milliseconds(), MaxRSSBytes: int64(memory.Sys), BytesRead: int64(len(fullBytes) + len(recentBytes))},
-		Summary:   map[string]any{"collector": "events-postgresql", "kind": "events", "documents": len(documents), "revision": revision, "events": eventCount},
+		Summary:   map[string]any{"collector": "events-postgresql", "kind": "events", "documents": len(documents), "revision": publicEventsFingerprint(fullBytes, sourceRevision), "sourceRevision": sourceRevision, "events": eventCount},
 	}, nil
 }
 
