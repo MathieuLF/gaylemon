@@ -84,11 +84,11 @@ func collect(arguments []string, logger *slog.Logger) error {
 	defer spool.Close()
 	publicConfig := collector.PublicConfigFromEnv()
 	if *kind == "events" {
-		fingerprint, err := collector.PublicEventsFingerprint(publicConfig.EventsPath)
+		revision, err := collector.PublicEventsRevision(publicConfig.EventsPath)
 		if err != nil {
 			return err
 		}
-		duplicate, err := spool.HasRevision(context.Background(), *kind, fingerprint)
+		duplicate, err := spool.HasRevision(context.Background(), *kind, revision)
 		if err != nil {
 			return err
 		}

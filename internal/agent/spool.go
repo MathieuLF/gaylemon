@@ -142,10 +142,14 @@ func (s *Spool) HasRevision(ctx context.Context, stream, revision string) (bool,
 	}
 	var present int
 	err := s.db.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM batches WHERE stream = ? AND source_revision = ?
+		SELECT 1 FROM batches
+		 WHERE stream = ?
+		   AND (source_revision = ? OR instr(source_revision, ? || ':sha256:') = 1)
 		UNION ALL
-		SELECT 1 FROM completed_stream_revisions WHERE stream = ? AND source_revision = ?
-	)`, stream, revision, stream, revision).Scan(&present)
+		SELECT 1 FROM completed_stream_revisions
+		 WHERE stream = ?
+		   AND (source_revision = ? OR instr(source_revision, ? || ':sha256:') = 1)
+	)`, stream, revision, revision, stream, revision, revision).Scan(&present)
 	return present != 0, err
 }
 
