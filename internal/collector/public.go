@@ -2,10 +2,10 @@ package collector
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -49,23 +49,36 @@ func PublicConfigFromEnv() PublicConfig {
 	}
 }
 
-func PublicEventsFingerprint(path string) (string, error) {
-	content, err := os.ReadFile(path)
+func PublicEventsRevision(path string) (string, error) {
+	file, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("lecture des échos publics: %w", err)
 	}
-	var envelope struct {
-		Revision string `json:"revision"`
-	}
-	if err := json.Unmarshal(content, &envelope); err != nil || strings.TrimSpace(envelope.Revision) == "" {
-		return "", errors.New("révision des échos publics invalide")
-	}
-	return publicEventsFingerprint(content, envelope.Revision), nil
-}
+	defer file.Close()
 
-func publicEventsFingerprint(content []byte, revision string) string {
-	digest := sha256.Sum256(content)
-	return fmt.Sprintf("%s:sha256:%x", revision, digest[:12])
+	decoder := json.NewDecoder(io.LimitReader(file, 64<<10))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return "", errors.New("enveloppe des échos publics invalide")
+	}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return "", errors.New("révision des échos publics illisible")
+		}
+		if key == "revision" {
+			var revision string
+			if err := decoder.Decode(&revision); err != nil || strings.TrimSpace(revision) == "" {
+				return "", errors.New("révision des échos publics invalide")
+			}
+			return revision, nil
+		}
+		var ignored json.RawMessage
+		if err := decoder.Decode(&ignored); err != nil {
+			return "", errors.New("révision des échos publics introuvable")
+		}
+	}
+	return "", errors.New("révision des échos publics introuvable")
 }
 
 type PublicResult struct {
@@ -248,7 +261,7 @@ func collectPublicEvents(_ context.Context, config PublicConfig, started time.Ti
 	return PublicResult{
 		Documents: documents,
 		Usage:     model.ResourceUsage{DurationMS: time.Since(started).Milliseconds(), MaxRSSBytes: int64(memory.Sys), BytesRead: int64(len(fullBytes) + len(recentBytes))},
-		Summary:   map[string]any{"collector": "events-postgresql", "kind": "events", "documents": len(documents), "revision": publicEventsFingerprint(fullBytes, sourceRevision), "sourceRevision": sourceRevision, "events": eventCount},
+		Summary:   map[string]any{"collector": "events-postgresql", "kind": "events", "documents": len(documents), "revision": sourceRevision, "sourceRevision": sourceRevision, "events": eventCount},
 	}, nil
 }
 

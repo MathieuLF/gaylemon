@@ -107,3 +107,21 @@ func TestSpoolDeduplicatesCompletedSourceRevision(t *testing.T) {
 		t.Fatalf("révision terminée dupliquée: batches=%d err=%v", len(repeated), err)
 	}
 }
+
+func TestSpoolRecognizesLegacyHashedSourceRevision(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	ctx := context.Background()
+	document := model.Document{Path: "data/public-events.json", Content: json.RawMessage(`{"ok":true}`), CachePolicy: model.CacheNoStore}
+	batches, err := EnqueueDocuments(ctx, spool, "test", "events", "revision-43:sha256:abcdef", []model.Document{document}, model.ResourceUsage{}, nil)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("ancienne révision non ajoutée: batches=%d err=%v", len(batches), err)
+	}
+	present, err := spool.HasRevision(ctx, "events", "revision-43")
+	if err != nil || !present {
+		t.Fatalf("ancienne empreinte non reconnue: present=%v err=%v", present, err)
+	}
+}
