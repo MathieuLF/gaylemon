@@ -250,7 +250,7 @@ func (s *Server) servePublicDocument(w http.ResponseWriter, r *http.Request, doc
 
 func (s *Server) handleGameAsset(w http.ResponseWriter, r *http.Request) {
 	relative := filepath.Clean(filepath.FromSlash(r.PathValue("path")))
-	if relative == "." || strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
+	if relative == "." || relative == ".source-commit" || strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
 		http.NotFound(w, r)
 		return
 	}

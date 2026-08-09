@@ -68,9 +68,17 @@ func commandArguments(command model.Command) ([]string, error) {
 		}
 		return []string{"logs", unit}, nil
 	case "sync.pause":
-		return []string{"sync", "pause"}, nil
+		stream, _ := values["stream"].(string)
+		if !allowedStream(stream) {
+			return nil, errors.New("flux de synchronisation refusé")
+		}
+		return []string{"sync", "pause", stream}, nil
 	case "sync.resume":
-		return []string{"sync", "resume"}, nil
+		stream, _ := values["stream"].(string)
+		if !allowedStream(stream) {
+			return nil, errors.New("flux de synchronisation refusé")
+		}
+		return []string{"sync", "resume", stream}, nil
 	case "sync.run":
 		stream, _ := values["stream"].(string)
 		if !allowedStream(stream) {

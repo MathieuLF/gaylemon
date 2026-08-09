@@ -98,13 +98,13 @@ Pour créer les fichiers canoniques à partir des exemples:
 
 ## Ressources Palworld
 
-Les ressources extraites du jeu restent locales:
+Pour le développement local, synchroniser les ressources extraites du jeu avec:
 
 ```powershell
 .\scripts\sync-palworld-game-assets.ps1
 ```
 
-Elles vivent sous `portal/assets/game/`, ignoré par Git.
+Elles vivent sous `portal/assets/game/`, ignoré par Git. En production, le Dockerfile récupère les mêmes icônes et cartes depuis la révision PalworldSaveTools verrouillée, sans les ajouter à l’historique du dépôt.
 
 ## Si un secret fuit
 
