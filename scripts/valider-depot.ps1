@@ -512,6 +512,7 @@ if (-not $SansBash) {
         $bashFiles = @(
             Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\bin") -Filter "*.sh" -File
             Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "server\sbin") -File
+            Get-Item -LiteralPath (Join-Path $ProjectRoot "vps\gaylemon-deploy-production")
             Get-Item -LiteralPath (Join-Path $ProjectRoot "docker\palworld-api-tunnel\entrypoint.sh")
         )
         foreach ($file in $bashFiles) {

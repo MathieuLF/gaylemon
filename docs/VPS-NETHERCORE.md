@@ -17,11 +17,37 @@ Les fonctionnalités passent par des branches courtes et une pull request. La VP
 
 ## Secrets de la VPS
 
-Copier `.env.production.example` vers `/etc/gaylemon/production.env`, conservé en `root:root` avec le mode `0600`, puis renseigner :
+Le Vault DockPanel **Gaylémon production**, rattaché au site `gaylemon.nethercore.dev`, est la source de vérité. Il contient exactement quatre entrées avec l'injection automatique activée :
 
-- l'URL PostgreSQL du rôle applicatif `gaylemon`;
-- la ou les clés publiques Ed25519 des agents;
-- l'identifiant et le secret de l'application OAuth GitHub.
+- `GAYLEMON_DATABASE_URL`;
+- `GAYLEMON_AGENT_PUBLIC_KEYS`;
+- `GAYLEMON_GITHUB_CLIENT_ID`;
+- `GAYLEMON_GITHUB_CLIENT_SECRET`.
+
+`/etc/gaylemon/production.env` est une matérialisation temporaire nécessaire à Docker Compose. Il est généré depuis l'API locale de DockPanel, appartient à `root:root` et reste en mode `0600`. Il ne doit jamais être modifié directement.
+
+Installer les commandes d'exploitation sur la VPS :
+
+```bash
+sudo install -o root -g root -m 0755 vps/gaylemon-vault-sync.py /usr/local/sbin/gaylemon-vault-sync
+sudo install -o root -g root -m 0755 vps/gaylemon-deploy-production /usr/local/sbin/gaylemon-deploy-production
+```
+
+Lors d'une première adoption seulement, importer les quatre valeurs de l'ancien fichier puis les relire immédiatement depuis le coffre :
+
+```bash
+sudo gaylemon-vault-sync bootstrap --source /etc/gaylemon/production.env
+sudo gaylemon-vault-sync sync
+sudo gaylemon-vault-sync check
+```
+
+Après une rotation dans DockPanel, ou pour livrer une nouvelle version, utiliser la commande unique :
+
+```bash
+sudo gaylemon-deploy-production
+```
+
+Elle synchronise d'abord le Vault, valide le Compose sans afficher les valeurs, redéploie uniquement le service web et vérifie le port local `18081`. Elle ne touche ni à PostgreSQL, ni à l'agent Ubuntu, ni à Palworld.
 
 Dans DockPanel, rattacher une base `gaylemon` au site `gaylemon.nethercore.dev` avec PostgreSQL 16. Son conteneur `dockpanel-db-gaylemon` reste sur le réseau privé `dockpanel-db`, est publié seulement sur `127.0.0.1:5435` et rejoint aussi le réseau Docker `gaylemon_private`. DockPanel génère le mot de passe du rôle propriétaire `gaylemon`; l'application le reçoit uniquement dans son URL de connexion :
 
