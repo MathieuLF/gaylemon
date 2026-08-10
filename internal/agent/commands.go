@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -101,17 +100,16 @@ func commandArguments(command model.Command) ([]string, error) {
 	case "server.backup":
 		return []string{"backup"}, nil
 	case "server.update":
-		return []string{"release", "update"}, nil
+		return nil, errors.New("mise à jour Palworld réservée à une session sudo interactive")
 	case "service.restart":
 		unit, _ := values["unit"].(string)
-		allowPalworld, _ := values["allowPalworldRestart"].(bool)
 		if !allowedUnit(unit) {
 			return nil, errors.New("unité refusée")
 		}
-		if unit == "palworld.service" && !allowPalworld {
-			return nil, errors.New("redémarrage Palworld non confirmé")
+		if unit == "palworld.service" {
+			return nil, errors.New("redémarrage Palworld réservé à une session sudo interactive")
 		}
-		return []string{"restart", unit, fmt.Sprintf("%t", allowPalworld)}, nil
+		return []string{"restart", unit}, nil
 	default:
 		return nil, errors.New("commande inconnue")
 	}
@@ -128,7 +126,7 @@ func allowedSchedule(schedule string) bool {
 
 func allowedUnit(unit string) bool {
 	switch unit {
-	case "gaylemon-agent.service", "gaylemon-collect-metrics.service", "gaylemon-collect-stats.service", "gaylemon-publish-events.service", "gaylemon-publish-snapshot.service", "palworld-stats.service", "palworld-events.service", "palworld-save-snapshot.service", "palworld.service":
+	case "gaylemon-agent.service", "gaylemon-collect-metrics.service", "gaylemon-collect-stats.service", "gaylemon-publish-events.service", "gaylemon-publish-snapshot.service", "palworld-stats.service", "palworld-events.service", "palworld-save-snapshot.service", "palworld-welcome.service":
 		return true
 	default:
 		return false

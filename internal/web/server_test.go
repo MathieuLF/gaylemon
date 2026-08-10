@@ -24,10 +24,13 @@ import (
 )
 
 type fakeRepository struct {
-	document  model.PublicDocument
-	eventPage model.PublicEventPage
-	batch     model.Batch
-	nonces    map[string]bool
+	document          model.PublicDocument
+	eventPage         model.PublicEventPage
+	eventBlock        <-chan struct{}
+	eventStarted      chan<- struct{}
+	batch             model.Batch
+	nonces            map[string]bool
+	oauthStateCreates int
 }
 
 func (f *fakeRepository) Close()                        {}
@@ -68,7 +71,17 @@ func (f *fakeRepository) GetPublicDocument(_ context.Context, path string) (mode
 	return f.document, true, nil
 }
 
-func (f *fakeRepository) QueryPublicEvents(_ context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+	if f.eventStarted != nil {
+		f.eventStarted <- struct{}{}
+	}
+	if f.eventBlock != nil {
+		select {
+		case <-f.eventBlock:
+		case <-ctx.Done():
+			return model.PublicEventPage{}, false, ctx.Err()
+		}
+	}
 	if !f.eventPage.OK {
 		return model.PublicEventPage{}, false, nil
 	}
@@ -87,6 +100,7 @@ func (f *fakeRepository) EnqueueCommand(_ context.Context, id, agentID, kind str
 }
 
 func (f *fakeRepository) CreateOAuthState(context.Context, string, string, string, time.Time) error {
+	f.oauthStateCreates++
 	return nil
 }
 
@@ -157,6 +171,66 @@ func TestOpsCookiesSupportOAuthRedirect(t *testing.T) {
 	}
 }
 
+func TestOAuthLoginUsesAClientCookieWithoutDatabaseWrite(t *testing.T) {
+	repository := &fakeRepository{}
+	cfg := config.Web{
+		PublicBaseURL:      "https://gaylemon.nethercore.dev",
+		CookieSecure:       true,
+		GitHubClientID:     "client-id",
+		GitHubClientSecret: "client-secret-with-enough-entropy",
+	}
+	handler := NewServer(cfg, repository, slog.New(slog.NewTextHandler(testWriter{t}, nil))).Handler()
+	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.nethercore.dev/ops/auth/login?return=/ops", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("initiation OAuth inattendue: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if repository.oauthStateCreates != 0 {
+		t.Fatalf("l'initiation OAuth a persisté %d état(s)", repository.oauthStateCreates)
+	}
+	found := false
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == "gaylemon_oauth_state" {
+			found = cookie.HttpOnly && cookie.Secure && cookie.MaxAge == 600
+		}
+	}
+	if !found {
+		t.Fatal("le cookie OAuth court et HttpOnly est absent")
+	}
+}
+
+func TestOAuthStateCookieRejectsTamperingAndExpiry(t *testing.T) {
+	server := &Server{config: config.Web{GitHubClientSecret: "client-secret-with-enough-entropy"}}
+	now := time.Now().UTC()
+	encoded, err := server.encodeOAuthStateCookie(oauthStateCookie{
+		StateHash:  tokenHash("state"),
+		Verifier:   "verifier",
+		ReturnPath: "/ops",
+		ExpiresAt:  now.Add(time.Minute).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := server.decodeOAuthStateCookie(&http.Cookie{Value: encoded}, now)
+	if err != nil || decoded.Verifier != "verifier" {
+		t.Fatalf("cookie OAuth valide refusé: state=%+v error=%v", decoded, err)
+	}
+
+	tamperedPrefix := "A"
+	if encoded[0] == 'A' {
+		tamperedPrefix = "B"
+	}
+	tampered := tamperedPrefix + encoded[1:]
+	if _, err := server.decodeOAuthStateCookie(&http.Cookie{Value: tampered}, now); !errors.Is(err, store.ErrOAuthState) {
+		t.Fatalf("cookie OAuth altéré accepté: %v", err)
+	}
+	if _, err := server.decodeOAuthStateCookie(&http.Cookie{Value: encoded}, now.Add(2*time.Minute)); !errors.Is(err, store.ErrOAuthState) {
+		t.Fatalf("cookie OAuth expiré accepté: %v", err)
+	}
+}
+
 func TestOpsPageWaitsForTheAgentResult(t *testing.T) {
 	required := []string{
 		"waitForCommand(d.id)",
@@ -169,6 +243,11 @@ func TestOpsPageWaitsForTheAgentResult(t *testing.T) {
 	for _, fragment := range required {
 		if !strings.Contains(opsHTML, fragment) {
 			t.Fatalf("retour de commande Ops incomplet: %s", fragment)
+		}
+	}
+	for _, forbidden := range []string{"server.update", "palworld.service", "allowPalworldRestart"} {
+		if strings.Contains(opsHTML, forbidden) {
+			t.Fatalf("commande perturbatrice encore exposée dans Ops: %s", forbidden)
 		}
 	}
 }
@@ -269,6 +348,56 @@ func TestPublicEventsAreServedFromPostgresProjection(t *testing.T) {
 	}
 	if payload.Freshness != "stale" || payload.SourceStatus != "available" || payload.LagSeconds != 1560 || payload.ObservedAt.IsZero() {
 		t.Fatalf("fraîcheur PostgreSQL inattendue: %#v", payload)
+	}
+}
+
+func TestPublicEventsRejectDeepOffsets(t *testing.T) {
+	repository := &fakeRepository{eventPage: model.PublicEventPage{OK: true}}
+	handler, _ := testServer(t, repository)
+	request := httptest.NewRequest(http.MethodGet, "/api/public/events/v1?limit=100&offset=10001", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("offset profond accepté: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPublicEventsLimitConcurrentDatabaseQueries(t *testing.T) {
+	block := make(chan struct{})
+	started := make(chan struct{}, 2)
+	repository := &fakeRepository{
+		eventPage:    model.PublicEventPage{OK: true},
+		eventBlock:   block,
+		eventStarted: started,
+	}
+	handler, _ := testServer(t, repository)
+	responses := make(chan int, 2)
+	for range 2 {
+		go func() {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/public/events/v1", nil))
+			responses <- recorder.Code
+		}()
+	}
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("les deux requêtes PostgreSQL n'ont pas démarré")
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/public/events/v1", nil))
+	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") != "1" {
+		t.Fatalf("troisième requête non bornée: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	close(block)
+	for range 2 {
+		if status := <-responses; status != http.StatusOK {
+			t.Fatalf("requête normale refusée: status=%d", status)
+		}
 	}
 }
 
