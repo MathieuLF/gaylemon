@@ -2,9 +2,9 @@
 Description=Refresh the public Palworld event history in game-priority mode
 
 [Timer]
-OnBootSec=15min
-OnUnitInactiveSec=5min
-AccuracySec=30s
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=10s
 Persistent=false
 Unit=palworld-events.service
 

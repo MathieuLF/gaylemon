@@ -485,8 +485,8 @@ test("l'accueil affiche les cinq échos réellement les plus récents", async ()
   assert.match(renderer, /slice\(0, 5\)/);
   assert.doesNotMatch(renderer, /verifiedEchoes/);
   assert.doesNotMatch(renderer, /confidence\s*===\s*["']confirmed["']/);
-  assert.doesNotMatch(renderer, /vérifié|confirmé/i);
-  assert.match(renderer, /mis à jour/);
+  assert.match(renderer, /payload\?\.observedAt/);
+  assert.match(renderer, /flux vérifié/);
 });
 
 test("les événements compilés rendent leur tranche sans répétition", async () => {
@@ -721,17 +721,32 @@ test("le terminal affiche l'âge réel de la projection des échos", async () =>
   assert.match(renderer, /eventsSnapshot\?\.freshness/);
   assert.match(renderer, /eventsSnapshot\?\.observedAt/);
   assert.match(renderer, /Flux retardé/);
-  assert.match(renderer, /Vérifié/);
-  assert.match(renderer, /derniers échos/);
-  assert.match(renderer, /formatRelativeAge\(dataDate\)/);
+  assert.match(renderer, /Flux vérifié/);
+  assert.match(renderer, /dernier écho/);
+  assert.match(renderer, /formatRelativeAge\(latestEchoDate\)/);
   assert.doesNotMatch(renderer, /Synchro \$\{date\.toLocaleTimeString/);
+});
+
+test("l'accueil distingue le contrôle du flux du dernier écho", async () => {
+  const app = await portalFile("assets/app.js");
+  const renderer = app.slice(
+    app.indexOf("function renderHomeLatestEchoes"),
+    app.indexOf("function currentV6MaxCursor"),
+  );
+
+  assert.match(renderer, /payload\?\.observedAt/);
+  assert.match(renderer, /recent\[0\]\?\.occurredAt/);
+  assert.match(renderer, /flux vérifié/);
+  assert.match(renderer, /dernier écho/);
+  assert.match(renderer, /flux retardé/);
+  assert.doesNotMatch(renderer, /mis à jour/);
 });
 
 test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260809\.3/);
-    assert.match(html, /app\.js\?v=20260809\.3/);
+    assert.match(html, /styles\.css\?v=20260809\.4/);
+    assert.match(html, /app\.js\?v=20260809\.4/);
   }
 });
