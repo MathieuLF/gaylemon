@@ -14,6 +14,16 @@ SPEC.loader.exec_module(DEPLOY)
 
 
 class GaylemonDeployTests(unittest.TestCase):
+    def test_event_timer_keeps_a_five_minute_start_cadence(self):
+        timer = (MODULE_PATH.parents[1] / "systemd" / "palworld-events.timer").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("OnBootSec=5min", timer)
+        self.assertIn("OnUnitActiveSec=5min", timer)
+        self.assertIn("AccuracySec=10s", timer)
+        self.assertNotIn("OnUnitInactiveSec", timer)
+
     def test_destination_allowlist_accepts_only_managed_paths(self):
         accepted = (
             "/srv/storage/steam/bin/palworld-update.sh",
