@@ -80,6 +80,7 @@ function Get-GaylemonDeploymentManifest {
         $entries.Add([pscustomobject][ordered]@{
             Source = $source
             LocalPath = (Resolve-Path -LiteralPath $localPath).Path
+            Sha256 = (Get-FileHash -LiteralPath $localPath -Algorithm SHA256).Hash.ToLowerInvariant()
             Destination = $destination
             Owner = $owner
             Group = $group
@@ -135,6 +136,7 @@ function New-GaylemonResolvedDeploymentManifest {
         entries = @($Manifest.Entries | ForEach-Object {
             [ordered]@{
                 source = $_.Source
+                sha256 = $_.Sha256
                 destination = $_.Destination
                 owner = $_.Owner
                 group = $_.Group

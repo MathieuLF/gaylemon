@@ -8,13 +8,21 @@ RELEASES="$VENDOR/PalworldSaveTools-releases"
 WORKER="$ROOT/server/bin/palworld-save-snapshot.py"
 OUTPUT="$ROOT/runtime/public-save-snapshot.json"
 REPOSITORY="https://github.com/MathieuLF/PalworldSaveTools.git"
+ARCHIVE_BASE="https://codeload.github.com/MathieuLF/PalworldSaveTools/tar.gz"
+approved_sha="${1:-}"
+approved_archive_sha256="${2:-}"
+
+if [[ ! "$approved_sha" =~ ^[a-f0-9]{40}$ ]]; then
+  echo "Une révision approuvée complète est requise." >&2
+  exit 2
+fi
+if [[ ! "$approved_archive_sha256" =~ ^[a-f0-9]{64}$ ]]; then
+  echo "L'empreinte SHA-256 de l'archive approuvée est requise." >&2
+  exit 2
+fi
 
 mkdir -p "$RELEASES" "$ROOT/runtime"
-target_sha="$(git ls-remote "$REPOSITORY" refs/heads/main | awk '{print $1}')"
-if [[ -z "$target_sha" ]]; then
-  echo "Impossible de lire la révision du fork." >&2
-  exit 1
-fi
+target_sha="$approved_sha"
 
 current_sha=""
 if [[ -e "$CURRENT/.git" ]]; then
@@ -27,8 +35,10 @@ if [[ "$current_sha" == "$target_sha" ]]; then
 fi
 
 candidate="$RELEASES/${target_sha}-$(date +%Y%m%d%H%M%S)"
+archive="$(mktemp "$RELEASES/.PalworldSaveTools-${target_sha}.XXXXXX.tar.gz")"
 
 cleanup() {
+  rm -f -- "$archive"
   if [[ -d "$candidate" && ! -L "$CURRENT" ]]; then
     echo "Le candidat incomplet est conservé pour diagnostic: $candidate" >&2
   fi
@@ -36,7 +46,21 @@ cleanup() {
 trap cleanup ERR
 
 echo "Préparation de PalworldSaveTools ${target_sha:0:12}..."
-git clone --quiet --depth 1 --branch main "$REPOSITORY" "$candidate"
+curl --proto '=https' --tlsv1.2 -fsSL --retry 2 \
+  "$ARCHIVE_BASE/$approved_sha" \
+  --output "$archive"
+printf '%s  %s\n' "$approved_archive_sha256" "$archive" | sha256sum -c - >/dev/null
+mkdir -p "$candidate"
+tar -xzf "$archive" -C "$candidate" --strip-components=1 --no-same-owner --no-same-permissions
+rm -f -- "$archive"
+git init --quiet "$candidate"
+git -C "$candidate" remote add origin "$REPOSITORY"
+git -C "$candidate" fetch --quiet --depth 1 origin "$approved_sha"
+git -C "$candidate" update-ref --no-deref HEAD "$approved_sha"
+if [[ "$(git -C "$candidate" rev-parse HEAD)" != "$approved_sha" ]]; then
+  echo "La révision récupérée ne correspond pas à l'approbation." >&2
+  exit 1
+fi
 python3 -m venv "$candidate/.venv"
 "$candidate/.venv/bin/pip" install --quiet --disable-pip-version-check \
   -e "$candidate/src/palsav/palooz" \

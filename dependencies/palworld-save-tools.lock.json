@@ -5,6 +5,7 @@
   "repository": "https://github.com/MathieuLF/PalworldSaveTools.git",
   "branch": "main",
   "commit": "ea6592ebfbb79389b6f4570002c71f9b25040641",
+  "archiveSha256": "590756f453131547bc12f21a29061fa60e7fd4cf4f6350a6c71dc037dd741a64",
   "localPath": "vendor/PalworldSaveTools",
   "serverCurrentPath": "vendor/PalworldSaveTools-current",
   "vendored": false,

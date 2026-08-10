@@ -16,17 +16,31 @@ if [[ ! -d "$stage" || -L "$stage" ]]; then
   exit 2
 fi
 
-deploy_script="$stage/server/deploy/gaylemon_deploy.py"
-if [[ ! -f "$deploy_script" || -L "$deploy_script" ]]; then
-  echo "Script de deploiement absent ou invalide: $deploy_script" >&2
+fixed_deployer="/usr/local/libexec/gaylemon/gaylemon-deploy"
+fixed_deployer_metadata=""
+if [[ -f "$fixed_deployer" && ! -L "$fixed_deployer" ]]; then
+  fixed_deployer_metadata="$(/usr/bin/stat -c '%U:%G:%a' "$fixed_deployer")"
+fi
+if [[ "$fixed_deployer_metadata" != "root:root:755" ]]; then
+  echo "Moteur de deploiement privilegie absent ou modifiable: $fixed_deployer" >&2
   exit 2
 fi
 
 stamp="$(basename "$stage")"
 restart_args=()
+manifest_sha256=""
+allow_game_restart="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --manifest-sha256)
+      if [[ $# -lt 2 || ! "$2" =~ ^[a-f0-9]{64}$ ]]; then
+        echo "SHA-256 de manifeste invalide." >&2
+        exit 2
+      fi
+      manifest_sha256="$2"
+      shift 2
+      ;;
     --restart-unit)
       if [[ $# -lt 2 ]]; then
         echo "Unite de redemarrage manquante." >&2
@@ -37,12 +51,12 @@ while [[ $# -gt 0 ]]; do
         echo "Unite de redemarrage invalide: $unit" >&2
         exit 2
       fi
-      if [[ "$unit" == "palworld.service" ]]; then
-        echo "Redemarrage de palworld.service refuse par ce wrapper." >&2
-        exit 2
-      fi
       restart_args+=(--restart-unit "$unit")
       shift 2
+      ;;
+    --allow-game-restart)
+      allow_game_restart="true"
+      shift
       ;;
     *)
       echo "Argument invalide: $1" >&2
@@ -51,7 +65,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-exec /usr/bin/python3 "$deploy_script" install \
+if [[ -z "$manifest_sha256" ]]; then
+  echo "SHA-256 de manifeste requis." >&2
+  exit 2
+fi
+
+if [[ " ${restart_args[*]} " == *" palworld.service "* && "$allow_game_restart" != "true" ]]; then
+  echo "Redemarrage de palworld.service non confirme." >&2
+  exit 2
+fi
+
+game_restart_args=()
+if [[ "$allow_game_restart" == "true" ]]; then
+  game_restart_args+=(--allow-game-restart)
+fi
+
+exec /usr/bin/python3 "$fixed_deployer" install \
   --stage "$stage" \
   --confirm "$stamp" \
+  --manifest-sha256 "$manifest_sha256" \
+  "${game_restart_args[@]}" \
   "${restart_args[@]}"

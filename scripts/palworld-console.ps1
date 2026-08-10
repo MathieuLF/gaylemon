@@ -280,7 +280,22 @@ function Invoke-RemoteSystemctl {
         [string]$Unit
     )
 
-    Invoke-Remote -Command ("sudo -n /usr/bin/systemctl {0} {1}" -f $Verb, $Unit)
+    $safeCommand = switch ("$Verb $Unit") {
+        "start palworld-backup.service" { "sudo -n /usr/local/sbin/gaylemon-admin backup" }
+        "start palworld-stats.service" { "sudo -n /usr/local/sbin/gaylemon-admin sync run stats" }
+        "start palworld-performance.service" { "sudo -n /usr/local/sbin/gaylemon-admin performance" }
+        "restart palworld-welcome.service" { "sudo -n /usr/local/sbin/gaylemon-admin restart palworld-welcome.service" }
+        default { $null }
+    }
+    if ($safeCommand) {
+        Invoke-Remote -Command $safeCommand
+        return
+    }
+
+    if (("$Verb $Unit") -notin @("start palworld-update.service", "restart palworld.service")) {
+        throw "Opération systemd distante non autorisée: $Verb $Unit"
+    }
+    Invoke-Remote -Tty -Command ("sudo /usr/bin/systemctl {0} {1}" -f $Verb, $Unit)
 }
 
 function Test-CommandAvailable {
@@ -586,7 +601,7 @@ function Restart-Palworld {
     }
 
     Write-StatusLine Info "Application du profil serveur avant le redémarrage."
-    Invoke-Remote -Command "sudo -n '$($config.RemoteSteamRoot)/bin/palworld-configure-balanced.sh'"
+    Invoke-Remote -Tty -Command "sudo '$($config.RemoteSteamRoot)/bin/palworld-configure-balanced.sh'"
     if ($script:LastActionExitCode -ne 0) {
         Write-StatusLine Error "Configuration serveur refusée ou échouée; redémarrage annulé."
         return

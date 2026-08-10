@@ -24,12 +24,12 @@ Inclure si possible:
 
 Le dépôt décrit seulement les fichiers non secrets. Les sauvegardes réelles, secrets, bases SQLite, journaux et fichiers locaux restent hors Git.
 
-Les installations Ubuntu passent par `server/deployment-manifest.json`. Le script d'installation refuse les destinations hors allowlist, valide les fichiers avant copie, sauvegarde les fichiers remplacés et ne redémarre aucun service par défaut.
+Les installations Ubuntu passent par `server/deployment-manifest.json`. Le manifeste résolu et chacune de ses sources portent une empreinte, puis le moteur root-owned copie la zone de stage dans une zone privée avant validation. Le script refuse les destinations hors allowlist, sauvegarde les fichiers remplacés et ne redémarre aucun service par défaut. L'installation demande toujours une élévation `sudo` interactive.
 
 Les accès `sudo` non interactifs autorisés pour l'exploitation sont volontairement limités à des commandes précises:
 
 ```text
-/usr/local/sbin/gaylemon-deploy-install
+/usr/local/sbin/gaylemon-admin
 /srv/storage/steam/bin/palworld-api.sh GET /info
 /srv/storage/steam/bin/palworld-api.sh GET /players
 /srv/storage/steam/bin/palworld-api.sh GET /metrics
@@ -37,7 +37,7 @@ Les accès `sudo` non interactifs autorisés pour l'exploitation sont volontaire
 /srv/storage/steam/bin/palworld-api.sh GET /game-data
 ```
 
-Le wrapper de déploiement accepte seulement une zone de stage sous `/tmp/gaylemon-staging/AAAAMMJJ-HHMMSS`, puis délègue au script de déploiement versionné dans ce stage. La règle API lit seulement les endpoints allowlistés. Aucun de ces chemins ne doit donner un accès `sudo` général.
+Le moteur de déploiement privilégié reste sous `/usr/local/libexec/gaylemon/gaylemon-deploy`, appartient à `root:root` et n'exécute jamais le Python de la zone modifiable sous `/tmp`. Le wrapper exige l'empreinte du manifeste. La règle API lit seulement les endpoints allowlistés et `gaylemon-admin` refuse les mises à jour ou redémarrages de Palworld. Aucun de ces chemins ne doit donner un accès `sudo` général.
 
 ## Vecteurs sensibles
 

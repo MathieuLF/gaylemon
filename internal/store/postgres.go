@@ -29,6 +29,12 @@ var (
 
 const publicEventStaleAfter = 25 * time.Minute
 
+func escapeLikePattern(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	return strings.ReplaceAll(value, `_`, `\_`)
+}
+
 func publicEventFreshness(updatedAt, now time.Time) (string, string, int64) {
 	if updatedAt.IsZero() {
 		return "stale", "unknown", 0
@@ -378,8 +384,8 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 		conditions = append(conditions, fmt.Sprintf("player=$%d", len(arguments)))
 	}
 	if value := strings.ToLower(strings.TrimSpace(query.Search)); value != "" {
-		arguments = append(arguments, value)
-		conditions = append(conditions, fmt.Sprintf("search_text LIKE '%%'||$%d||'%%'", len(arguments)))
+		arguments = append(arguments, escapeLikePattern(value))
+		conditions = append(conditions, fmt.Sprintf("search_text LIKE '%%'||$%d||'%%' ESCAPE '\\'", len(arguments)))
 	}
 	where := strings.Join(conditions, " AND ")
 

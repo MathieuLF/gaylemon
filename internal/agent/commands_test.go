@@ -7,18 +7,17 @@ import (
 	"github.com/MathieuLF/gaylemon/internal/model"
 )
 
-func TestPalworldRestartRequiresExplicitFlag(t *testing.T) {
+func TestPalworldRestartIsRefusedByTheNonInteractiveAgent(t *testing.T) {
 	command := model.Command{Kind: "service.restart", Arguments: json.RawMessage(`{"unit":"palworld.service"}`)}
 	if _, err := commandArguments(command); err == nil {
 		t.Fatal("le redémarrage Palworld aurait dû être refusé")
 	}
 	command.Arguments = json.RawMessage(`{"unit":"palworld.service","allowPalworldRestart":true}`)
-	arguments, err := commandArguments(command)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := commandArguments(command); err == nil {
+		t.Fatal("le drapeau client ne doit pas remplacer une autorisation privilégiée")
 	}
-	if len(arguments) != 3 || arguments[0] != "restart" {
-		t.Fatalf("arguments inattendus: %#v", arguments)
+	if _, err := commandArguments(model.Command{Kind: "server.update", Arguments: json.RawMessage(`{}`)}); err == nil {
+		t.Fatal("la mise à jour Palworld non interactive aurait dû être refusée")
 	}
 }
 

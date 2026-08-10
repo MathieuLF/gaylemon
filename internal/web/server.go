@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -31,11 +32,12 @@ import (
 const maxIngestBody = 64 << 20
 
 type Server struct {
-	config config.Web
-	repo   store.Repository
-	logger *slog.Logger
-	oauth  *oauth2.Config
-	mux    *http.ServeMux
+	config       config.Web
+	repo         store.Repository
+	logger       *slog.Logger
+	oauth        *oauth2.Config
+	mux          *http.ServeMux
+	eventQueries chan struct{}
 }
 
 type sessionContextKey struct{}
@@ -48,11 +50,24 @@ type verifiedPayload struct {
 	Compressed bool
 }
 
+type oauthStateCookie struct {
+	StateHash  string `json:"stateHash"`
+	Verifier   string `json:"verifier"`
+	ReturnPath string `json:"returnPath"`
+	ExpiresAt  int64  `json:"expiresAt"`
+}
+
 func NewServer(cfg config.Web, repo store.Repository, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{config: cfg, repo: repo, logger: logger, mux: http.NewServeMux()}
+	s := &Server{
+		config:       cfg,
+		repo:         repo,
+		logger:       logger,
+		mux:          http.NewServeMux(),
+		eventQueries: make(chan struct{}, 2),
+	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" {
 		s.oauth = &oauth2.Config{
 			ClientID:     cfg.GitHubClientID,
@@ -267,7 +282,7 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil || offset < 0 {
 		offset = 0
 	}
-	if offset > 10_000_000 {
+	if offset > 10_000 {
 		writeError(w, http.StatusBadRequest, "events-offset-invalid")
 		return
 	}
@@ -282,9 +297,23 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "events-filter-invalid")
 		return
 	}
-	page, found, err := s.repo.QueryPublicEvents(r.Context(), query)
+	select {
+	case s.eventQueries <- struct{}{}:
+		defer func() { <-s.eventQueries }()
+	default:
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "events-busy")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	page, found, err := s.repo.QueryPublicEvents(ctx, query)
 	if err != nil {
 		s.logger.Warn("lecture des échos PostgreSQL impossible", "error", err)
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			writeError(w, http.StatusServiceUnavailable, "events-timeout")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "events-unavailable")
 		return
 	}
@@ -470,13 +499,21 @@ func (s *Server) handleOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	challengeBytes := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(challengeBytes[:])
 	returnPath := r.URL.Query().Get("return")
-	if !strings.HasPrefix(returnPath, "/ops") {
+	if len(returnPath) > 512 || (returnPath != "/ops" && !strings.HasPrefix(returnPath, "/ops/")) {
 		returnPath = "/ops"
 	}
-	if err := s.repo.CreateOAuthState(r.Context(), tokenHash(state), verifier, returnPath, time.Now().UTC().Add(10*time.Minute)); err != nil {
+	expires := time.Now().UTC().Add(10 * time.Minute)
+	stateCookie, err := s.encodeOAuthStateCookie(oauthStateCookie{
+		StateHash:  tokenHash(state),
+		Verifier:   verifier,
+		ReturnPath: returnPath,
+		ExpiresAt:  expires.Unix(),
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "oauth-state-failed")
 		return
 	}
+	http.SetCookie(w, s.opsCookie("gaylemon_oauth_state", stateCookie, expires, 600, true))
 	location := s.oauth.AuthCodeURL(state, oauth2.AccessTypeOnline, oauth2.SetAuthURLParam("code_challenge", challenge), oauth2.SetAuthURLParam("code_challenge_method", "S256"))
 	http.Redirect(w, r, location, http.StatusFound)
 }
@@ -486,8 +523,10 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "oauth-callback-invalid")
 		return
 	}
-	state, err := s.repo.ConsumeOAuthState(r.Context(), tokenHash(r.URL.Query().Get("state")), time.Now().UTC())
-	if err != nil {
+	cookie, cookieErr := r.Cookie("gaylemon_oauth_state")
+	http.SetCookie(w, s.opsCookie("gaylemon_oauth_state", "", time.Time{}, -1, true))
+	state, err := s.decodeOAuthStateCookie(cookie, time.Now().UTC())
+	if cookieErr != nil || err != nil || !hmac.Equal([]byte(state.StateHash), []byte(tokenHash(r.URL.Query().Get("state")))) {
 		writeError(w, http.StatusBadRequest, "oauth-state-invalid")
 		return
 	}
@@ -529,6 +568,51 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, s.opsCookie("gaylemon_ops", sessionToken, expires, 43200, true))
 	http.SetCookie(w, s.opsCookie("gaylemon_csrf", csrf, expires, 43200, false))
 	http.Redirect(w, r, state.ReturnPath, http.StatusFound)
+}
+
+func (s *Server) oauthStateSigningKey() []byte {
+	digest := hmac.New(sha256.New, []byte(s.config.GitHubClientSecret))
+	_, _ = digest.Write([]byte("gaylemon-oauth-state-cookie-v1"))
+	return digest.Sum(nil)
+}
+
+func (s *Server) encodeOAuthStateCookie(state oauthStateCookie) (string, error) {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return "", err
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(payload)
+	signature := hmac.New(sha256.New, s.oauthStateSigningKey())
+	_, _ = signature.Write([]byte(encoded))
+	return encoded + "." + base64.RawURLEncoding.EncodeToString(signature.Sum(nil)), nil
+}
+
+func (s *Server) decodeOAuthStateCookie(cookie *http.Cookie, now time.Time) (oauthStateCookie, error) {
+	if cookie == nil || len(cookie.Value) > 4096 {
+		return oauthStateCookie{}, store.ErrOAuthState
+	}
+	parts := strings.Split(cookie.Value, ".")
+	if len(parts) != 2 {
+		return oauthStateCookie{}, store.ErrOAuthState
+	}
+	providedSignature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return oauthStateCookie{}, store.ErrOAuthState
+	}
+	expectedSignature := hmac.New(sha256.New, s.oauthStateSigningKey())
+	_, _ = expectedSignature.Write([]byte(parts[0]))
+	if !hmac.Equal(providedSignature, expectedSignature.Sum(nil)) {
+		return oauthStateCookie{}, store.ErrOAuthState
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return oauthStateCookie{}, store.ErrOAuthState
+	}
+	var state oauthStateCookie
+	if json.Unmarshal(payload, &state) != nil || state.StateHash == "" || state.Verifier == "" || len(state.ReturnPath) > 512 || (state.ReturnPath != "/ops" && !strings.HasPrefix(state.ReturnPath, "/ops/")) || now.Unix() >= state.ExpiresAt {
+		return oauthStateCookie{}, store.ErrOAuthState
+	}
+	return state, nil
 }
 
 func (s *Server) requireSession(next http.HandlerFunc) http.HandlerFunc {
@@ -583,7 +667,7 @@ var allowedCommands = map[string]struct {
 }{
 	"sync.pause": {}, "sync.resume": {}, "sync.run": {TTL: 15 * time.Minute}, "sync.set-schedule": {},
 	"server.status": {TTL: 5 * time.Minute}, "server.logs": {TTL: 5 * time.Minute}, "server.announce": {TTL: 5 * time.Minute},
-	"server.backup": {TTL: 30 * time.Minute}, "server.update": {Dangerous: true, TTL: 30 * time.Minute}, "service.restart": {Dangerous: true, TTL: 15 * time.Minute},
+	"server.backup": {TTL: 30 * time.Minute}, "service.restart": {Dangerous: true, TTL: 15 * time.Minute},
 }
 
 func (s *Server) handleOpsCommand(w http.ResponseWriter, r *http.Request) {
@@ -632,15 +716,12 @@ func (s *Server) handleOpsCommand(w http.ResponseWriter, r *http.Request) {
 
 func validRestartArguments(raw json.RawMessage) bool {
 	var args struct {
-		Unit                 string `json:"unit"`
-		AllowPalworldRestart bool   `json:"allowPalworldRestart"`
+		Unit string `json:"unit"`
 	}
 	if json.Unmarshal(raw, &args) != nil {
 		return false
 	}
 	switch args.Unit {
-	case "palworld.service":
-		return args.AllowPalworldRestart
 	case "gaylemon-agent.service", "gaylemon-collect-metrics.service", "gaylemon-collect-stats.service", "gaylemon-publish-events.service", "gaylemon-publish-snapshot.service", "palworld-events.service", "palworld-save-snapshot.service", "palworld-stats.service":
 		return true
 	default:

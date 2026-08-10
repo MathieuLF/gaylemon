@@ -3,6 +3,10 @@ set -euo pipefail
 
 ENV_FILE="/etc/palworld/palworld.env"
 API="https://api.cloudflare.com/client/v4"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=/srv/storage/steam/bin/gaylemon-curl-config.sh
+. "$SCRIPT_DIR/gaylemon-curl-config.sh"
+curl_config=""
 
 log() {
   printf '[%s] %s\n' "$(date -Is)" "$*"
@@ -36,13 +40,11 @@ cf_api() {
   local data="${3:-}"
 
   if [ -n "$data" ]; then
-    curl -fsSL -X "$method" "$API$path" \
-      -H "Authorization: Bearer $CF_API_TOKEN" \
+    curl --config "$curl_config" -fsSL -X "$method" "$API$path" \
       -H "Content-Type: application/json" \
       --data "$data"
   else
-    curl -fsSL -X "$method" "$API$path" \
-      -H "Authorization: Bearer $CF_API_TOKEN" \
+    curl --config "$curl_config" -fsSL -X "$method" "$API$path" \
       -H "Content-Type: application/json"
   fi
 }
@@ -50,6 +52,10 @@ cf_api() {
 main() {
   load_env
   ensure_env
+  curl_config="$(gaylemon_curl_config_file)"
+  trap 'rm -f "$curl_config"' EXIT
+  gaylemon_curl_write_bearer "$curl_config" "$CF_API_TOKEN"
+  unset CF_API_TOKEN
 
   ip="$(current_public_ip)"
   log "Current public IP: $ip"
