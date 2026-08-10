@@ -117,6 +117,7 @@ const contextTooltip = document.querySelector("#context-tooltip");
 const siteFooter = document.querySelector(".site-footer");
 
 const refreshEveryMs = 20000;
+const eventProjectionStaleMs = 25 * 60 * 1000;
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let nextRefreshAt = Date.now() + refreshEveryMs;
 let refreshPending = false;
@@ -6716,22 +6717,22 @@ function renderEventSnapshot(payload) {
   }
 }
 
-function renderEventSyncStatus(value, dataUpdatedAt = eventsSnapshot?.updatedAt) {
+function renderEventSyncStatus(_value, dataUpdatedAt = eventsSnapshot?.updatedAt) {
   if (!eventSyncStatus) return;
-  const date = parseDate(value);
-  if (!date) {
+  const dataDate = parseDate(dataUpdatedAt);
+  if (!dataDate) {
     eventSyncStatus.textContent = "Synchronisation en attente";
+    eventSyncStatus.removeAttribute("datetime");
+    eventSyncStatus.dataset.state = "waiting";
     return;
   }
-  eventSyncStatus.textContent = `Synchro ${date.toLocaleTimeString("fr-CA", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
-  eventSyncStatus.dateTime = date.toISOString();
-  const dataDate = parseDate(dataUpdatedAt);
-  eventSyncStatus.dataset.tooltip = dataDate
-    ? `Derniers échos le ${formatDateTime(dataDate)}`
-    : "Flux des échos synchronisé";
+  const reportedStale = String(eventsSnapshot?.freshness || "").toLocaleLowerCase("fr-CA") === "stale";
+  const ageMs = Math.max(0, Date.now() - dataDate.getTime());
+  const delayed = reportedStale || ageMs > eventProjectionStaleMs;
+  eventSyncStatus.textContent = `${delayed ? "Échos retardés" : "Échos à jour"} · ${formatRelativeAge(dataDate)}`;
+  eventSyncStatus.dateTime = dataDate.toISOString();
+  eventSyncStatus.dataset.state = delayed ? "delayed" : "current";
+  eventSyncStatus.dataset.tooltip = `Derniers échos le ${formatDateTime(dataDate)}`;
 }
 
 function gameImage(path, alt, className = "game-icon") {

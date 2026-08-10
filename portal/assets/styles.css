@@ -11028,6 +11028,10 @@ body.terminal-view #event-sync-status {
   color: rgba(204, 237, 232, .72);
 }
 
+body.terminal-view #event-sync-status[data-state="delayed"] {
+  color: #ffd083;
+}
+
 body.terminal-view .event-stream {
   height: clamp(300px, calc(100svh - 430px), 680px);
   min-height: 0;

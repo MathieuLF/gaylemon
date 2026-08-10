@@ -263,9 +263,11 @@ Synchronisations utiles:
 .\scripts\sync-palworld-game-assets.ps1
 ```
 
-Les métriques rapides, les statistiques, les échos et les fiches joueurs ont des cadences distinctes sur Ubuntu. Les métriques sont publiées toutes les 30 secondes, les statistiques toutes les 5 minutes, les échos toutes les 30 minutes et le snapshot toutes les 2 heures. Les collecteurs auxiliaires sont limités en CPU, mémoire et priorité d'E/S afin de laisser Palworld prioritaire. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue conserve le lot précédent.
+Les métriques rapides, les statistiques, les échos et les fiches joueurs ont des cadences distinctes sur Ubuntu. Les métriques sont publiées toutes les 30 secondes, les statistiques toutes les 5 minutes, le collecteur d'échos passe toutes les 5 minutes et son checkpoint complet est produit au plus toutes les 15 minutes. Le snapshot de sauvegarde passe toutes les 30 minutes. En cas d'échec transitoire de décodage, il attend 150 secondes et fait une seule reprise bornée. Snapshot et collecteur d'échos partagent un verrou exclusif afin de ne jamais analyser lourdement les sauvegardes en même temps. Les collecteurs auxiliaires restent limités en CPU, mémoire et priorité d'E/S afin de laisser Palworld prioritaire. Snapshot, bases, diagnostic, fiches et pages joueurs sont préparés avec un `generationId` commun; l'index est remplacé en dernier et le navigateur refuse toute génération mélangée. Une publication interrompue conserve le lot précédent.
 
 Le Terminal et l'accueil interrogent directement l'API paginée PostgreSQL. Seul `public-events-recent.json` reste un repli borné. Aucun export complet ni fragment JSON d'événement n'est conservé dans PostgreSQL.
+
+L'API des échos expose aussi `freshness`, `sourceStatus` et `lagSeconds`. Une projection âgée de plus de 25 minutes est marquée `stale`: le Terminal affiche alors `Échos retardés` avec l'âge réel de la source, même si la requête HTTP elle-même vient de réussir.
 
 `public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
 
