@@ -85,6 +85,7 @@ type PublicEventPage struct {
 	Source        string                        `json:"source"`
 	Revision      string                        `json:"revision"`
 	UpdatedAt     time.Time                     `json:"updatedAt"`
+	ObservedAt    time.Time                     `json:"observedAt"`
 	Freshness     string                        `json:"freshness"`
 	SourceStatus  string                        `json:"sourceStatus"`
 	LagSeconds    int64                         `json:"lagSeconds"`

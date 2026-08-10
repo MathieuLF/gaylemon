@@ -86,6 +86,42 @@ func TestOpenSpoolRepairsAQueuedBodySequence(t *testing.T) {
 	}
 }
 
+func TestEnqueueObservationIsLightweightAndDeduplicated(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	ctx := context.Background()
+	observedAt := time.Date(2026, time.August, 9, 20, 8, 25, 0, time.UTC)
+	batch, queued, err := EnqueueObservation(ctx, spool, "test", "events-observation", "events-42:observed:1", observedAt, map[string]any{"status": "observed"})
+	if err != nil || !queued || batch.CapturedAt != observedAt {
+		t.Fatalf("observation inattendue: queued=%v batch=%#v err=%v", queued, batch, err)
+	}
+	pending, found, err := spool.Peek(ctx)
+	if err != nil || !found {
+		t.Fatalf("observation attendue: found=%v err=%v", found, err)
+	}
+	var stored model.Batch
+	if err := json.Unmarshal(pending.Body, &stored); err != nil {
+		t.Fatal(err)
+	}
+	var payload model.BatchPayload
+	if err := json.Unmarshal(stored.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if stored.Stream != "events-observation" || len(payload.Documents) != 0 || payload.Summary["status"] != "observed" {
+		t.Fatalf("contenu d'observation inattendu: batch=%#v payload=%#v", stored, payload)
+	}
+	if err := spool.Complete(ctx, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, queued, err = EnqueueObservation(ctx, spool, "test", "events-observation", "events-42:observed:1", observedAt, nil)
+	if err != nil || queued {
+		t.Fatalf("observation dupliquée: queued=%v err=%v", queued, err)
+	}
+}
+
 func TestEnqueueDirectoryRejectsPrivateJSON(t *testing.T) {
 	root := t.TempDir()
 	if err := osWriteFile(filepath.Join(root, "secret.json"), []byte(`{"secret":true}`)); err != nil {

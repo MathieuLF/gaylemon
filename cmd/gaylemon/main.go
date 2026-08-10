@@ -93,7 +93,20 @@ func collect(arguments []string, logger *slog.Logger) error {
 			return err
 		}
 		if duplicate {
-			logger.Info("projection déjà présente", "kind", *kind, "batches", 0)
+			observedAt, err := collector.PublicEventsObservedAt(publicConfig.EventsRecovery)
+			if err != nil {
+				return err
+			}
+			observationRevision := fmt.Sprintf("%s:observed:%s", revision, observedAt.UTC().Format(time.RFC3339Nano))
+			batch, queued, err := agent.EnqueueObservation(
+				context.Background(), spool, config.AgentID, "events-observation",
+				observationRevision, observedAt,
+				map[string]any{"kind": *kind, "revision": revision, "status": "observed"},
+			)
+			if err != nil {
+				return err
+			}
+			logger.Info("projection vérifiée", "kind", *kind, "queued", queued, "batch", batch.ID, "observedAt", observedAt)
 			return nil
 		}
 	}

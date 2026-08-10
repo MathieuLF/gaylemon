@@ -133,6 +133,28 @@ func EnqueueDocuments(ctx context.Context, spool *Spool, agentID, stream, revisi
 	return batches, nil
 }
 
+func EnqueueObservation(ctx context.Context, spool *Spool, agentID, stream, revision string, observedAt time.Time, summary map[string]any) (model.Batch, bool, error) {
+	if observedAt.IsZero() {
+		return model.Batch{}, false, errors.New("observation sans horodatage")
+	}
+	duplicate, err := spool.HasRevision(ctx, stream, revision)
+	if err != nil || duplicate {
+		return model.Batch{}, false, err
+	}
+	payload, err := json.Marshal(model.BatchPayload{Summary: summary})
+	if err != nil {
+		return model.Batch{}, false, err
+	}
+	batch := model.Batch{
+		ID: randomID(), AgentID: agentID, Stream: stream, SchemaVersion: 1,
+		SourceRevision: revision, CapturedAt: observedAt.UTC(), Payload: payload,
+	}
+	if err := spool.Enqueue(ctx, &batch); err != nil {
+		return model.Batch{}, false, err
+	}
+	return batch, true, nil
+}
+
 func documentChunks(documents []model.Document, maxBytes int) ([][]model.Document, error) {
 	var chunks [][]model.Document
 	var current []model.Document
