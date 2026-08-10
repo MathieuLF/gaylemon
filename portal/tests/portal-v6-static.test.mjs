@@ -719,8 +719,10 @@ test("le terminal affiche l'âge réel de la projection des échos", async () =>
 
   assert.match(app, /const eventProjectionStaleMs = 25 \* 60 \* 1000/);
   assert.match(renderer, /eventsSnapshot\?\.freshness/);
-  assert.match(renderer, /Échos retardés/);
-  assert.match(renderer, /Échos à jour/);
+  assert.match(renderer, /eventsSnapshot\?\.observedAt/);
+  assert.match(renderer, /Flux retardé/);
+  assert.match(renderer, /Vérifié/);
+  assert.match(renderer, /derniers échos/);
   assert.match(renderer, /formatRelativeAge\(dataDate\)/);
   assert.doesNotMatch(renderer, /Synchro \$\{date\.toLocaleTimeString/);
 });
@@ -729,7 +731,7 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260809\.2/);
-    assert.match(html, /app\.js\?v=20260809\.2/);
+    assert.match(html, /styles\.css\?v=20260809\.3/);
+    assert.match(html, /app\.js\?v=20260809\.3/);
   }
 });

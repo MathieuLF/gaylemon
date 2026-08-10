@@ -25,6 +25,7 @@ type PublicConfig struct {
 	UseSudo          bool
 	StatsSudo        bool
 	EventsPath       string
+	EventsRecovery   string
 	RecentEventsPath string
 	SnapshotPath     string
 	BasesPath        string
@@ -40,6 +41,7 @@ func PublicConfigFromEnv() PublicConfig {
 		UseSudo:          boolEnv("GAYLEMON_PALWORLD_API_SUDO", true),
 		StatsSudo:        boolEnv("GAYLEMON_STATS_SUDO", true),
 		EventsPath:       env("GAYLEMON_EVENTS_PATH", "/home/gaylemon/Gaylemon/runtime/public-events.json"),
+		EventsRecovery:   env("GAYLEMON_EVENTS_RECOVERY_PATH", "/home/gaylemon/Gaylemon/runtime/events/palworld-events-recovery.json"),
 		RecentEventsPath: env("GAYLEMON_RECENT_EVENTS_PATH", "/home/gaylemon/Gaylemon/runtime/public-events-recent.json"),
 		SnapshotPath:     env("GAYLEMON_SNAPSHOT_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json"),
 		BasesPath:        env("GAYLEMON_BASES_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-bases.json"),
@@ -79,6 +81,30 @@ func PublicEventsRevision(path string) (string, error) {
 		}
 	}
 	return "", errors.New("révision des échos publics introuvable")
+}
+
+func PublicEventsObservedAt(path string) (time.Time, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("lecture du rapport des échos: %w", err)
+	}
+	defer file.Close()
+	var report struct {
+		OK        bool   `json:"ok"`
+		Status    string `json:"status"`
+		CheckedAt string `json:"checkedAt"`
+	}
+	if err := json.NewDecoder(io.LimitReader(file, 1<<20)).Decode(&report); err != nil {
+		return time.Time{}, fmt.Errorf("rapport des échos invalide: %w", err)
+	}
+	if !report.OK || report.Status != "complete" {
+		return time.Time{}, errors.New("dernière collecte des échos incomplète")
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, report.CheckedAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("horodatage de collecte invalide: %w", err)
+	}
+	return observedAt, nil
 }
 
 type PublicResult struct {

@@ -267,7 +267,7 @@ Les métriques rapides, les statistiques, les échos et les fiches joueurs ont d
 
 Le Terminal et l'accueil interrogent directement l'API paginée PostgreSQL. Seul `public-events-recent.json` reste un repli borné. Aucun export complet ni fragment JSON d'événement n'est conservé dans PostgreSQL.
 
-L'API des échos expose aussi `freshness`, `sourceStatus` et `lagSeconds`. Une projection âgée de plus de 25 minutes est marquée `stale`: le Terminal affiche alors `Échos retardés` avec l'âge réel de la source, même si la requête HTTP elle-même vient de réussir.
+L'API des échos expose aussi `observedAt`, `freshness`, `sourceStatus` et `lagSeconds`. Quand une collecte réussit sans produire de nouvel écho, l'agent envoie seulement un accusé léger portant l'heure du contrôle; l'export complet n'est pas retransmis. Une collecte non vérifiée depuis plus de 25 minutes est marquée `stale`: le Terminal distingue l'heure du dernier contrôle de l'âge du dernier écho, même si la requête HTTP elle-même vient de réussir.
 
 `public-metrics.json` est la source de l'infobulle des joueurs connectés. Chaque joueur public peut y recevoir `onlineSinceAt`, dérivé de l'historique de sessions, pour afficher l'heure d'arrivée et la durée détectée en ligne.
 
