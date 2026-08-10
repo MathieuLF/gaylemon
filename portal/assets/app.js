@@ -6720,17 +6720,20 @@ function renderEventSnapshot(payload) {
 function renderEventSyncStatus(_value, dataUpdatedAt = eventsSnapshot?.updatedAt) {
   if (!eventSyncStatus) return;
   const dataDate = parseDate(dataUpdatedAt);
-  if (!dataDate) {
+  const observedDate = parseDate(eventsSnapshot?.observedAt || dataUpdatedAt);
+  if (!dataDate || !observedDate) {
     eventSyncStatus.textContent = "Synchronisation en attente";
     eventSyncStatus.removeAttribute("datetime");
     eventSyncStatus.dataset.state = "waiting";
     return;
   }
   const reportedStale = String(eventsSnapshot?.freshness || "").toLocaleLowerCase("fr-CA") === "stale";
-  const ageMs = Math.max(0, Date.now() - dataDate.getTime());
+  const ageMs = Math.max(0, Date.now() - observedDate.getTime());
   const delayed = reportedStale || ageMs > eventProjectionStaleMs;
-  eventSyncStatus.textContent = `${delayed ? "Échos retardés" : "Échos à jour"} · ${formatRelativeAge(dataDate)}`;
-  eventSyncStatus.dateTime = dataDate.toISOString();
+  eventSyncStatus.textContent = delayed
+    ? `Flux retardé · vérifié ${formatRelativeAge(observedDate)}`
+    : `Vérifié ${formatRelativeAge(observedDate)} · derniers échos ${formatRelativeAge(dataDate)}`;
+  eventSyncStatus.dateTime = observedDate.toISOString();
   eventSyncStatus.dataset.state = delayed ? "delayed" : "current";
   eventSyncStatus.dataset.tooltip = `Derniers échos le ${formatDateTime(dataDate)}`;
 }

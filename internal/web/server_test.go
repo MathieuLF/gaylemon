@@ -246,7 +246,8 @@ func TestPublicEventsAreServedFromPostgresProjection(t *testing.T) {
 	repository := &fakeRepository{eventPage: model.PublicEventPage{
 		OK: true, SchemaVersion: 1, Source: "postgresql", Revision: "events-42", Total: 1,
 		Freshness: "stale", SourceStatus: "available", LagSeconds: 1560,
-		Events: []json.RawMessage{json.RawMessage(`{"key":"evt-42","type":"craft","player":"MathieuLF"}`)},
+		ObservedAt: time.Date(2026, time.August, 9, 20, 0, 0, 0, time.UTC),
+		Events:     []json.RawMessage{json.RawMessage(`{"key":"evt-42","type":"craft","player":"MathieuLF"}`)},
 		Facets: map[string][]model.PublicEventFacet{
 			"types": []model.PublicEventFacet{{Value: "craft", Count: 1}},
 		},
@@ -266,7 +267,7 @@ func TestPublicEventsAreServedFromPostgresProjection(t *testing.T) {
 	if payload.Source != "postgresql" || payload.Offset != 24 || payload.Limit != 12 || len(payload.Events) != 1 {
 		t.Fatalf("page PostgreSQL inattendue: %#v", payload)
 	}
-	if payload.Freshness != "stale" || payload.SourceStatus != "available" || payload.LagSeconds != 1560 {
+	if payload.Freshness != "stale" || payload.SourceStatus != "available" || payload.LagSeconds != 1560 || payload.ObservedAt.IsZero() {
 		t.Fatalf("fraîcheur PostgreSQL inattendue: %#v", payload)
 	}
 }

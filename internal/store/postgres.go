@@ -348,16 +348,20 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 	var stateTotal int64
 	var facetsJSON []byte
 	var summaryJSON []byte
-	err := p.pool.QueryRow(ctx, `SELECT revision,source_updated_at,total_echoes,facets::text,summary::text
+	err := p.pool.QueryRow(ctx, `SELECT revision,source_updated_at,total_echoes,facets::text,summary::text,
+		GREATEST(source_updated_at,COALESCE((
+			SELECT max(captured_at) FROM gaylemon_ops.sync_runs
+			WHERE stream='events-observation' AND status='active'
+		),source_updated_at))
 		FROM gaylemon_public.event_state WHERE singleton=true`).
-		Scan(&page.Revision, &page.UpdatedAt, &stateTotal, &facetsJSON, &summaryJSON)
+		Scan(&page.Revision, &page.UpdatedAt, &stateTotal, &facetsJSON, &summaryJSON, &page.ObservedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.PublicEventPage{}, false, nil
 	}
 	if err != nil {
 		return model.PublicEventPage{}, false, err
 	}
-	page.Freshness, page.SourceStatus, page.LagSeconds = publicEventFreshness(page.UpdatedAt, time.Now())
+	page.Freshness, page.SourceStatus, page.LagSeconds = publicEventFreshness(page.ObservedAt, time.Now())
 	if err := json.Unmarshal(facetsJSON, &page.Facets); err != nil {
 		return model.PublicEventPage{}, false, err
 	}
