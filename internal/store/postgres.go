@@ -27,6 +27,23 @@ var (
 	ErrOAuthState   = errors.New("état OAuth invalide ou expiré")
 )
 
+const publicEventStaleAfter = 25 * time.Minute
+
+func publicEventFreshness(updatedAt, now time.Time) (string, string, int64) {
+	if updatedAt.IsZero() {
+		return "stale", "unknown", 0
+	}
+	lag := now.Sub(updatedAt)
+	if lag < 0 {
+		lag = 0
+	}
+	freshness := "current"
+	if lag > publicEventStaleAfter {
+		freshness = "stale"
+	}
+	return freshness, "available", int64(lag / time.Second)
+}
+
 type Postgres struct {
 	pool *pgxpool.Pool
 }
@@ -340,6 +357,7 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 	if err != nil {
 		return model.PublicEventPage{}, false, err
 	}
+	page.Freshness, page.SourceStatus, page.LagSeconds = publicEventFreshness(page.UpdatedAt, time.Now())
 	if err := json.Unmarshal(facetsJSON, &page.Facets); err != nil {
 		return model.PublicEventPage{}, false, err
 	}

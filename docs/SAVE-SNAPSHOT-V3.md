@@ -28,16 +28,17 @@ même snapshot public que l'index, les bases et les fiches joueurs.
 
 ## Exécution
 
-`palworld-save-snapshot.timer` vérifie les sauvegardes toutes les 30 secondes, avec `OnUnitInactiveSec` pour éviter les chevauchements si une génération prend plus longtemps.
+`palworld-save-snapshot.timer` vérifie les sauvegardes toutes les 30 minutes,
+avec `OnUnitInactiveSec` pour éviter qu'une nouvelle échéance soit ajoutée
+pendant une analyse. Un échec de décodage peut être transitoire lorsque
+Palworld termine une sauvegarde: le service attend alors 150 secondes et fait
+une seconde tentative, puis s'arrête en conservant la dernière génération
+valide si cette reprise échoue aussi.
 
-La synchronisation Windows vérifie les données joueurs, profils, Pals, bases et
-index publics toutes les 45 secondes. Au démarrage du microsite, l'audit de
-reprise compare aussi le snapshot public Ubuntu au snapshot local; si la copie
-locale est en retard, les fiches joueurs sont resynchronisées immédiatement.
-Le diagnostic technique visible dans le
-bloc `Données du monde` du microsite, lui, est conservé entre deux analyses
-lourdes et rafraîchi aux deux heures, sur les créneaux impairs `01:00`, `03:00`,
-..., `21:00`, `23:00`.
+Le snapshot et le collecteur d'événements partagent un verrou d'exploitation.
+Ils ne sollicitent donc jamais simultanément les sauvegardes et les projections
+lourdes. L'agent sortant publie ensuite les projections validées vers la VPS;
+aucune synchronisation entrante ni aucun redémarrage de Palworld n'est requis.
 
 La publication prépare et valide la génération entière dans un répertoire
 temporaire. Les artefacts sont remplacés avec reprise temporisée, les fiches et
@@ -58,7 +59,7 @@ Le service utilise:
 
 - priorité CPU basse;
 - I/O idle;
-- verrou exclusif;
+- verrou exclusif interne et verrou partagé entre collecteurs lourds;
 - limite mémoire;
 - écriture atomique.
 

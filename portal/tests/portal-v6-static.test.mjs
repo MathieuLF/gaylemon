@@ -710,11 +710,26 @@ test("la fraîcheur reste nominale sur les pages sans bloc de disponibilité", a
   assert.match(app, /if \(!uptimeSummary \|\| !uptimeBars\) return/);
 });
 
+test("le terminal affiche l'âge réel de la projection des échos", async () => {
+  const app = await portalFile("assets/app.js");
+  const renderer = app.slice(
+    app.indexOf("function renderEventSyncStatus"),
+    app.indexOf("function gameImage"),
+  );
+
+  assert.match(app, /const eventProjectionStaleMs = 25 \* 60 \* 1000/);
+  assert.match(renderer, /eventsSnapshot\?\.freshness/);
+  assert.match(renderer, /Échos retardés/);
+  assert.match(renderer, /Échos à jour/);
+  assert.match(renderer, /formatRelativeAge\(dataDate\)/);
+  assert.doesNotMatch(renderer, /Synchro \$\{date\.toLocaleTimeString/);
+});
+
 test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260808\.1/);
-    assert.match(html, /app\.js\?v=20260809\.1/);
+    assert.match(html, /styles\.css\?v=20260809\.2/);
+    assert.match(html, /app\.js\?v=20260809\.2/);
   }
 });

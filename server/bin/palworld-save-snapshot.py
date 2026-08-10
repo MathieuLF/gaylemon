@@ -2802,11 +2802,34 @@ def run(args):
                     "completedAt": completed_at,
                     "durationMs": round((time.monotonic() - started_monotonic) * 1000),
                     "status": "error",
-                    "error": str(exc)[:500],
+                    "error": compact_error(exc),
                 }
             )
             write_atomic(args.diagnostics, diagnostics)
             raise
+
+
+def compact_error(exc, limit=500):
+    message = " ".join(str(exc).split())
+    if len(message) <= limit:
+        return message
+    return f"{message[: max(0, limit - 1)]}…"
+
+
+def run_with_retries(args, sleep=time.sleep):
+    for attempt in range(1, args.attempts + 1):
+        try:
+            return run(args)
+        except Exception as exc:
+            if attempt >= args.attempts:
+                raise
+            print(
+                "Analyse de sauvegarde reportée "
+                f"après l'échec {attempt}/{args.attempts}: {compact_error(exc, 300)}. "
+                f"Nouvelle tentative dans {args.retry_delay} s.",
+                file=sys.stderr,
+            )
+            sleep(args.retry_delay)
 
 
 def parse_args():
@@ -2841,13 +2864,20 @@ def parse_args():
         default=DEFAULT_ROLLING_HISTORY_MINUTES,
     )
     parser.add_argument("--minimum-age", type=int, default=15)
+    parser.add_argument("--attempts", type=int, default=1)
+    parser.add_argument("--retry-delay", type=int, default=0)
     parser.add_argument("--no-archive", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.attempts < 1:
+        parser.error("--attempts doit être supérieur ou égal à 1")
+    if args.retry_delay < 0:
+        parser.error("--retry-delay doit être supérieur ou égal à 0")
+    return args
 
 
 if __name__ == "__main__":
     try:
-        run(parse_args())
+        run_with_retries(parse_args())
     except Exception as exc:  # Last valid public snapshot remains untouched.
-        print(f"Public save snapshot failed: {exc}", file=sys.stderr)
+        print(f"Public save snapshot failed: {compact_error(exc)}", file=sys.stderr)
         sys.exit(1)

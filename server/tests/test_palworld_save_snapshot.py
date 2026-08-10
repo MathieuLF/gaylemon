@@ -20,6 +20,35 @@ SPEC.loader.exec_module(snapshot)
 
 
 class SaveSnapshotContractTests(unittest.TestCase):
+    def test_retry_recovers_after_a_transient_decode_failure(self):
+        args = mock.Mock(attempts=2, retry_delay=150)
+        sleep = mock.Mock()
+        with mock.patch.object(snapshot, "run", side_effect=[ValueError("decode"), None]) as runner:
+            snapshot.run_with_retries(args, sleep=sleep)
+
+        self.assertEqual(runner.call_count, 2)
+        sleep.assert_called_once_with(150)
+
+    def test_retry_remains_bounded_and_preserves_the_last_failure(self):
+        args = mock.Mock(attempts=2, retry_delay=30)
+        sleep = mock.Mock()
+        with mock.patch.object(
+            snapshot,
+            "run",
+            side_effect=[ValueError("first"), RuntimeError("last")],
+        ) as runner:
+            with self.assertRaisesRegex(RuntimeError, "last"):
+                snapshot.run_with_retries(args, sleep=sleep)
+
+        self.assertEqual(runner.call_count, 2)
+        sleep.assert_called_once_with(30)
+
+    def test_large_decode_errors_are_compacted_for_the_journal(self):
+        message = snapshot.compact_error(ValueError("x" * 1000), limit=80)
+
+        self.assertEqual(len(message), 80)
+        self.assertTrue(message.endswith("…"))
+
     def test_scalar_handles_nested_unreal_values(self):
         self.assertEqual(snapshot.scalar({"value": {"value": 7}}), 7)
         self.assertEqual(snapshot.scalar({"value": {"type": "None", "value": 3}}), 3)

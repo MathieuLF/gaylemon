@@ -40,7 +40,7 @@ func OpenSpool(path string) (*Spool, error) {
 	statements := []string{
 		`PRAGMA journal_mode=WAL`,
 		`PRAGMA synchronous=FULL`,
-		`PRAGMA busy_timeout=5000`,
+		`PRAGMA busy_timeout=15000`,
 		`PRAGMA wal_autocheckpoint=64`,
 		`PRAGMA journal_size_limit=8388608`,
 		`CREATE TABLE IF NOT EXISTS stream_sequences (stream TEXT PRIMARY KEY, sequence INTEGER NOT NULL)`,
@@ -113,6 +113,10 @@ func (s *Spool) Enqueue(ctx context.Context, batch *model.Batch) error {
 	if batch == nil || batch.ID == "" || batch.Stream == "" {
 		return errors.New("lot incomplet")
 	}
+	body, err := json.Marshal(batch)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -125,10 +129,6 @@ func (s *Spool) Enqueue(ctx context.Context, batch *model.Batch) error {
 		if err := tx.QueryRowContext(ctx, `UPDATE stream_sequences SET sequence = sequence + 1 WHERE stream = ? RETURNING sequence`, batch.Stream).Scan(&batch.Sequence); err != nil {
 			return err
 		}
-	}
-	body, err := json.Marshal(batch)
-	if err != nil {
-		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO batches(id, stream, sequence, source_revision, body, created_at) VALUES(?, ?, ?, ?, ?, ?)`, batch.ID, batch.Stream, batch.Sequence, batch.SourceRevision, body, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return err
