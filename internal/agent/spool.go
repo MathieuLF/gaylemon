@@ -89,7 +89,60 @@ func OpenSpool(path string) (*Spool, error) {
 		db.Close()
 		return nil, fmt.Errorf("indexation de la file: %w", err)
 	}
+	if err := repairQueuedBatchSequences(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("réparation des séquences en file: %w", err)
+	}
 	return &Spool{db: db}, nil
+}
+
+func repairQueuedBatchSequences(db *sql.DB) error {
+	type repair struct {
+		id       string
+		sequence int64
+		body     []byte
+	}
+	rows, err := db.Query(`SELECT id, sequence, body FROM batches ORDER BY created_at, sequence`)
+	if err != nil {
+		return err
+	}
+	var repairs []repair
+	for rows.Next() {
+		var id string
+		var sequence int64
+		var body []byte
+		if err := rows.Scan(&id, &sequence, &body); err != nil {
+			rows.Close()
+			return err
+		}
+		var batch model.Batch
+		if err := json.Unmarshal(body, &batch); err != nil {
+			rows.Close()
+			return fmt.Errorf("lot %s illisible: %w", id, err)
+		}
+		if batch.Sequence == sequence {
+			continue
+		}
+		batch.Sequence = sequence
+		repairedBody, err := json.Marshal(batch)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("lot %s non réparable: %w", id, err)
+		}
+		repairs = append(repairs, repair{id: id, sequence: sequence, body: repairedBody})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, repair := range repairs {
+		if _, err := db.Exec(`UPDATE batches SET body = ? WHERE id = ? AND sequence = ?`, repair.body, repair.id, repair.sequence); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Spool) CommandResult(ctx context.Context, commandID string) (model.CommandAck, bool, error) {
@@ -113,27 +166,28 @@ func (s *Spool) Enqueue(ctx context.Context, batch *model.Batch) error {
 	if batch == nil || batch.ID == "" || batch.Stream == "" {
 		return errors.New("lot incomplet")
 	}
-	body, err := json.Marshal(batch)
-	if err != nil {
-		return err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	if batch.Sequence <= 0 {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO stream_sequences(stream, sequence) VALUES(?, 0) ON CONFLICT(stream) DO NOTHING`, batch.Stream); err != nil {
 			return err
 		}
 		if err := tx.QueryRowContext(ctx, `UPDATE stream_sequences SET sequence = sequence + 1 WHERE stream = ? RETURNING sequence`, batch.Stream).Scan(&batch.Sequence); err != nil {
 			return err
 		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO batches(id, stream, sequence, source_revision, body, created_at) VALUES(?, ?, ?, ?, ?, ?)`, batch.ID, batch.Stream, batch.Sequence, batch.SourceRevision, body, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	body, err := json.Marshal(batch)
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	_, err = s.db.ExecContext(ctx, `INSERT INTO batches(id, stream, sequence, source_revision, body, created_at) VALUES(?, ?, ?, ?, ?, ?)`, batch.ID, batch.Stream, batch.Sequence, batch.SourceRevision, body, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
 }
 
 func (s *Spool) HasRevision(ctx context.Context, stream, revision string) (bool, error) {

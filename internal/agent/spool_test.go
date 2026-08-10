@@ -30,6 +30,10 @@ func TestSpoolKeepsOrderAndFailures(t *testing.T) {
 	if pending.ID != "first" || pending.Sequence != 1 || !json.Valid(pending.Body) {
 		t.Fatalf("premier lot inattendu: %#v", pending)
 	}
+	var stored model.Batch
+	if err := json.Unmarshal(pending.Body, &stored); err != nil || stored.Sequence != pending.Sequence {
+		t.Fatalf("séquence sérialisée inattendue: sequence=%d err=%v", stored.Sequence, err)
+	}
 	if err := spool.Fail(ctx, pending.ID, context.DeadlineExceeded); err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +47,42 @@ func TestSpoolKeepsOrderAndFailures(t *testing.T) {
 	pending, found, err = spool.Peek(ctx)
 	if err != nil || !found || pending.ID != "second" || pending.Sequence != 2 {
 		t.Fatalf("second lot inattendu: %#v found=%v err=%v", pending, found, err)
+	}
+}
+
+func TestOpenSpoolRepairsAQueuedBodySequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spool.db")
+	spool, err := OpenSpool(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := model.Batch{
+		ID: "repair", AgentID: "test", Stream: "metrics", SchemaVersion: 1,
+		Sequence: 0, CapturedAt: time.Now(), Payload: json.RawMessage(`{}`),
+	}
+	body, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spool.db.Exec(`INSERT INTO batches(id, stream, sequence, source_revision, body, created_at) VALUES(?, ?, ?, '', ?, ?)`, batch.ID, batch.Stream, 42, body, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	spool, err = OpenSpool(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	pending, found, err := spool.Peek(context.Background())
+	if err != nil || !found {
+		t.Fatalf("lot réparé attendu: found=%v err=%v", found, err)
+	}
+	var repaired model.Batch
+	if err := json.Unmarshal(pending.Body, &repaired); err != nil || repaired.Sequence != 42 {
+		t.Fatalf("lot non réparé: sequence=%d err=%v", repaired.Sequence, err)
 	}
 }
 
