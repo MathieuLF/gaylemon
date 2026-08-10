@@ -3320,9 +3320,19 @@ function renderHomeLatestEchoes(payload) {
     ? recent.map((event, index) => renderEventLineHtml(event, index)).join("")
     : '<li class="event-stream__empty">Aucun écho récent pour le moment.</li>';
   if (homeEchoesStatus) {
-    homeEchoesStatus.textContent = recent.length
-      ? `${recent.length} écho${recent.length > 1 ? "s" : ""} · mis à jour ${formatRelativeAge(payload?.sourceUpdatedAt || payload?.updatedAt || payload?.generatedAt)}`
-      : "Les prochains échos apparaîtront ici.";
+    const observedDate = parseDate(payload?.observedAt || payload?.updatedAt || payload?.generatedAt);
+    const latestEchoDate = parseDate(recent[0]?.occurredAt || payload?.sourceUpdatedAt || payload?.updatedAt);
+    const reportedStale = String(payload?.freshness || "").toLocaleLowerCase("fr-CA") === "stale";
+    const delayed = reportedStale || !observedDate || Date.now() - observedDate.getTime() > eventProjectionStaleMs;
+    if (!recent.length) {
+      homeEchoesStatus.textContent = observedDate && !delayed
+        ? `Flux vérifié ${formatRelativeAge(observedDate)} · aucun écho récent`
+        : "Les prochains échos apparaîtront ici.";
+    } else if (delayed) {
+      homeEchoesStatus.textContent = `${recent.length} écho${recent.length > 1 ? "s" : ""} · flux retardé${observedDate ? ` · dernier contrôle ${formatRelativeAge(observedDate)}` : ""}`;
+    } else {
+      homeEchoesStatus.textContent = `${recent.length} écho${recent.length > 1 ? "s" : ""} · flux vérifié ${formatRelativeAge(observedDate)} · dernier écho ${formatRelativeAge(latestEchoDate)}`;
+    }
   }
 }
 
@@ -6721,7 +6731,8 @@ function renderEventSyncStatus(_value, dataUpdatedAt = eventsSnapshot?.updatedAt
   if (!eventSyncStatus) return;
   const dataDate = parseDate(dataUpdatedAt);
   const observedDate = parseDate(eventsSnapshot?.observedAt || dataUpdatedAt);
-  if (!dataDate || !observedDate) {
+  const latestEchoDate = parseDate(eventsSnapshot?.summary?.lastAt || eventsSnapshot?.events?.[0]?.occurredAt || dataUpdatedAt);
+  if (!dataDate || !observedDate || !latestEchoDate) {
     eventSyncStatus.textContent = "Synchronisation en attente";
     eventSyncStatus.removeAttribute("datetime");
     eventSyncStatus.dataset.state = "waiting";
@@ -6731,11 +6742,11 @@ function renderEventSyncStatus(_value, dataUpdatedAt = eventsSnapshot?.updatedAt
   const ageMs = Math.max(0, Date.now() - observedDate.getTime());
   const delayed = reportedStale || ageMs > eventProjectionStaleMs;
   eventSyncStatus.textContent = delayed
-    ? `Flux retardé · vérifié ${formatRelativeAge(observedDate)}`
-    : `Vérifié ${formatRelativeAge(observedDate)} · derniers échos ${formatRelativeAge(dataDate)}`;
+    ? `Flux retardé · dernier contrôle ${formatRelativeAge(observedDate)}`
+    : `Flux vérifié ${formatRelativeAge(observedDate)} · dernier écho ${formatRelativeAge(latestEchoDate)}`;
   eventSyncStatus.dateTime = observedDate.toISOString();
   eventSyncStatus.dataset.state = delayed ? "delayed" : "current";
-  eventSyncStatus.dataset.tooltip = `Derniers échos le ${formatDateTime(dataDate)}`;
+  eventSyncStatus.dataset.tooltip = `Dernier écho le ${formatDateTime(latestEchoDate)} · projection le ${formatDateTime(dataDate)}`;
 }
 
 function gameImage(path, alt, className = "game-icon") {
