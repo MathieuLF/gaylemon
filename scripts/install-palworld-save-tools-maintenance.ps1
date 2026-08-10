@@ -32,7 +32,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Synchronise et teste le fork PalworldSaveTools sans redémarrer Palworld." `
+    -Description "Produit le rapport PalworldSaveTools sans synchronisation ni activation automatique." `
     -Force | Out-Null
 
 Write-Host "Tâche interne installée: $TaskName"

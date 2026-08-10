@@ -6059,17 +6059,25 @@ function renderDailyBrief(summary) {
   const palLine = palSignals
     ? `${dailyPlural(palSignals, "Pal repéré", "Pals repérés")}${topPal ? ` · ${topPal.name} ressort le plus` : " dans les captures et collections"}`
     : "Aucun Pal nommé ne ressort dans les captures ou collections.";
+  const leaderLine = leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement.";
+  const workshopSummary = workshopLine
+    ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}`
+    : "Les ateliers sont restés plutôt calmes.";
+  const progressionLine = summary.totals.levelUps || factTotal
+    ? `${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "moment spécial", "moments spéciaux")}`
+    : "Pas de grande poussée de progression visible.";
+  const highlightLine = topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler.";
   return `
     <div class="daily-brief__lead">
       <strong>${escapeHtml(dailyDisplayDate(summary.dateKey))}</strong>
-      <span>${lead}</span>
+      <span>${escapeHtml(lead)}</span>
     </div>
     <ul class="daily-brief__list">
-      <li><b>Joueur qui ressort</b><span>${leader ? `${leader.name}: ${dailyPlayerReasons(leader)}` : "Personne ne se démarque nettement."}</span></li>
-      <li><b>Ateliers et bases</b><span>${workshopLine ? `${workshopLine}${workshopDetail ? ` · ${workshopDetail}` : ""}` : "Les ateliers sont restés plutôt calmes."}</span></li>
-      <li><b>Pals</b><span>${palLine}</span></li>
-      <li><b>Progression</b><span>${summary.totals.levelUps || factTotal ? `${dailyPlural(summary.totals.levelUps, "niveau gagné", "niveaux gagnés")} · ${dailyPlural(factTotal, "moment spécial", "moments spéciaux")}` : "Pas de grande poussée de progression visible."}</span></li>
-      <li><b>Moment fort</b><span>${topHighlight ? `${topHighlight.player}: ${topHighlight.headline}` : "Rien d'inhabituel à signaler."}</span></li>
+      <li><b>Joueur qui ressort</b><span>${escapeHtml(leaderLine)}</span></li>
+      <li><b>Ateliers et bases</b><span>${escapeHtml(workshopSummary)}</span></li>
+      <li><b>Pals</b><span>${escapeHtml(palLine)}</span></li>
+      <li><b>Progression</b><span>${escapeHtml(progressionLine)}</span></li>
+      <li><b>Moment fort</b><span>${escapeHtml(highlightLine)}</span></li>
     </ul>
     <div class="daily-type-strip">
       ${[topCraft, topProduction, topPal].filter(Boolean).map((entry) => `<span style="--type-color:${escapeHtml(entry.type === "production" ? "#ef7164" : ["capture", "collection", "pal"].includes(entry.type) ? "#40c875" : "#a06ad7")}"><b>${escapeHtml(entry.name)}</b>${escapeHtml(dailyAggregateQuantityLabel(entry))}</span>`).join("")}

@@ -64,14 +64,7 @@ try {
     foreach ($line in @($report.Output + $report.ErrorOutput)) { Write-MaintenanceLog ([string]$line) }
     if ($report.ExitCode -ne 0) { throw "Le rapport PalworldSaveTools a retourné le code $($report.ExitCode)." }
 
-    $result = Invoke-MaintenanceScript -ScriptName "check-palworld-save-tools.ps1" -Arguments @("-SyncFork", "-UpdateRemote")
-    foreach ($line in @($result.Output + $result.ErrorOutput)) { Write-MaintenanceLog ([string]$line) }
-    if ($result.ExitCode -ne 0) { throw "Le script de maintenance a retourné le code $($result.ExitCode)." }
-
-    $snapshot = Invoke-MaintenanceScript -ScriptName "sync-palworld-save-snapshot.ps1"
-    foreach ($line in @($snapshot.Output + $snapshot.ErrorOutput)) { Write-MaintenanceLog ([string]$line) }
-    if ($snapshot.ExitCode -ne 0) { throw "La synchronisation du snapshot a retourné le code $($snapshot.ExitCode)." }
-    Write-MaintenanceLog "Maintenance terminée avec succès."
+    Write-MaintenanceLog "Rapport terminé. Aucune révision n'a été synchronisée, exécutée ou activée automatiquement."
 }
 catch {
     Write-MaintenanceLog "ÉCHEC: $($_.Exception.Message)"

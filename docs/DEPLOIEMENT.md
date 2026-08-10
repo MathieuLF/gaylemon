@@ -65,13 +65,15 @@ L'installation:
 9. ne redémarre aucun service par défaut;
 10. relance l'audit.
 
-Quand le wrapper privilégié est installé, la phase root peut aussi passer par:
+Quand le wrapper privilégié est installé, la phase root demande toujours une session interactive et une empreinte de manifeste:
 
 ```bash
-sudo -n /usr/local/sbin/gaylemon-deploy-install /tmp/gaylemon-staging/AAAAMMJJ-HHMMSS
+sudo /usr/local/sbin/gaylemon-deploy-install \
+  /tmp/gaylemon-staging/AAAAMMJJ-HHMMSS \
+  --manifest-sha256 EMPREINTE_SHA256
 ```
 
-Ce wrapper est borné aux zones de stage Gaylémon et ne demande aucun redémarrage d'unité. Il sert aux installations non interactives contrôlées après une mise en scène validée.
+Ce wrapper est borné aux zones de stage Gaylémon et appelle seulement le moteur root-owned sous `/usr/local/libexec/gaylemon`. Le manifeste et chaque source sont revérifiés dans une copie root privée avant installation.
 
 Pour redémarrer un auxiliaire touché:
 
@@ -96,12 +98,11 @@ Cette option doit rester réservée à une fenêtre annoncée.
 
 Tout nouveau fichier sous `server/bin`, `server/systemd`, `server/sysctl` ou `server/sudoers` doit être ajouté au manifeste.
 
-Les fichiers privilégiés d'installation non interactive sont aussi suivis:
+Les fichiers privilégiés d'installation sont aussi suivis:
 
 - `server/sbin/gaylemon-deploy-install` -> `/usr/local/sbin/gaylemon-deploy-install`;
-- `server/sudoers/gaylemon-deploy` -> `/etc/sudoers.d/gaylemon-deploy`;
+- `server/deploy/gaylemon_deploy.py` -> `/usr/local/libexec/gaylemon/gaylemon-deploy`;
 - `server/sudoers/palworld-api` -> `/etc/sudoers.d/palworld-api`;
-- `server/sudoers/palworld-console` -> `/etc/sudoers.d/palworld-console`;
 - `server/sudoers/palworld-stats` -> `/etc/sudoers.d/palworld-stats`.
 
 Les scripts qui lisent ou utilisent le mot de passe admin Palworld doivent rester limités au groupe `steam`, ou être appelés par une règle sudoers strictement allowlistée. Ne pas les déployer en `0755`.

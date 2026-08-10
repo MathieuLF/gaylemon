@@ -1,6 +1,7 @@
 param(
     [switch]$SyncFork,
-    [switch]$UpdateRemote
+    [switch]$UpdateRemote,
+    [string]$ApprovedCommit = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,7 @@ $upstream = $config.SaveToolsUpstream
 $fork = $config.SaveToolsFork
 $lockPath = Join-Path $ProjectRoot "dependencies\palworld-save-tools.lock.json"
 $lock = Get-Content -LiteralPath $lockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$archiveSha256 = [string]$lock.archiveSha256
 
 function Get-HeadSha([string]$Repository) {
     $sha = (& gh api "repos/$Repository/commits/main" --jq .sha | Out-String).Trim()
@@ -29,16 +31,19 @@ function Get-ActiveRemoteSha {
     return $sha
 }
 
-function Update-DependencyLock([string]$Commit) {
-    $lock.commit = $Commit
-    if ($lock.PSObject.Properties.Name -contains "validatedAt") {
-        $lock.validatedAt = (Get-Date).ToString("o")
+if ($UpdateRemote) {
+    if ($SyncFork) {
+        throw "La synchronisation du fork et l'activation Ubuntu doivent rester deux étapes séparées."
     }
-    else {
-        $lock | Add-Member -NotePropertyName "validatedAt" -NotePropertyValue (Get-Date).ToString("o")
+    if ($ApprovedCommit -notmatch '^[a-f0-9]{40}$') {
+        throw "-ApprovedCommit doit contenir le commit SHA-1 complet préalablement revu."
     }
-    $json = $lock | ConvertTo-Json -Depth 8
-    [IO.File]::WriteAllText($lockPath, $json.TrimEnd() + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    if ($ApprovedCommit -cne [string]$lock.commit) {
+        throw "Le commit approuvé doit correspondre au verrou versionné dependencies/palworld-save-tools.lock.json."
+    }
+    if ($archiveSha256 -notmatch '^[a-f0-9]{64}$') {
+        throw "Le verrou versionné doit contenir l'empreinte SHA-256 de l'archive approuvée."
+    }
 }
 
 $upstreamSha = Get-HeadSha -Repository $upstream
@@ -76,42 +81,29 @@ else {
 }
 
 if ($UpdateRemote) {
-    & ssh.exe $config.SshAlias "$($config.RemoteProjectRoot)/server/bin/palworld-save-tools-update.sh"
+    if ($forkSha -cne $ApprovedCommit) {
+        throw "Le fork ne pointe pas sur le commit approuvé $ApprovedCommit."
+    }
+    & ssh.exe $config.SshAlias "$($config.RemoteProjectRoot)/server/bin/palworld-save-tools-update.sh '$ApprovedCommit' '$archiveSha256'"
     if ($LASTEXITCODE -ne 0) {
         throw "La validation ou la mise à jour du parseur Ubuntu a échoué. La version active n'a pas été remplacée."
     }
 
     $activeAfter = Get-ActiveRemoteSha
-    if (-not $activeAfter -or $activeAfter -ne $forkSha) {
-        throw "Le parseur Ubuntu ne correspond pas a la revision du fork apres validation."
+    if (-not $activeAfter -or $activeAfter -cne $ApprovedCommit) {
+        throw "Le parseur Ubuntu ne correspond pas à la révision approuvée après validation."
     }
-    Update-DependencyLock -Commit $activeAfter
-    Write-Host "Verrou Gaylemon actualise: $($activeAfter.Substring(0, 12))"
+    Write-Host "Révision Gaylémon approuvée et activée: $($activeAfter.Substring(0, 12))"
 }
 else {
     $activeAfter = $activeBefore
-}
-
-$localClone = Join-Path $PSScriptRoot "..\vendor\PalworldSaveTools"
-if ((Test-Path -LiteralPath (Join-Path $localClone ".git")) -and ($SyncFork -or $UpdateRemote)) {
-    $pullOutput = & git -C $localClone pull --ff-only origin main 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "La copie locale de PalworldSaveTools n'a pas pu être mise à jour en fast-forward."
-    }
-    $pullText = ($pullOutput | Out-String).Trim()
-    if ($pullText -match "Already up to date") {
-        Write-Host "Copie locale PalworldSaveTools déjà à jour."
-    }
-    else {
-        Write-Host "Copie locale PalworldSaveTools synchronisée en fast-forward."
-    }
-    & (Join-Path $PSScriptRoot "sync-palworld-game-assets.ps1") | Out-Null
 }
 
 [pscustomobject]@{
     Upstream = $upstreamSha
     Fork = $forkSha
     Locked = [string]$lock.commit
+    LockedArchiveSha256 = $archiveSha256
     ActiveBefore = $activeBefore
     ActiveAfter = $activeAfter
     UpdateAvailableForUbuntu = [bool]($activeBefore -and $activeBefore -ne $forkSha)

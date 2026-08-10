@@ -13,6 +13,9 @@ RETENTION_DAYS="${PALWORLD_BACKUP_RETENTION_DAYS:-14}"
 SAVE_WAIT_SECONDS="${PALWORLD_BACKUP_SAVE_WAIT_SECONDS:-5}"
 REQUIRE_WORLD_SAVE="${PALWORLD_BACKUP_REQUIRE_WORLD_SAVE:-0}"
 MAINTENANCE_LOCK="$PALWORLD_DIR/.maintenance.lock"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=/srv/storage/steam/bin/gaylemon-curl-config.sh
+. "$SCRIPT_DIR/gaylemon-curl-config.sh"
 
 log() {
   printf '[%s] %s\n' "$(date -Is)" "$*"
@@ -48,6 +51,8 @@ read_admin_password() {
 
 request_world_save() {
   local admin_password=""
+  local curl_config=""
+  local save_status=0
 
   if ! command -v curl >/dev/null 2>&1; then
     if [ "$REQUIRE_WORLD_SAVE" = "1" ]; then
@@ -69,11 +74,19 @@ request_world_save() {
   fi
 
   log "Requesting Palworld REST /save before archiving."
-  if curl -fsS --max-time 20 -X POST \
-    -u "admin:${admin_password}" \
+  curl_config="$(gaylemon_curl_config_file)"
+  if ! gaylemon_curl_write_basic "$curl_config" admin "$admin_password"; then
+    rm -f "$curl_config"
+    log "AdminPassword contains unsupported characters."
+    return 1
+  fi
+  unset admin_password
+  curl --config "$curl_config" -fsS --max-time 20 -X POST \
     -H "Content-Type: application/json" \
     --data '{}' \
-    "${REST_BASE_URL}/save" >/dev/null; then
+    "${REST_BASE_URL}/save" >/dev/null || save_status=$?
+  rm -f "$curl_config"
+  if [ "$save_status" -eq 0 ]; then
     log "REST /save accepted; waiting ${SAVE_WAIT_SECONDS}s before archiving."
     sleep "$SAVE_WAIT_SECONDS"
   else

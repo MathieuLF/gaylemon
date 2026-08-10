@@ -99,10 +99,11 @@ $adminHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\sb
 $announceHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\bin\palworld-announce.sh") -Raw -Encoding UTF8
 Write-Result (
     $adminHelperSource.Contains('/usr/bin/systemctl start --no-block palworld-backup.service') -and
-    $adminHelperSource.Contains('/usr/bin/systemctl start --no-block palworld-update.service') -and
     $adminHelperSource.Contains('/usr/bin/systemd-run --quiet --collect --on-active=5s --unit=gaylemon-agent-restart') -and
+    -not $adminHelperSource.Contains('palworld-update.service') -and
+    -not $adminHelperSource.Contains('palworld.service') -and
     $announceHelperSource.Contains('Annonce transmise au chat du jeu.')
-) "Commandes Ops avec retour non bloquant" "Sauvegarde, mise à jour, agent et annonce doivent rendre un résultat exploitable."
+) "Commandes Ops avec retour non bloquant" "Les actions sûres rendent un résultat exploitable; Palworld reste hors du canal non interactif."
 
 $licenseText = Get-Content -LiteralPath (Join-Path $ProjectRoot "LICENSE") -Raw -Encoding UTF8
 Write-Result (
@@ -387,7 +388,7 @@ try {
     $deploymentManifest = Get-GaylemonDeploymentManifest -ProjectRoot $ProjectRoot -Config $deploymentConfig
     $mappedSources = @($deploymentManifest.Entries | ForEach-Object Source)
     $deployableSources = @(
-        "bin", "build", "sbin", "systemd", "sysctl", "sudoers" | ForEach-Object {
+        "bin", "build", "deploy", "sbin", "systemd", "sysctl", "sudoers" | ForEach-Object {
             $directory = Join-Path $ProjectRoot "server\$_"
             Get-ChildItem -LiteralPath $directory -File | ForEach-Object {
                 $_.FullName.Substring($ProjectRoot.Length + 1).Replace("\", "/")

@@ -13,6 +13,16 @@
       "restartPolicy": "none"
     },
     {
+      "source": "server/bin/gaylemon-curl-config.sh",
+      "destination": "{{REMOTE_STEAM_ROOT}}/bin/gaylemon-curl-config.sh",
+      "owner": "root",
+      "group": "steam",
+      "mode": "0750",
+      "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
       "source": "server/bin/palworld-announce.sh",
       "destination": "{{REMOTE_STEAM_ROOT}}/bin/palworld-announce.sh",
       "owner": "root",
@@ -179,6 +189,16 @@
       "group": "root",
       "mode": "0755",
       "validation": "bash",
+      "restartUnit": null,
+      "restartPolicy": "none"
+    },
+    {
+      "source": "server/deploy/gaylemon_deploy.py",
+      "destination": "/usr/local/libexec/gaylemon/gaylemon-deploy",
+      "owner": "root",
+      "group": "root",
+      "mode": "0755",
+      "validation": "python",
       "restartUnit": null,
       "restartPolicy": "none"
     },
@@ -443,28 +463,8 @@
       "restartPolicy": "none"
     },
     {
-      "source": "server/sudoers/palworld-console",
-      "destination": "/etc/sudoers.d/palworld-console",
-      "owner": "root",
-      "group": "root",
-      "mode": "0440",
-      "validation": "sudoers",
-      "restartUnit": null,
-      "restartPolicy": "none"
-    },
-    {
       "source": "server/sudoers/palworld-stats",
       "destination": "/etc/sudoers.d/palworld-stats",
-      "owner": "root",
-      "group": "root",
-      "mode": "0440",
-      "validation": "sudoers",
-      "restartUnit": null,
-      "restartPolicy": "none"
-    },
-    {
-      "source": "server/sudoers/gaylemon-deploy",
-      "destination": "/etc/sudoers.d/gaylemon-deploy",
       "owner": "root",
       "group": "root",
       "mode": "0440",
@@ -517,6 +517,18 @@
       "kind": "secret",
       "unit": null,
       "reason": "ancienne sonde externe retiree"
+    },
+    {
+      "path": "/etc/sudoers.d/palworld-console",
+      "kind": "file",
+      "unit": null,
+      "reason": "ancien acces direct aux operations perturbatrices retire"
+    },
+    {
+      "path": "/etc/sudoers.d/gaylemon-deploy",
+      "kind": "file",
+      "unit": null,
+      "reason": "deploiement NOPASSWD remplace par une elevation interactive"
     }
   ]
 }

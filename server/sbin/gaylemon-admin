@@ -6,7 +6,7 @@ shift || true
 
 allowed_unit() {
   case "$1" in
-    gaylemon-agent.service|gaylemon-collect-metrics.service|gaylemon-collect-stats.service|gaylemon-publish-events.service|gaylemon-publish-snapshot.service|palworld-stats.service|palworld-events.service|palworld-save-snapshot.service|palworld.service) return 0 ;;
+    gaylemon-agent.service|gaylemon-collect-metrics.service|gaylemon-collect-stats.service|gaylemon-publish-events.service|gaylemon-publish-snapshot.service|palworld-stats.service|palworld-events.service|palworld-save-snapshot.service|palworld-welcome.service) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -95,23 +95,12 @@ case "$action" in
     /usr/bin/systemctl start --no-block palworld-backup.service
     echo "Sauvegarde demarree."
     ;;
-  release)
-    [[ "${1:-}" == "update" ]] || { echo "Operation de version refusee." >&2; exit 2; }
-    if /usr/bin/systemctl is-active --quiet palworld-update.service; then
-      echo "Mise a jour deja en cours."
-      exit 0
-    fi
-    /usr/bin/systemctl start --no-block palworld-update.service
-    echo "Mise a jour demarree."
+  performance)
+    exec /usr/bin/systemctl start palworld-performance.service
     ;;
   restart)
     unit="${1:-}"
-    confirmation="${2:-false}"
     allowed_unit "$unit" || { echo "Unite refusee." >&2; exit 2; }
-    if [[ "$unit" == "palworld.service" && "$confirmation" != "true" ]]; then
-      echo "Redemarrage Palworld non confirme." >&2
-      exit 2
-    fi
     if [[ "$unit" == "gaylemon-agent.service" ]]; then
       /usr/bin/systemd-run --quiet --collect --on-active=5s --unit=gaylemon-agent-restart /usr/bin/systemctl restart gaylemon-agent.service
       echo "Redemarrage de l'agent programme."

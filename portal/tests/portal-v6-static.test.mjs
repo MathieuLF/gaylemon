@@ -474,6 +474,44 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(styles, /daily-tangible-card\.is-active/);
 });
 
+test("le résumé quotidien neutralise tous les champs persistants", async () => {
+  const app = await portalFile("assets/app.js");
+  const escape = extractFunction(app, "escapeHtml");
+  const render = extractFunction(app, "renderDailyBrief");
+  const hostile = '<img src=x onerror="globalThis.dailyXss=1">';
+  const globals = {
+    escapeHtml: escape,
+    dailyPlayerHasActivity: () => true,
+    dailyTopAggregates: (entries) => entries,
+    dailyConsolidatedPalFinds: (summary) => summary.palFinds,
+    dailyPalSignalTotal: () => 1,
+    dailyFactTotal: () => 0,
+    dailyPlural: (value, singular, plural) => `${value} ${value === 1 ? singular : plural}`,
+    dailyRepresentedEventCount: () => 1,
+    dailyDisplayDate: (value) => value,
+    dailyPlayerReasons: () => hostile,
+    dailyAggregateQuantityLabel: () => hostile,
+  };
+  Object.assign(globalThis, globals);
+  try {
+    const html = render({
+      dateKey: "2026-08-10",
+      presenceAvailable: true,
+      totals: { eventCount: 1, presenceSessions: 1, activePlayers: 1, craft: 1, production: 1, capture: 0, collection: 0, levelUps: 0 },
+      players: [{ name: hostile, score: 1, metrics: {} }],
+      highlights: [{ player: hostile, headline: hostile }],
+      craftedItems: [{ name: hostile, quantity: 1 }],
+      producedItems: [{ name: hostile, quantity: 1 }],
+      palFinds: [{ name: hostile, quantity: 1 }],
+    });
+    assert.doesNotMatch(html, /<img\b/i);
+    assert.match(html, /&lt;img/);
+  } finally {
+    Object.keys(globals).forEach((name) => delete globalThis[name]);
+    delete globalThis.dailyXss;
+  }
+});
+
 test("l'accueil affiche les cinq échos réellement les plus récents", async () => {
   const app = await portalFile("assets/app.js");
   const renderer = app.slice(
@@ -747,6 +785,6 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260809\.4/);
-    assert.match(html, /app\.js\?v=20260809\.4/);
+    assert.match(html, /app\.js\?v=20260810\.1/);
   }
 });

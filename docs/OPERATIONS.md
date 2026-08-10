@@ -48,13 +48,15 @@ La voie normale passe par la console, menu `Maintenance Ubuntu guidée`.
 
 Aucun redémarrage de `palworld.service` n'est implicite. Un redémarrage doit être demandé et confirmé à part.
 
-Quand une zone de stage existe déjà, l'installation root non interactive peut être appliquée par le wrapper borné:
+Quand une zone de stage existe déjà, le wrapper borné exige une élévation interactive et l'empreinte exacte du manifeste résolu:
 
 ```bash
-sudo -n /usr/local/sbin/gaylemon-deploy-install /tmp/gaylemon-staging/AAAAMMJJ-HHMMSS
+sudo /usr/local/sbin/gaylemon-deploy-install \
+  /tmp/gaylemon-staging/AAAAMMJJ-HHMMSS \
+  --manifest-sha256 EMPREINTE_SHA256
 ```
 
-Ce wrapper ne donne pas un accès `sudo` général. Il valide le chemin de stage et appelle seulement le script de déploiement Gaylémon.
+Ce wrapper ne donne pas un accès `sudo` général. Il valide le chemin de stage et appelle seulement le moteur root-owned installé hors de `/tmp`.
 
 Reçus et backups de livraison:
 
@@ -68,8 +70,7 @@ Bilan complet:
 .\scripts\auditer-maintenance.ps1
 ```
 
-PalworldSaveTools est vérifié directement sur Ubuntu contre `dependencies/palworld-save-tools.lock.json`.
-La mise à jour n'est activée qu'après les tests upstream et un snapshot réel validé; `palworld.service` n'est pas redémarré.
+La tâche planifiée PalworldSaveTools produit seulement un rapport. Une activation Ubuntu demande manuellement le SHA complet déjà inscrit dans `dependencies/palworld-save-tools.lock.json`; l'archive est comparée à l'empreinte SHA-256 versionnée avant extraction, installation ou exécution, puis la métadonnée Git est liée au même commit. `palworld.service` n'est pas redémarré.
 
 ## Services Ubuntu
 

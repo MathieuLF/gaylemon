@@ -100,6 +100,10 @@ Copy-Item -LiteralPath $serverRoot -Destination $packageServerRoot -Recurse
 New-GaylemonResolvedDeploymentManifest `
     -Manifest $manifest `
     -OutputPath (Join-Path $packageServerRoot "deployment-manifest.resolved.json")
+$resolvedManifestPath = Join-Path $packageServerRoot "deployment-manifest.resolved.json"
+$manifestSha256 = (Get-FileHash -LiteralPath $resolvedManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$engineSha256 = (Get-FileHash -LiteralPath (Join-Path $packageServerRoot "deploy\gaylemon_deploy.py") -Algorithm SHA256).Hash.ToLowerInvariant()
+$wrapperSha256 = (Get-FileHash -LiteralPath (Join-Path $packageServerRoot "sbin\gaylemon-deploy-install") -Algorithm SHA256).Hash.ToLowerInvariant()
 
 & $tar.Source -czf $archivePath --exclude="__pycache__" --exclude="*.pyc" -C $packageRoot server
 if ($LASTEXITCODE -ne 0) { throw "Création de l'archive impossible." }
@@ -107,7 +111,7 @@ if ($LASTEXITCODE -ne 0) { throw "Création de l'archive impossible." }
 & $scp.Source $archivePath "${Cible}:$remoteArchive"
 if ($LASTEXITCODE -ne 0) { throw "Téléversement de l'archive impossible." }
 
-$remoteCommand = "set -eu; mkdir -p '$remoteStage'; tar -xzf '$remoteArchive' -C '$remoteStage'; rm -f '$remoteArchive'; /usr/bin/python3 '$remoteStage/server/deploy/gaylemon_deploy.py' plan --stage '$remoteStage' --json"
+$remoteCommand = "set -eu; mkdir -p '$remoteStage'; tar -xzf '$remoteArchive' -C '$remoteStage'; rm -f '$remoteArchive'; printf '%s  %s\n' '$manifestSha256' '$remoteStage/server/deployment-manifest.resolved.json' | sha256sum -c - >/dev/null; /usr/bin/python3 '$remoteStage/server/deploy/gaylemon_deploy.py' plan --stage '$remoteStage' --manifest-sha256 '$manifestSha256' --json"
 $planJson = (& $ssh.Source -o BatchMode=yes $Cible $remoteCommand 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 0) { throw "Validation de la zone distante impossible: $planJson" }
 
@@ -154,21 +158,51 @@ if ($RestartUnit -contains "palworld.service") {
     }
 }
 
-$installArguments = @(
-    "install",
-    "--stage", "'$remoteStage'",
-    "--confirm", "'$stamp'"
-)
+Write-Host ""
+Write-Host "Installation distante avec le moteur root-owned. Une élévation sudo interactive est requise." -ForegroundColor Cyan
+$wrapperArguments = "'$remoteStage' --manifest-sha256 '$manifestSha256'"
 foreach ($unit in $RestartUnit) {
-    $installArguments += @("--restart-unit", "'$unit'")
+    $wrapperArguments += " --restart-unit '$unit'"
 }
 if ($AllowPalworldRestart) {
-    $installArguments += "--allow-game-restart"
+    $wrapperArguments += " --allow-game-restart"
 }
-
-Write-Host ""
-Write-Host "Installation distante. Une seule élévation sudo peut être demandée." -ForegroundColor Cyan
-$installCommand = "sudo /usr/bin/python3 '$remoteStage/server/deploy/gaylemon_deploy.py' $($installArguments -join ' ')"
+$rootInstallLines = @(
+    'set -euo pipefail',
+    "stage='$remoteStage'",
+    'fixed_engine=/usr/local/libexec/gaylemon/gaylemon-deploy',
+    'fixed_wrapper=/usr/local/sbin/gaylemon-deploy-install',
+    'secure_tools=true',
+    '[[ -f "$fixed_engine" && ! -L "$fixed_engine" && "$(/usr/bin/stat -c ''%U:%G:%a'' "$fixed_engine")" == root:root:755 ]] || secure_tools=false',
+    '[[ -f "$fixed_wrapper" && ! -L "$fixed_wrapper" && "$(/usr/bin/stat -c ''%U:%G:%a'' "$fixed_wrapper")" == root:root:755 ]] || secure_tools=false',
+    '/usr/bin/grep -Fq ''/usr/local/libexec/gaylemon/gaylemon-deploy'' "$fixed_wrapper" 2>/dev/null || secure_tools=false',
+    '/usr/bin/grep -Fq -- ''--manifest-sha256'' "$fixed_wrapper" 2>/dev/null || secure_tools=false',
+    'if [[ "$secure_tools" != true ]]; then',
+    '  bootstrap_tmp="$(/usr/bin/mktemp -d /var/tmp/gaylemon-bootstrap.XXXXXX)"',
+    '  /usr/bin/chmod 0700 "$bootstrap_tmp"',
+    '  trap ''/usr/bin/rm -rf -- "$bootstrap_tmp"'' EXIT',
+    '  /usr/bin/install -m 0600 "$stage/server/deploy/gaylemon_deploy.py" "$bootstrap_tmp/gaylemon-deploy"',
+    '  /usr/bin/install -m 0600 "$stage/server/sbin/gaylemon-deploy-install" "$bootstrap_tmp/gaylemon-deploy-install"',
+    ("  printf '%s  %s\n' '$engineSha256' ""`$bootstrap_tmp/gaylemon-deploy"" | /usr/bin/sha256sum -c - >/dev/null"),
+    ("  printf '%s  %s\n' '$wrapperSha256' ""`$bootstrap_tmp/gaylemon-deploy-install"" | /usr/bin/sha256sum -c - >/dev/null"),
+    '  bootstrap_backup="/var/backups/gaylemon-deploy/bootstrap-$(/usr/bin/date -u +%Y%m%dT%H%M%SZ)"',
+    '  /usr/bin/install -d -o root -g root -m 0700 "$bootstrap_backup"',
+    '  for current in "$fixed_engine" "$fixed_wrapper"; do',
+    '    if [[ -e "$current" || -L "$current" ]]; then',
+    '      [[ -f "$current" || -L "$current" ]] || { echo "Chemin de bootstrap non ordinaire: $current" >&2; exit 1; }',
+    '      /usr/bin/cp -a --no-dereference "$current" "$bootstrap_backup/"',
+    '    fi',
+    '  done',
+    '  /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec/gaylemon',
+    '  /usr/bin/rm -f -- "$fixed_engine" "$fixed_wrapper"',
+    '  /usr/bin/install -o root -g root -m 0755 "$bootstrap_tmp/gaylemon-deploy" "$fixed_engine"',
+    '  /usr/bin/install -o root -g root -m 0755 "$bootstrap_tmp/gaylemon-deploy-install" "$fixed_wrapper"',
+    'fi',
+    "exec /usr/local/sbin/gaylemon-deploy-install $wrapperArguments"
+)
+$rootInstallScript = $rootInstallLines -join "`n"
+$encodedRootInstall = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rootInstallScript))
+$installCommand = "printf '%s' '$encodedRootInstall' | /usr/bin/base64 -d | sudo /usr/bin/bash -s --"
 & $ssh.Source -tt $Cible $installCommand
 if ($LASTEXITCODE -ne 0) {
     throw "Installation distante en échec. Les services non demandés n'ont pas été redémarrés."

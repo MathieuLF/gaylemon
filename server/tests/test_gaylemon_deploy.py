@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +16,53 @@ SPEC.loader.exec_module(DEPLOY)
 
 
 class GaylemonDeployTests(unittest.TestCase):
+    def write_test_stage(self, root: Path) -> tuple[Path, Path]:
+        stage = root / "20260810-180000"
+        source = stage / "server" / "bin" / "test.sh"
+        source.parent.mkdir(parents=True)
+        source.write_text("#!/usr/bin/env bash\ntrue\n", encoding="utf-8")
+        manifest = {
+            "version": 1,
+            "backupRoot": "/var/backups/gaylemon-deploy",
+            "entries": [
+                {
+                    "source": "server/bin/test.sh",
+                    "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "destination": "/srv/storage/steam/bin/test.sh",
+                    "owner": "root",
+                    "group": "root",
+                    "mode": "0755",
+                    "validation": "bash",
+                    "restartUnit": None,
+                    "restartPolicy": "none",
+                }
+            ],
+            "removals": [],
+        }
+        manifest_path = stage / "server" / "deployment-manifest.resolved.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return stage, manifest_path
+
+    def test_manifest_and_each_source_are_digest_bound(self):
+        identity = type("Identity", (), {"pw_uid": 0, "gr_gid": 0})()
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            stage, manifest_path = self.write_test_stage(Path(temporary_directory))
+            manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            DEPLOY.verify_manifest_digest(stage, manifest_digest)
+            fake_pwd = mock.Mock(getpwnam=mock.Mock(return_value=identity))
+            fake_grp = mock.Mock(getgrnam=mock.Mock(return_value=identity))
+            with mock.patch.object(DEPLOY, "pwd", fake_pwd), mock.patch.object(DEPLOY, "grp", fake_grp):
+                _, entries, _ = DEPLOY.load_manifest(stage)
+                self.assertEqual(len(entries), 1)
+
+                (stage / "server" / "bin" / "test.sh").write_text("tampered\n", encoding="utf-8")
+                with self.assertRaises(DEPLOY.DeployError):
+                    DEPLOY.load_manifest(stage)
+
+            manifest_path.write_text("{}", encoding="utf-8")
+            with self.assertRaises(DEPLOY.DeployError):
+                DEPLOY.verify_manifest_digest(stage, manifest_digest)
+
     def test_event_timer_keeps_a_five_minute_start_cadence(self):
         timer = (MODULE_PATH.parents[1] / "systemd" / "palworld-events.timer").read_text(
             encoding="utf-8"
@@ -29,19 +78,22 @@ class GaylemonDeployTests(unittest.TestCase):
             "/srv/storage/steam/bin/palworld-update.sh",
             "/home/gaylemon/Gaylemon/server/bin/palworld-save-snapshot.py",
             "/usr/local/sbin/gaylemon-deploy-install",
+            "/usr/local/libexec/gaylemon/gaylemon-deploy",
             "/usr/local/bin/gaylemon",
             "/etc/systemd/system/palworld-stats.timer",
             "/etc/systemd/system/gaylemon-agent.service",
             "/etc/systemd/system/cloudflare-update-dns.service",
             "/etc/sysctl.d/99-palworld-performance.conf",
-            "/etc/sudoers.d/palworld-console",
-            "/etc/sudoers.d/gaylemon-deploy",
+            "/etc/sudoers.d/palworld-api",
+            "/etc/sudoers.d/gaylemon-admin",
         )
         rejected = (
             "/etc/passwd",
             "/etc/systemd/system/other.service",
             "/srv/storage/steam/bin/../servers/palworld/game",
             "/home/gaylemon/.ssh/authorized_keys",
+            "/etc/sudoers.d/palworld-console",
+            "/etc/sudoers.d/gaylemon-deploy",
         )
 
         for path in accepted:

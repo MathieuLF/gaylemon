@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -31,15 +32,17 @@ ALLOWED_DESTINATIONS = (
     re.compile(r"^/srv/storage/steam/bin/[A-Za-z0-9_.-]+$"),
     re.compile(r"^/home/[A-Za-z0-9_.-]+/Gaylemon/server/bin/[A-Za-z0-9_.-]+$"),
     re.compile(r"^/usr/local/sbin/gaylemon-[A-Za-z0-9_.-]+$"),
+    re.compile(r"^/usr/local/libexec/gaylemon/gaylemon-deploy$"),
     re.compile(r"^/usr/local/bin/gaylemon$"),
     re.compile(r"^/etc/systemd/system/(?:palworld|gaylemon|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
     re.compile(r"^/etc/sysctl\.d/[A-Za-z0-9_.-]*palworld[A-Za-z0-9_.-]*\.conf$"),
-    re.compile(r"^/etc/sudoers\.d/(?:palworld|gaylemon)[A-Za-z0-9_.-]*$"),
+    re.compile(r"^/etc/sudoers\.d/(?:palworld-api|palworld-stats|gaylemon-admin|gaylemon-public-collector)$"),
 )
 ALLOWED_REMOVALS = (
     re.compile(r"^/srv/storage/steam/bin/[A-Za-z0-9_.-]+$"),
     re.compile(r"^/etc/systemd/system/(?:palworld|cloudflare-update-dns)[A-Za-z0-9_.@-]*\.(?:service|timer)$"),
     re.compile(r"^/etc/palworld/[A-Za-z0-9_.-]+\.env$"),
+    re.compile(r"^/etc/sudoers\.d/(?:palworld-console|gaylemon-deploy)$"),
 )
 VALIDATORS = {"bash", "binary", "python", "sudoers", "sysctl", "systemd"}
 RESTART_POLICIES = {"none", "recommended", "game"}
@@ -67,6 +70,31 @@ def is_allowed_removal(path: str) -> bool:
     return any(pattern.fullmatch(path) for pattern in ALLOWED_REMOVALS)
 
 
+def verify_manifest_digest(stage: Path, expected_digest: str) -> None:
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+        raise DeployError("A lowercase SHA-256 manifest digest is required")
+    manifest_path = stage / "server" / "deployment-manifest.resolved.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise DeployError(f"Resolved manifest missing or invalid: {manifest_path}")
+    if sha256(manifest_path) != expected_digest:
+        raise DeployError("Resolved deployment manifest digest mismatch")
+
+
+def snapshot_stage(stage: Path, expected_digest: str) -> Path:
+    """Copy caller-owned staging into a root-private snapshot before validation."""
+    verify_manifest_digest(stage, expected_digest)
+    snapshot_root = Path(tempfile.mkdtemp(prefix="gaylemon-deploy-", dir="/var/tmp"))
+    os.chmod(snapshot_root, 0o700)
+    snapshot = snapshot_root / stage.name
+    try:
+        shutil.copytree(stage, snapshot, symlinks=True)
+        verify_manifest_digest(snapshot, expected_digest)
+        return snapshot
+    except Exception:
+        shutil.rmtree(snapshot_root, ignore_errors=True)
+        raise
+
+
 def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     if pwd is None or grp is None:
         raise DeployError("Deployment manifests can only be resolved on a Unix host")
@@ -88,11 +116,14 @@ def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]], li
     seen_destinations: set[str] = set()
     for raw in manifest.get("entries", []):
         source_name = raw.get("source")
+        expected_sha256 = raw.get("sha256")
         destination_name = raw.get("destination")
         if not isinstance(source_name, str) or not source_name.startswith("server/"):
             raise DeployError(f"Invalid source in manifest: {source_name!r}")
         if not isinstance(destination_name, str) or not is_allowed_destination(destination_name):
             raise DeployError(f"Destination is outside the allowlist: {destination_name!r}")
+        if not isinstance(expected_sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_sha256):
+            raise DeployError(f"Invalid SHA-256 for {source_name}: {expected_sha256!r}")
         if source_name in seen_sources or destination_name in seen_destinations:
             raise DeployError(f"Duplicate deployment entry: {source_name} -> {destination_name}")
 
@@ -103,6 +134,8 @@ def load_manifest(stage: Path) -> tuple[dict[str, Any], list[dict[str, Any]], li
             raise DeployError(f"Source escapes staging directory: {source_name}") from exc
         if not source.is_file() or source.is_symlink():
             raise DeployError(f"Source is not a regular file: {source_name}")
+        if sha256(source) != expected_sha256:
+            raise DeployError(f"Source digest mismatch: {source_name}")
 
         mode_name = raw.get("mode")
         if not isinstance(mode_name, str) or not re.fullmatch(r"0[0-7]{3}", mode_name):
@@ -290,6 +323,9 @@ def validate_sysctl(path: Path) -> None:
 def inspect_entry(entry: dict[str, Any]) -> dict[str, Any]:
     source = entry["sourcePath"]
     destination = entry["destinationPath"]
+    for ancestor in reversed(destination.parents):
+        if ancestor != Path("/") and ancestor.is_symlink():
+            raise DeployError(f"Destination ancestor is a symlink: {ancestor}")
     source_hash = sha256(source)
     result: dict[str, Any] = {
         "source": entry["source"],
@@ -371,20 +407,59 @@ def print_plan(plan: list[dict[str, Any]], removal_plan: list[dict[str, Any]], a
         print(f"{marker:10} {item['path']}")
 
 
-def copy_atomically(source: Path, destination: Path, mode: int, uid: int, gid: int) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
-    temporary = Path(temporary_name)
+def open_destination_parent(destination: Path) -> int:
+    if not destination.is_absolute():
+        raise DeployError(f"Destination is not absolute: {destination}")
+    flags = os.O_RDONLY | os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open("/", flags)
     try:
+        for component in destination.parent.parts[1:]:
+            try:
+                os.mkdir(component, mode=0o755, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            next_descriptor = os.open(component, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def copy_atomically(source: Path, destination: Path, mode: int, uid: int, gid: int) -> None:
+    parent_descriptor = open_destination_parent(destination)
+    temporary_name = f".{destination.name}.{secrets.token_hex(12)}"
+    temporary_created = False
+    try:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(temporary_name, flags, 0o600, dir_fd=parent_descriptor)
+        temporary_created = True
         with os.fdopen(descriptor, "wb") as output, source.open("rb") as input_handle:
             shutil.copyfileobj(input_handle, output)
             output.flush()
             os.fsync(output.fileno())
-        os.chmod(temporary, mode)
-        os.chown(temporary, uid, gid)
-        os.replace(temporary, destination)
+        os.chmod(temporary_name, mode, dir_fd=parent_descriptor, follow_symlinks=False)
+        os.chown(temporary_name, uid, gid, dir_fd=parent_descriptor, follow_symlinks=False)
+        os.replace(
+            temporary_name,
+            destination.name,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+        temporary_created = False
+        os.fsync(parent_descriptor)
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary_created:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except FileNotFoundError:
+                pass
+        os.close(parent_descriptor)
 
 
 def restore_partial(records: list[dict[str, Any]]) -> None:
@@ -583,6 +658,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage", required=True, type=Path)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--confirm", default="")
+    parser.add_argument("--manifest-sha256", default="")
     parser.add_argument("--restart-unit", action="append", default=[])
     parser.add_argument("--allow-game-restart", action="store_true")
     return parser.parse_args()
@@ -591,12 +667,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     stage = args.stage.resolve(strict=True)
-    manifest, entries, removals = load_manifest(stage)
-    validate_sources(entries)
     if args.action == "plan":
+        if args.manifest_sha256:
+            verify_manifest_digest(stage, args.manifest_sha256)
+        manifest, entries, removals = load_manifest(stage)
+        validate_sources(entries)
         print_plan(build_plan(entries), build_removal_plan(removals), args.json)
         return 0
 
+    if not args.manifest_sha256:
+        raise DeployError("Installation requires --manifest-sha256")
     if fcntl is None:
         raise DeployError("Installation locking is unavailable on this platform")
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -605,15 +685,21 @@ def main() -> int:
             fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise DeployError("Another Gaylemon deployment is already running") from exc
-        apply_deployment(
-            manifest,
-            entries,
-            removals,
-            stage,
-            args.confirm,
-            args.restart_unit,
-            args.allow_game_restart,
-        )
+        snapshot = snapshot_stage(stage, args.manifest_sha256)
+        try:
+            manifest, entries, removals = load_manifest(snapshot)
+            validate_sources(entries)
+            apply_deployment(
+                manifest,
+                entries,
+                removals,
+                snapshot,
+                args.confirm,
+                args.restart_unit,
+                args.allow_game_restart,
+            )
+        finally:
+            shutil.rmtree(snapshot.parent, ignore_errors=True)
     return 0
 
 

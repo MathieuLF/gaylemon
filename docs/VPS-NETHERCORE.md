@@ -129,9 +129,9 @@ La file SQLite locale utilise WAL et `synchronous=FULL`. Une coupure de la VPS o
 
 ## Commandes distantes
 
-Le tableau n'envoie jamais de shell arbitraire. L'agent accepte seulement les opérations prévues par `gaylemon-admin` : statut, journaux, pause/reprise, lancement d'un flux, horaire prédéfini, annonce, sauvegarde, mise à jour et redémarrage d'une unité autorisée.
+Le tableau n'envoie jamais de shell arbitraire. L'agent accepte seulement les opérations prévues par `gaylemon-admin` : statut, journaux, pause/reprise, lancement d'un flux, horaire prédéfini, annonce, sauvegarde et redémarrage d'une unité auxiliaire autorisée.
 
-Un redémarrage de `palworld.service` exige à la fois une connexion OAuth de moins de cinq minutes, la confirmation `GAYLÉMON` et le drapeau explicite propre au jeu. Le déploiement du microsite ou de l'agent ne redémarre jamais Palworld.
+La mise à jour du jeu et le redémarrage de `palworld.service` ne sont pas exposés dans Ops ni acceptés par l'agent. Ils restent accessibles depuis la console Windows, avec une élévation `sudo` interactive et une confirmation locale distincte. Le déploiement du microsite ou de l'agent ne redémarre jamais Palworld.
 
 ## Retour arrière
 
