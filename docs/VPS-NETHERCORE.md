@@ -49,6 +49,20 @@ sudo gaylemon-deploy-production
 
 Elle synchronise d'abord le Vault, valide le Compose sans afficher les valeurs, redéploie uniquement le service web et vérifie le port local `18081`. Elle ne touche ni à PostgreSQL, ni à l'agent Ubuntu, ni à Palworld.
 
+Le déploiement lit la version produit dans `VERSION` et injecte aussi le commit Git complet dans le binaire. Après livraison, la route publique suivante permet de vérifier exactement ce qui répond:
+
+```bash
+curl --fail --silent https://gaylemon.nethercore.dev/version
+```
+
+Depuis le poste Windows, la comparaison complète se fait avec:
+
+```powershell
+.\scripts\comparer-version.ps1 -Strict
+```
+
+La commande réussit seulement si la version et le commit du dépôt local propre, de `origin/main` et de la VPS sont identiques. La route `/version` ne contient aucun secret et répond avec `Cache-Control: no-store`.
+
 Dans DockPanel, rattacher une base `gaylemon` au site `gaylemon.nethercore.dev` avec PostgreSQL 16. Son conteneur `dockpanel-db-gaylemon` reste sur le réseau privé `dockpanel-db`, est publié seulement sur `127.0.0.1:5435` et rejoint aussi le réseau Docker `gaylemon_private`. DockPanel génère le mot de passe du rôle propriétaire `gaylemon`; l'application le reçoit uniquement dans son URL de connexion :
 
 ```text

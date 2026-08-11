@@ -115,6 +115,7 @@ const backToTop = document.querySelector("#back-to-top");
 const footerBackToTop = document.querySelector("#footer-back-to-top");
 const contextTooltip = document.querySelector("#context-tooltip");
 const siteFooter = document.querySelector(".site-footer");
+const micrositeVersion = document.querySelector("[data-microsite-version]");
 
 const refreshEveryMs = 20000;
 const eventProjectionStaleMs = 25 * 60 * 1000;
@@ -267,6 +268,37 @@ dataUpdateAnnouncer.setAttribute("aria-live", "polite");
 dataUpdateAnnouncer.setAttribute("aria-atomic", "true");
 document.body.appendChild(dataUpdateAnnouncer);
 nextUpdate?.setAttribute("aria-live", "off");
+
+async function loadMicrositeVersion() {
+  if (!micrositeVersion) return;
+  try {
+    const response = await fetch("/version", {
+      cache: "no-store",
+      headers: { Accept: "application/json, text/plain" },
+    });
+    if (!response.ok) throw new Error("version-unavailable");
+    const contentType = response.headers.get("Content-Type") || "";
+    const release = contentType.includes("application/json")
+      ? await response.json()
+      : { version: (await response.text()).trim(), commit: "unknown", channel: "local" };
+    const releaseVersion = String(release.version || "").trim();
+    if (!releaseVersion || releaseVersion.length > 64) throw new Error("version-invalid");
+    const releaseCommit = String(release.commit || "").trim();
+    const releaseChannel = String(release.channel || "").trim();
+    const parts = [`v${releaseVersion}`];
+    if (/^[0-9a-f]{7,64}$/i.test(releaseCommit)) parts.push(releaseCommit.slice(0, 7));
+    if (releaseChannel && releaseChannel.length <= 32) parts.push(releaseChannel);
+    micrositeVersion.textContent = parts.join(" · ");
+    micrositeVersion.title = releaseCommit && releaseCommit !== "unknown"
+      ? `Version ${releaseVersion}, commit ${releaseCommit}, canal ${releaseChannel || "non précisé"}`
+      : `Version ${releaseVersion}, canal ${releaseChannel || "non précisé"}`;
+  } catch {
+    micrositeVersion.textContent = "Version indisponible";
+    micrositeVersion.removeAttribute("title");
+  }
+}
+
+void loadMicrositeVersion();
 
 const sourceFreshnessLabels = {
   metrics: "Serveur",
