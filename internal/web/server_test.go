@@ -151,6 +151,40 @@ func TestLegacyHostsRedirectPreservesPathAndQuery(t *testing.T) {
 	}
 }
 
+func TestVersionRoutePublishesOnlyReleaseMetadataWithoutCaching(t *testing.T) {
+	repository := &fakeRepository{}
+	server := NewServerWithRelease(config.Web{}, repository, slog.New(slog.NewTextHandler(testWriter{t}, nil)), ReleaseInfo{
+		Product: "gaylemon-microsite",
+		Version: "2026.08.10.1",
+		Commit:  "a815220a66fa16ffc9f55f71b6782993988c2fd9",
+		Channel: "production",
+	})
+	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.nethercore.dev/version", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("route de version indisponible: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("métadonnées de version mises en cache: %q", recorder.Header().Get("Cache-Control"))
+	}
+	var release ReleaseInfo
+	if err := json.Unmarshal(recorder.Body.Bytes(), &release); err != nil {
+		t.Fatal(err)
+	}
+	if release.Product != "gaylemon-microsite" || release.Version != "2026.08.10.1" || release.Commit != "a815220a66fa16ffc9f55f71b6782993988c2fd9" || release.Channel != "production" {
+		t.Fatalf("métadonnées de version inattendues: %+v", release)
+	}
+}
+
+func TestDefaultReleaseMetadataRemainsExplicit(t *testing.T) {
+	server := NewServer(config.Web{}, &fakeRepository{}, nil)
+	if server.release.Version != "dev" || server.release.Commit != "unknown" || server.release.Channel != "development" {
+		t.Fatalf("valeurs de développement ambiguës: %+v", server.release)
+	}
+}
+
 func TestOpsCookiesSupportOAuthRedirect(t *testing.T) {
 	server := &Server{config: config.Web{CookieSecure: true}}
 	expires := time.Now().UTC().Add(12 * time.Hour)
@@ -239,6 +273,8 @@ func TestOpsPageWaitsForTheAgentResult(t *testing.T) {
 		"shortResult(x.message)",
 		"Reconnectez-vous à l’exploitation",
 		"Message dans le chat du jeu",
+		"loadRelease()",
+		"document.querySelector('#release').textContent",
 	}
 	for _, fragment := range required {
 		if !strings.Contains(opsHTML, fragment) {
@@ -249,6 +285,33 @@ func TestOpsPageWaitsForTheAgentResult(t *testing.T) {
 		if strings.Contains(opsHTML, forbidden) {
 			t.Fatalf("commande perturbatrice encore exposée dans Ops: %s", forbidden)
 		}
+	}
+}
+
+func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
+	for _, page := range []string{"index.html", "resume.html", "terminal.html", "classements.html", "carte.html", "github.html"} {
+		source, err := os.ReadFile(filepath.Join("..", "..", "portal", page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(source)
+		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "app.js?v=20260810.2") || !strings.Contains(text, "styles.css?v=20260810.2") {
+			t.Fatalf("version publique absente ou assets incohérents dans %s", page)
+		}
+	}
+
+	appSource, err := os.ReadFile(filepath.Join("..", "..", "portal", "assets", "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := string(appSource)
+	for _, required := range []string{"fetch(\"/version\"", "micrositeVersion.textContent", "cache: \"no-store\""} {
+		if !strings.Contains(app, required) {
+			t.Fatalf("chargement sûr de la version incomplet: %s", required)
+		}
+	}
+	if strings.Contains(app, "micrositeVersion.innerHTML") {
+		t.Fatal("les métadonnées de version ne doivent jamais être injectées en HTML")
 	}
 }
 

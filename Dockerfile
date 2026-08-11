@@ -23,8 +23,13 @@ RUN go mod download
 COPY cmd ./cmd
 COPY db ./db
 COPY internal ./internal
-ARG GAYLEMON_VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=mod -trimpath -ldflags="-s -w -X main.version=${GAYLEMON_VERSION}" -o /out/gaylemon-web ./cmd/gaylemon-web
+COPY VERSION ./VERSION
+ARG GAYLEMON_VERSION
+ARG GAYLEMON_COMMIT=unknown
+ARG GAYLEMON_CHANNEL=development
+RUN release="${GAYLEMON_VERSION:-$(tr -d '\r\n' < VERSION)}" \
+    && test -n "${release}" \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=mod -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.channel=${GAYLEMON_CHANNEL}" -o /out/gaylemon-web ./cmd/gaylemon-web
 
 FROM alpine:3.22
 RUN apk add --no-cache ca-certificates tzdata \

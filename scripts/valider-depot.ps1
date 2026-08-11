@@ -71,6 +71,7 @@ $requiredFiles = @(
     "README.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
+    "VERSION",
     "compose.yaml",
     "dependencies\palworld-save-tools.lock.json",
     "portal\public-events-channel.json",
@@ -79,6 +80,7 @@ $requiredFiles = @(
     "scripts\lib\Gaylemon.Deployment.ps1",
     "scripts\lib\Gaylemon.Config.ps1",
     "scripts\set-public-events-channel.ps1",
+    "scripts\comparer-version.ps1",
     "server\palworld.env.example"
 )
 foreach ($relativePath in $requiredFiles) {
@@ -86,6 +88,8 @@ foreach ($relativePath in $requiredFiles) {
 }
 
 $dockerfileSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "Dockerfile") -Raw -Encoding UTF8
+$releaseVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "VERSION") -Raw -Encoding UTF8).Trim()
+Write-Result ($releaseVersion -match '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*$') "Version canonique du microsite" "VERSION doit respecter AAAA.MM.JJ.REVISION."
 $saveToolsLock = Get-Content -LiteralPath (Join-Path $ProjectRoot "dependencies\palworld-save-tools.lock.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 Write-Result (
     $dockerfileSource.Contains("ARG PALWORLD_SAVE_TOOLS_REPOSITORY=$($saveToolsLock.repository)") -and
@@ -94,6 +98,22 @@ Write-Result (
     $dockerfileSource.Contains('sparse-checkout set resources/game_data/icons resources/assets/maps') -and
     $dockerfileSource.Contains('COPY --from=game-assets --chown=gaylemon:gaylemon /assets/ /app/runtime/public-assets/')
 ) "Assets Palworld reproductibles dans l'image" "Le Dockerfile doit suivre exactement la dépendance verrouillée."
+
+$productionComposeSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "compose.production.yaml") -Raw -Encoding UTF8
+$productionDeploySource = Get-Content -LiteralPath (Join-Path $ProjectRoot "vps\gaylemon-deploy-production") -Raw -Encoding UTF8
+$versionComparatorSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\comparer-version.ps1") -Raw -Encoding UTF8
+Write-Result (
+    $dockerfileSource.Contains('COPY VERSION ./VERSION') -and
+    $dockerfileSource.Contains('-X main.version=${release}') -and
+    $dockerfileSource.Contains('-X main.commit=${GAYLEMON_COMMIT}') -and
+    $dockerfileSource.Contains('-X main.channel=${GAYLEMON_CHANNEL}') -and
+    $productionComposeSource.Contains('GAYLEMON_COMMIT: ${GAYLEMON_COMMIT:-unknown}') -and
+    $productionComposeSource.Contains('GAYLEMON_CHANNEL: ${GAYLEMON_CHANNEL:-production}') -and
+    $productionDeploySource.Contains('GAYLEMON_VERSION="$release_version"') -and
+    $productionDeploySource.Contains('GAYLEMON_COMMIT="$commit"') -and
+    $versionComparatorSource.Contains('Invoke-RestMethod -Uri $versionUri') -and
+    $versionComparatorSource.Contains('gitHubMatchesProduction')
+) "Provenance de version local-GitHub-VPS" "Le build, le déploiement et le comparateur doivent utiliser VERSION et le commit Git exacts."
 
 $adminHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\sbin\gaylemon-admin") -Raw -Encoding UTF8
 $announceHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\bin\palworld-announce.sh") -Raw -Encoding UTF8
@@ -151,6 +171,11 @@ Write-Result (
     $nginxConfig.Contains('location = /assets/game/.source-commit') -and
     $nginxConfig.Contains('return 404;')
 ) "Marqueur source cache non servi"
+Write-Result (
+    $nginxConfig.Contains('location = /version') -and
+    $nginxConfig.Contains('alias /etc/gaylemon-version;') -and
+    $nginxConfig.Contains('add_header Cache-Control "no-store" always;')
+) "Version locale servie sans cache"
 
 $composeConfig = Get-Content -LiteralPath (Join-Path $ProjectRoot "compose.yaml") -Raw -Encoding UTF8
 $apiTunnelScript = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\palworld-api-tunnel.ps1") -Raw -Encoding UTF8
@@ -162,6 +187,7 @@ Write-Result (
     $composeConfig.Contains('read_only: true') -and
     $composeConfig.Contains('restart: unless-stopped')
 ) "Tunnel API Docker local et persistant"
+Write-Result ($composeConfig.Contains('./VERSION:/etc/gaylemon-version:ro')) "Version canonique montée dans le microsite local"
 Write-Result (
     $apiTunnelScript.Contains('Assert-TunnelPort') -and
     $apiTunnelScript.Contains('Assert-SshAlias') -and

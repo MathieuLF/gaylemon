@@ -9889,6 +9889,13 @@ button,
   font-weight: 650;
 }
 
+.site-footer__version {
+  color: var(--muted);
+  font-size: .66rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
 .site-footer__links {
   display: flex;
   flex-wrap: wrap;

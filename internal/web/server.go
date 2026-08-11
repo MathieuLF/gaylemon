@@ -35,9 +35,17 @@ type Server struct {
 	config       config.Web
 	repo         store.Repository
 	logger       *slog.Logger
+	release      ReleaseInfo
 	oauth        *oauth2.Config
 	mux          *http.ServeMux
 	eventQueries chan struct{}
+}
+
+type ReleaseInfo struct {
+	Product string `json:"product"`
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Channel string `json:"channel"`
 }
 
 type sessionContextKey struct{}
@@ -58,13 +66,19 @@ type oauthStateCookie struct {
 }
 
 func NewServer(cfg config.Web, repo store.Repository, logger *slog.Logger) *Server {
+	return NewServerWithRelease(cfg, repo, logger, ReleaseInfo{})
+}
+
+func NewServerWithRelease(cfg config.Web, repo store.Repository, logger *slog.Logger, release ReleaseInfo) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	release = release.normalized()
 	s := &Server{
 		config:       cfg,
 		repo:         repo,
 		logger:       logger,
+		release:      release,
 		mux:          http.NewServeMux(),
 		eventQueries: make(chan struct{}, 2),
 	}
@@ -79,6 +93,26 @@ func NewServer(cfg config.Web, repo store.Repository, logger *slog.Logger) *Serv
 	}
 	s.routes()
 	return s
+}
+
+func (release ReleaseInfo) normalized() ReleaseInfo {
+	release.Product = strings.TrimSpace(release.Product)
+	release.Version = strings.TrimSpace(release.Version)
+	release.Commit = strings.TrimSpace(release.Commit)
+	release.Channel = strings.TrimSpace(release.Channel)
+	if release.Product == "" {
+		release.Product = "gaylemon-microsite"
+	}
+	if release.Version == "" {
+		release.Version = "dev"
+	}
+	if release.Commit == "" {
+		release.Commit = "unknown"
+	}
+	if release.Channel == "" {
+		release.Channel = "development"
+	}
+	return release
 }
 
 func (s *Server) Handler() http.Handler {
@@ -106,6 +140,7 @@ func (s *Server) redirectLegacyHost(next http.Handler) http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health/live", s.handleLive)
 	s.mux.HandleFunc("GET /health/ready", s.handleReady)
+	s.mux.HandleFunc("GET /version", s.handleVersion)
 	s.mux.HandleFunc("POST /api/ingest/v1/batches", s.handleIngest)
 	s.mux.HandleFunc("POST /api/agent/v1/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/agent/v1/commands", s.handlePendingCommands)
@@ -135,6 +170,11 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, s.release)
 }
 
 func (s *Server) verifiedBody(w http.ResponseWriter, r *http.Request, limit int64) (verifiedPayload, bool) {

@@ -784,7 +784,21 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260809\.4/);
-    assert.match(html, /app\.js\?v=20260810\.1/);
+    assert.match(html, /styles\.css\?v=20260810\.2/);
+    assert.match(html, /app\.js\?v=20260810\.2/);
+    assert.match(html, /data-microsite-version/);
   }
+});
+
+test("la version du microsite est rendue comme du texte non interprété", async () => {
+  const app = await portalFile("assets/app.js");
+  const loader = app.slice(
+    app.indexOf("async function loadMicrositeVersion"),
+    app.indexOf("void loadMicrositeVersion"),
+  );
+
+  assert.match(loader, /fetch\("\/version"/);
+  assert.match(loader, /cache: "no-store"/);
+  assert.match(loader, /micrositeVersion\.textContent/);
+  assert.doesNotMatch(loader, /innerHTML/);
 });
