@@ -51,6 +51,18 @@ Routes utiles du microsite:
 - `http://127.0.0.1:8787/carte`: carte dédiée de Palpagos;
 - `http://127.0.0.1:8787/github`: page technique publique du dépôt.
 
+## Version du microsite
+
+La version canonique du microsite se trouve dans `VERSION` au format `AAAA.MM.JJ.REVISION`. Le pied de page affiche cette version; en production, il ajoute le commit Git court et le canal de livraison. La route publique `/version` fournit les mêmes métadonnées en JSON et reste servie sans cache.
+
+Pour comparer le dépôt local, la branche `main` sur GitHub et la VPS:
+
+```powershell
+.\scripts\comparer-version.ps1
+```
+
+Ajouter `-Strict` pour obtenir un code de sortie non nul dès qu’un écart est détecté, ou `-Json` pour une sortie exploitable par un autre outil.
+
 Pour exposer localement l'API REST Palworld aux annonces Discord et aux sondes d'exploitation via Docker Desktop:
 
 ```powershell
@@ -70,6 +82,9 @@ Si Docker Desktop ne peut pas joindre le LAN à cause d'un subnet Docker concurr
 ```powershell
 # Validation locale
 .\scripts\valider-depot.ps1
+
+# Comparaison local, GitHub et VPS
+.\scripts\comparer-version.ps1
 
 # Diagnostic en lecture seule
 .\scripts\diagnostiquer-integrations.ps1

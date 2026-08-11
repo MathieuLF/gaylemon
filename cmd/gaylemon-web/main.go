@@ -15,7 +15,11 @@ import (
 	webapp "github.com/MathieuLF/gaylemon/internal/web"
 )
 
-var version = "dev"
+var (
+	version = "dev"
+	commit  = "unknown"
+	channel = "development"
+)
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -52,8 +56,13 @@ func main() {
 	go runMaintenance(maintenanceContext, repo, logger)
 
 	server := &http.Server{
-		Addr:              cfg.ListenAddress,
-		Handler:           webapp.NewServer(cfg, repo, logger).Handler(),
+		Addr: cfg.ListenAddress,
+		Handler: webapp.NewServerWithRelease(cfg, repo, logger, webapp.ReleaseInfo{
+			Product: "gaylemon-microsite",
+			Version: version,
+			Commit:  commit,
+			Channel: channel,
+		}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       75 * time.Second,
 		WriteTimeout:      75 * time.Second,
@@ -61,7 +70,7 @@ func main() {
 		MaxHeaderBytes:    32 << 10,
 	}
 	go func() {
-		logger.Info("service web démarré", "address", cfg.ListenAddress, "version", version)
+		logger.Info("service web démarré", "address", cfg.ListenAddress, "version", version, "commit", commit, "channel", channel)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("service web arrêté", "error", err)
 			os.Exit(1)

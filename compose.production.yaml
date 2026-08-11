@@ -3,7 +3,9 @@ services:
     build:
       context: .
       args:
-        GAYLEMON_VERSION: ${GAYLEMON_VERSION:-dev}
+        GAYLEMON_VERSION: ${GAYLEMON_VERSION:-}
+        GAYLEMON_COMMIT: ${GAYLEMON_COMMIT:-unknown}
+        GAYLEMON_CHANNEL: ${GAYLEMON_CHANNEL:-production}
     restart: unless-stopped
     environment:
       GAYLEMON_DATABASE_URL: ${GAYLEMON_DATABASE_URL:?GAYLEMON_DATABASE_URL requis}
