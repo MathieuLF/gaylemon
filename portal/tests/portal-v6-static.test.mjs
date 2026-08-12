@@ -784,10 +784,24 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260810\.2/);
-    assert.match(html, /app\.js\?v=20260810\.2/);
+    assert.match(html, /styles\.css\?v=20260812\.1/);
+    assert.match(html, /app\.js\?v=20260812\.1/);
     assert.match(html, /data-microsite-version/);
   }
+});
+
+test("toutes les pages utilisent uniquement le suivi Umami configuré", async () => {
+  const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
+  const umamiTag = '<script defer src="https://analytics.nethercore.dev/recorder.js" data-website-id="0e5e87e9-f4c3-4261-9ce0-5e347de30f87"></script>';
+
+  for (const page of pages) {
+    const html = await portalFile(page);
+    assert.equal(html.split(umamiTag).length - 1, 1);
+    assert.doesNotMatch(html, /googletagmanager|google analytics|G-3G8E2NE95B|\bgtag\s*\(/i);
+  }
+
+  const app = await portalFile("assets/app.js");
+  assert.doesNotMatch(app, /window\.gtag|data-google-analytics|googletagmanager|G-3G8E2NE95B/i);
 });
 
 test("la version du microsite est rendue comme du texte non interprété", async () => {

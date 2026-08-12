@@ -295,7 +295,7 @@ func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(source)
-		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "app.js?v=20260810.2") || !strings.Contains(text, "styles.css?v=20260810.2") {
+		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "app.js?v=20260812.1") || !strings.Contains(text, "styles.css?v=20260812.1") {
 			t.Fatalf("version publique absente ou assets incohérents dans %s", page)
 		}
 	}
