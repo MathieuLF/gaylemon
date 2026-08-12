@@ -218,7 +218,6 @@ let playerViewLocked = false;
 let playerReturnUrl = "";
 let playerDialogReturnFocus = null;
 let showInactivePlayers = false;
-let lastTrackedLocation = "";
 let navUpdatePending = false;
 const sourceUpdatedAt = new Map();
 const sourceHealth = new Map();
@@ -819,7 +818,7 @@ function currentDocumentDescription() {
   return `Suis la progression de ${selectedPlayer.name}: niveau ${level}, ${palCount} Pals${campSummary}, statistiques et découvertes sur Palpagos.`;
 }
 
-function trackVirtualPageView() {
+function updateVirtualPageMetadata() {
   if (location.hash.startsWith("#joueur/") && !selectedPlayer) return;
   document.title = currentDocumentTitle();
   const description = currentDocumentDescription();
@@ -828,23 +827,6 @@ function trackVirtualPageView() {
   document.querySelector('meta[property="og:description"]')?.setAttribute("content", description);
   document.querySelector('meta[name="twitter:title"]')?.setAttribute("content", document.title);
   document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", description);
-  if (lastTrackedLocation === location.href || typeof window.gtag !== "function") return;
-  lastTrackedLocation = location.href;
-  window.gtag("event", "page_view", {
-    page_title: document.title,
-    page_location: location.href,
-    page_path: `${location.pathname}${location.search}${location.hash}`,
-  });
-}
-
-function trackCommunityLink(link) {
-  if (typeof window.gtag !== "function") return;
-  window.gtag("event", "community_link_click", {
-    link_name: link.dataset.analyticsLink,
-    link_location: link.dataset.analyticsLocation,
-    link_url: link.href,
-    transport_type: "beacon",
-  });
 }
 
 function syncDisclosureLabel(disclosure) {
@@ -868,18 +850,12 @@ document.querySelectorAll("[data-disclosure-key]").forEach((disclosure) => {
     // Local storage can be unavailable in hardened privacy modes.
   }
   syncDisclosureLabel(disclosure);
-  disclosure.addEventListener("toggle", (event) => {
+  disclosure.addEventListener("toggle", () => {
     syncDisclosureLabel(disclosure);
     try {
       localStorage.setItem(storageKey, disclosure.open ? "open" : "closed");
     } catch {
       // The disclosure remains functional even when persistence is blocked.
-    }
-    if (event.isTrusted && typeof window.gtag === "function") {
-      window.gtag("event", "content_toggle", {
-        content_name: disclosure.dataset.disclosureKey,
-        content_state: disclosure.open ? "open" : "closed",
-      });
     }
   });
 });
@@ -6735,7 +6711,7 @@ async function selectDailyDate(key, updateUrl = true) {
   if (updateUrl) dailySetUrlDate(key);
   renderDailyDateControls(key);
   await loadDailyDigest(true);
-  trackVirtualPageView();
+  updateVirtualPageMetadata();
 }
 
 function renderEventSummaryCards(payload) {
@@ -6839,7 +6815,7 @@ function switchDetailTab(name, updateRoute = true) {
   }
   if (updateRoute && selectedPlayer) {
     history.replaceState(null, "", playerRoute(selectedPlayer, name));
-    trackVirtualPageView();
+    updateVirtualPageMetadata();
   }
   if (updateRoute) {
     expeditionShell.scrollTo({ top: 0, behavior: prefersReducedMotion.matches ? "auto" : "smooth" });
@@ -7794,7 +7770,7 @@ async function openPlayerDetails(index, tab = "profile", updateRoute = true) {
     expeditionDialog.showModal();
     window.requestAnimationFrame(() => expeditionBack?.focus({ preventScroll: true }));
   }
-  trackVirtualPageView();
+  updateVirtualPageMetadata();
 }
 
 function lockPlayerView() {
@@ -7846,7 +7822,7 @@ function closePlayerDetails() {
   selectedPlayerSnapshotPayload = null;
   selectedPlayerBases = [];
   history.replaceState(null, "", playerReturnUrl || `${location.pathname}${location.search}`);
-  trackVirtualPageView();
+  updateVirtualPageMetadata();
   unlockPlayerView();
   const returnFocus = playerDialogReturnFocus;
   playerDialogReturnFocus = null;
@@ -8381,7 +8357,7 @@ if (isTerminalRoute()) {
 }
 renderNextUpdate();
 startRefreshClock();
-trackVirtualPageView();
+updateVirtualPageMetadata();
 updateActiveNavigation();
 
 document.addEventListener("visibilitychange", () => {
@@ -8881,10 +8857,6 @@ window.addEventListener("resize", () => {
   }
   scheduleActiveNavigationUpdate();
 });
-document.addEventListener("click", (event) => {
-  const communityLink = event.target.closest("[data-analytics-link]");
-  if (communityLink) trackCommunityLink(communityLink);
-});
 window.addEventListener("hashchange", () => {
   const nextLegacyRoute = legacyHashRoute();
   if (nextLegacyRoute) {
@@ -8899,7 +8871,7 @@ window.addEventListener("hashchange", () => {
     if (!currentBasesSnapshot()) loadBases(true);
   }
   openPlayerFromRoute();
-  trackVirtualPageView();
+  updateVirtualPageMetadata();
   scheduleActiveNavigationUpdate();
 });
 window.addEventListener("popstate", () => {
@@ -8908,7 +8880,7 @@ window.addEventListener("popstate", () => {
     void loadDailyDigest(true);
   }
   openPlayerFromRoute();
-  trackVirtualPageView();
+  updateVirtualPageMetadata();
 });
 document.addEventListener("error", (event) => {
   if (event.target instanceof HTMLImageElement && event.target.matches(".game-asset")) {
