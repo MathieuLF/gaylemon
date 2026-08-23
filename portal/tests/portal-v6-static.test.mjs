@@ -789,8 +789,8 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260822\.2/);
-    assert.match(html, /app\.js\?v=20260822\.2/);
+    assert.match(html, /styles\.css\?v=20260822\.3/);
+    assert.match(html, /app\.js\?v=20260822\.3/);
     assert.match(html, /data-microsite-version/);
   }
 });

@@ -337,8 +337,12 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 	if query.Limit < 1 {
 		query.Limit = 6
 	}
-	if query.Limit > 100 {
-		query.Limit = 100
+	maxLimit := 100
+	if query.Day != "" {
+		maxLimit = 500
+	}
+	if query.Limit > maxLimit {
+		query.Limit = maxLimit
 	}
 	if query.Offset < 0 {
 		query.Offset = 0

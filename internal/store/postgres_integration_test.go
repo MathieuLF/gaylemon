@@ -92,9 +92,9 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	dayLocation := time.FixedZone("America/Toronto", -4*60*60)
 	dayStart := time.Date(2026, time.August, 8, 0, 0, 0, 0, dayLocation)
 	dayPage, found, err := repository.QueryPublicEvents(ctx, model.PublicEventQuery{
-		Limit: 10, Day: "2026-08-08", From: dayStart, Before: dayStart.AddDate(0, 0, 1),
+		Limit: 1000, Day: "2026-08-08", From: dayStart, Before: dayStart.AddDate(0, 0, 1),
 	})
-	if err != nil || !found || dayPage.Date != "2026-08-08" || dayPage.Total != 2 || len(dayPage.Events) != 2 {
+	if err != nil || !found || dayPage.Date != "2026-08-08" || dayPage.Limit != 500 || dayPage.Total != 2 || len(dayPage.Events) != 2 {
 		t.Fatalf("projection journalière absente: found=%v page=%#v err=%v", found, dayPage, err)
 	}
 	var eventVersions int
