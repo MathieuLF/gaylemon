@@ -48,7 +48,9 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 COPY --from=build /out/gaylemon-web /usr/local/bin/gaylemon-web
 COPY portal /app/portal
-RUN mkdir -p /app/runtime/public-assets \
+RUN find /app/portal -type d -exec chmod 0755 {} + \
+    && find /app/portal -type f -exec chmod 0644 {} + \
+    && mkdir -p /app/runtime/public-assets \
     && chown -R gaylemon:gaylemon /app/runtime
 COPY --from=game-assets --chown=gaylemon:gaylemon /assets/ /app/runtime/public-assets/
 USER gaylemon
