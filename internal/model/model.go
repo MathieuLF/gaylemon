@@ -72,6 +72,9 @@ type PublicEventQuery struct {
 	Type   string
 	Player string
 	Search string
+	Day    string
+	From   time.Time
+	Before time.Time
 }
 
 type PublicEventFacet struct {
@@ -91,6 +94,7 @@ type PublicEventPage struct {
 	LagSeconds    int64                         `json:"lagSeconds"`
 	Offset        int                           `json:"offset"`
 	Limit         int                           `json:"limit"`
+	Date          string                        `json:"date,omitempty"`
 	Total         int64                         `json:"total"`
 	Events        []json.RawMessage             `json:"events"`
 	Facets        map[string][]PublicEventFacet `json:"facets"`

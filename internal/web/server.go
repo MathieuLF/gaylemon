@@ -311,12 +311,32 @@ func (s *Server) handlePublicChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
+	dateKey := strings.TrimSpace(r.URL.Query().Get("date"))
+	var dayStart, dayEnd time.Time
+	if dateKey != "" {
+		location, err := time.LoadLocation("America/Toronto")
+		if err != nil {
+			s.logger.Error("fuseau public indisponible", "error", err)
+			writeError(w, http.StatusInternalServerError, "events-time-zone-unavailable")
+			return
+		}
+		dayStart, err = time.ParseInLocation(time.DateOnly, dateKey, location)
+		if err != nil || dayStart.Format(time.DateOnly) != dateKey {
+			writeError(w, http.StatusBadRequest, "events-date-invalid")
+			return
+		}
+		dayEnd = dayStart.AddDate(0, 0, 1)
+	}
 	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
 	if err != nil || limit < 1 {
 		limit = 6
 	}
-	if limit > 100 {
-		limit = 100
+	maxLimit := 100
+	if dateKey != "" {
+		maxLimit = 500
+	}
+	if limit > maxLimit {
+		limit = maxLimit
 	}
 	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
 	if err != nil || offset < 0 {
@@ -332,6 +352,9 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 		Type:   strings.TrimSpace(r.URL.Query().Get("type")),
 		Player: strings.TrimSpace(r.URL.Query().Get("player")),
 		Search: strings.TrimSpace(r.URL.Query().Get("q")),
+		Day:    dateKey,
+		From:   dayStart,
+		Before: dayEnd,
 	}
 	if len(query.Type) > 80 || len(query.Player) > 120 || len(query.Search) > 200 {
 		writeError(w, http.StatusBadRequest, "events-filter-invalid")

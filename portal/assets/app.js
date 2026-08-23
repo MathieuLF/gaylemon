@@ -6637,10 +6637,102 @@ async function renderDailyV6Candidate(candidate) {
   return { ok: true, changed, stale: state.stale, mode: "v6" };
 }
 
+const dailyDatabasePageSize = 500;
+const dailyDatabaseMaxEvents = 10000;
+
+function dailyAvailableKeysFromDatabase(payload) {
+  const firstKey = dailyDateKeyFromDate(parseDate(payload?.summary?.firstAt));
+  const lastKey = dailyDateKeyFromDate(parseDate(payload?.summary?.lastAt));
+  if (!firstKey || !lastKey || firstKey > lastKey) return [];
+  const keys = [];
+  const cursor = new Date(`${lastKey}T12:00:00.000Z`);
+  const first = new Date(`${firstKey}T12:00:00.000Z`);
+  while (cursor >= first && keys.length < 60) {
+    keys.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return keys;
+}
+
+async function loadDailyDatabaseEvents(dateKey) {
+  let firstPage = null;
+  let offset = 0;
+  const events = [];
+  while (offset <= dailyDatabaseMaxEvents) {
+    const parameters = new URLSearchParams({
+      limit: String(dailyDatabasePageSize),
+      offset: String(offset),
+      date: dateKey,
+    });
+    const page = await readJson(`api/public/events/v1?${parameters}`);
+    if (
+      !page?.ok
+      || page.source !== "postgresql"
+      || page.date !== dateKey
+      || !Array.isArray(page.events)
+      || !Number.isFinite(Number(page.total))
+    ) throw new Error("invalid-daily-database-events");
+    if (!firstPage) firstPage = page;
+    if (page.revision !== firstPage.revision) throw new Error("daily-database-revision-changed");
+    events.push(...page.events);
+    if (events.length >= Number(page.total)) {
+      return { ...firstPage, events, offset: 0, limit: events.length };
+    }
+    if (!page.events.length) throw new Error("incomplete-daily-database-events");
+    offset += page.events.length;
+  }
+  throw new Error("daily-database-event-limit");
+}
+
+async function loadDailyDigestFromDatabase() {
+  const selectedDate = dailySelectedDateKey || dailyRequestedDateKey() || dailyDateKeyFromDate(new Date());
+  dailySelectedDateKey = selectedDate;
+  renderDailyDateControls(selectedDate);
+  const [payload] = await Promise.all([
+    loadDailyDatabaseEvents(selectedDate),
+    loadDailyRoster(),
+  ]);
+  eventsContractMode = "database";
+  dailyAvailableDateKeys = dailyAvailableKeysFromDatabase(payload);
+  if (!dailyAvailableDateKeys.includes(selectedDate)) {
+    dailyAvailableDateKeys.push(selectedDate);
+    dailyAvailableDateKeys.sort((left, right) => right.localeCompare(left));
+  }
+  renderDailyDateControls(selectedDate);
+  eventsIndexSnapshot = {
+    revision: payload.revision,
+    updatedAt: payload.updatedAt,
+    observedAt: payload.observedAt,
+    summary: payload.summary,
+  };
+  registerPayloadDataUpdate("events", payload);
+  const summary = buildDailyDigest(selectedDate, payload.events);
+  summary.presenceAvailable = false;
+  renderDailyDigest(summary);
+  const signature = [
+    payload.revision || "",
+    selectedDate,
+    payload.events.length,
+    payload.events[0]?.key || "",
+    payload.events.at(-1)?.key || "",
+    dailyRosterPlayers.length,
+    dailyStatsUpdatedAt,
+  ].join("|");
+  const changed = signature !== dailyLastSignature;
+  dailyLastSignature = signature;
+  dailyRenderedGenerationId = "";
+  return { ok: true, changed, mode: "database" };
+}
+
 async function loadDailyDigest(silent = false) {
   if (!isDailyDigestRoute()) return { ok: true, changed: false };
   try {
     if (!silent && dailyStatus) dailyStatus.textContent = "Compilation de la journée...";
+    try {
+      return await loadDailyDigestFromDatabase();
+    } catch {
+      // Les anciens contrats statiques restent un repli pendant la transition.
+    }
     const rollbackState = captureV6State();
     const candidate = await fetchEventsV6Candidate(true, true);
     if (candidate.ok) {
