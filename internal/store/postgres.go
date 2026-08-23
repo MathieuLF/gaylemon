@@ -350,6 +350,7 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 		Source:        "postgresql",
 		Offset:        query.Offset,
 		Limit:         query.Limit,
+		Date:          query.Day,
 		Facets:        map[string][]model.PublicEventFacet{},
 	}
 	var stateTotal int64
@@ -387,6 +388,14 @@ func (p *Postgres) QueryPublicEvents(ctx context.Context, query model.PublicEven
 	if value := strings.ToLower(strings.TrimSpace(query.Search)); value != "" {
 		arguments = append(arguments, escapeLikePattern(value))
 		conditions = append(conditions, fmt.Sprintf("search_text LIKE '%%'||$%d||'%%' ESCAPE '\\'", len(arguments)))
+	}
+	if !query.From.IsZero() {
+		arguments = append(arguments, query.From)
+		conditions = append(conditions, fmt.Sprintf("occurred_at >= $%d", len(arguments)))
+	}
+	if !query.Before.IsZero() {
+		arguments = append(arguments, query.Before)
+		conditions = append(conditions, fmt.Sprintf("occurred_at < $%d", len(arguments)))
 	}
 	where := strings.Join(conditions, " AND ")
 

@@ -89,6 +89,14 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	if err != nil || !found || eventsPage.Source != "postgresql" || eventsPage.Total != 1 || len(eventsPage.Events) != 1 {
 		t.Fatalf("projection relationnelle absente: found=%v page=%#v err=%v", found, eventsPage, err)
 	}
+	dayLocation := time.FixedZone("America/Toronto", -4*60*60)
+	dayStart := time.Date(2026, time.August, 8, 0, 0, 0, 0, dayLocation)
+	dayPage, found, err := repository.QueryPublicEvents(ctx, model.PublicEventQuery{
+		Limit: 10, Day: "2026-08-08", From: dayStart, Before: dayStart.AddDate(0, 0, 1),
+	})
+	if err != nil || !found || dayPage.Date != "2026-08-08" || dayPage.Total != 2 || len(dayPage.Events) != 2 {
+		t.Fatalf("projection journalière absente: found=%v page=%#v err=%v", found, dayPage, err)
+	}
 	var eventVersions int
 	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_public.document_versions WHERE stream='events'`).Scan(&eventVersions); err != nil {
 		t.Fatal(err)

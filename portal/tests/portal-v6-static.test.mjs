@@ -364,6 +364,11 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(app, /Actions résumées/);
   assert.match(app, /Joueurs du journal/);
   assert.match(app, /Faits notables/);
+  assert.match(app, /async function loadDailyDatabaseEvents/);
+  assert.match(app, /date: dateKey/);
+  assert.match(app, /eventsContractMode = "database"/);
+  assert.match(app, /summary\.presenceAvailable = false/);
+  assert.ok(app.indexOf("loadDailyDigestFromDatabase()") < app.indexOf("fetchEventsV6Candidate(true, true)"));
   assert.doesNotMatch(app, /params\.get\("jour"\) \?\? saved\.day/);
   assert.doesNotMatch(app, /params\.set\("jour"/);
   assert.match(app, /CommonDropItem3D/);
@@ -784,8 +789,8 @@ test("toutes les pages chargent les ressources versionnées de la tranche", asyn
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260812\.1/);
-    assert.match(html, /app\.js\?v=20260812\.1/);
+    assert.match(html, /styles\.css\?v=20260822\.2/);
+    assert.match(html, /app\.js\?v=20260822\.2/);
     assert.match(html, /data-microsite-version/);
   }
 });
