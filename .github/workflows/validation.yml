@@ -57,3 +57,10 @@ jobs:
         run: find server -type f \( -name '*.sh' -o -path 'server/sbin/*' \) -print0 | xargs -0 -r bash -n
       - name: Image de production
         run: docker build --tag gaylemon-web:validation .
+      - name: Lecture du portail dans l'image
+        run: >-
+          docker run --rm --entrypoint sh gaylemon-web:validation -c
+          'test -r /app/portal/index.html &&
+          test -r /app/portal/resume.html &&
+          test -r /app/portal/assets/app.js &&
+          test -r /app/portal/assets/styles.css'
