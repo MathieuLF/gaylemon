@@ -26,6 +26,7 @@ import (
 type fakeRepository struct {
 	document          model.PublicDocument
 	eventPage         model.PublicEventPage
+	eventQuery        model.PublicEventQuery
 	eventBlock        <-chan struct{}
 	eventStarted      chan<- struct{}
 	batch             model.Batch
@@ -72,6 +73,7 @@ func (f *fakeRepository) GetPublicDocument(_ context.Context, path string) (mode
 }
 
 func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+	f.eventQuery = query
 	if f.eventStarted != nil {
 		f.eventStarted <- struct{}{}
 	}
@@ -88,6 +90,7 @@ func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.Publ
 	page := f.eventPage
 	page.Offset = query.Offset
 	page.Limit = query.Limit
+	page.Date = query.Day
 	return page, true, nil
 }
 
@@ -295,7 +298,7 @@ func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(source)
-		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "app.js?v=20260812.1") || !strings.Contains(text, "styles.css?v=20260812.1") {
+		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "app.js?v=20260822.2") || !strings.Contains(text, "styles.css?v=20260822.2") {
 			t.Fatalf("version publique absente ou assets incohérents dans %s", page)
 		}
 	}
@@ -423,6 +426,40 @@ func TestPublicEventsRejectDeepOffsets(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("offset profond accepté: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPublicEventsFilterOneTorontoDay(t *testing.T) {
+	repository := &fakeRepository{eventPage: model.PublicEventPage{OK: true}}
+	handler, _ := testServer(t, repository)
+	request := httptest.NewRequest(http.MethodGet, "/api/public/events/v1?limit=1000&date=2026-01-15", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("filtre journalier refusé: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	query := repository.eventQuery
+	if query.Day != "2026-01-15" || query.Limit != 500 || query.From.IsZero() || query.Before.IsZero() {
+		t.Fatalf("requête journalière inattendue: %#v", query)
+	}
+	if query.From.Format(time.RFC3339) != "2026-01-15T00:00:00-05:00" || query.Before.Format(time.RFC3339) != "2026-01-16T00:00:00-05:00" {
+		t.Fatalf("bornes Toronto inattendues: %s -> %s", query.From.Format(time.RFC3339), query.Before.Format(time.RFC3339))
+	}
+	var payload model.PublicEventPage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil || payload.Date != query.Day {
+		t.Fatalf("date absente de la réponse: payload=%#v err=%v", payload, err)
+	}
+}
+
+func TestPublicEventsRejectInvalidDay(t *testing.T) {
+	repository := &fakeRepository{eventPage: model.PublicEventPage{OK: true}}
+	handler, _ := testServer(t, repository)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/public/events/v1?date=2026-02-31", nil))
+
+	if recorder.Code != http.StatusBadRequest || repository.eventQuery.Day != "" {
+		t.Fatalf("date invalide acceptée: status=%d query=%#v body=%s", recorder.Code, repository.eventQuery, recorder.Body.String())
 	}
 }
 
