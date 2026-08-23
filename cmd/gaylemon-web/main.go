@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/MathieuLF/gaylemon/internal/background"
 	"github.com/MathieuLF/gaylemon/internal/config"
 	"github.com/MathieuLF/gaylemon/internal/store"
 	webapp "github.com/MathieuLF/gaylemon/internal/web"
@@ -51,9 +52,22 @@ func main() {
 		logger.Error("migration PostgreSQL impossible", "error", err)
 		os.Exit(1)
 	}
-	maintenanceContext, stopMaintenance := context.WithCancel(context.Background())
-	defer stopMaintenance()
-	go runMaintenance(maintenanceContext, repo, logger)
+	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+	err = background.Migrate(ctx, repo.Pool(), logger)
+	cancel()
+	if err != nil {
+		logger.Error("migration des travaux d'arrière-plan impossible", "error", err)
+		os.Exit(1)
+	}
+	jobClient, err := background.NewClient(repo.Pool(), repo, logger)
+	if err != nil {
+		logger.Error("initialisation des travaux d'arrière-plan impossible", "error", err)
+		os.Exit(1)
+	}
+	if err := jobClient.Start(context.Background()); err != nil {
+		logger.Error("démarrage des travaux d'arrière-plan impossible", "error", err)
+		os.Exit(1)
+	}
 
 	server := &http.Server{
 		Addr: cfg.ListenAddress,
@@ -80,28 +94,13 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
 	if err := server.Shutdown(shutdown); err != nil {
 		logger.Error("arrêt incomplet", "error", err)
 	}
-}
-
-func runMaintenance(ctx context.Context, repository *store.Postgres, logger *slog.Logger) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			maintenanceContext, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			result, err := repository.Maintain(maintenanceContext)
-			cancel()
-			if err != nil {
-				logger.Warn("entretien PostgreSQL reporté", "error", err)
-				continue
-			}
-			logger.Info("entretien PostgreSQL terminé", "result", string(result))
-		}
+	cancel()
+	jobsShutdown, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	if err := jobClient.Stop(jobsShutdown); err != nil {
+		logger.Error("arrêt incomplet des travaux d'arrière-plan", "error", err)
 	}
+	cancel()
 }

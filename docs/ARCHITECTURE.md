@@ -93,6 +93,14 @@ artefact ne correspond pas à cet index; il ne compose jamais deux captures.
 
 La projection canonique des échos est matérialisée dans SQLite sur Ubuntu. Le collecteur valide le checkpoint complet en flux, évite de remettre en file une révision déjà publiée et l'envoie compressé. PostgreSQL compare cette révision dans une table temporaire, ne réécrit que les échos modifiés et retire transactionnellement ceux qui ne sont plus présents. L'export complet n'est jamais conservé comme document public sur la VPS.
 
+## Travaux d'arrière-plan du service web
+
+Le service Go exécute ses travaux internes dans une file persistante PostgreSQL. Les tables et leur historique de migrations résident dans le schéma opérationnel `gaylemon_ops`; le schéma public n'est pas utilisé pour cette orchestration.
+
+L'entretien quotidien de la base est exécuté par un seul worker, avec trois tentatives au maximum, un délai de cinq minutes et une clé d'unicité par journée. Le calendrier est conservé dans PostgreSQL, un rattrapage est demandé au démarrage et plusieurs instances du service peuvent se coordonner sans lancer le même travail en parallèle. Le service applique puis valide les migrations de la file avant d'accepter le trafic et laisse le travail actif se terminer pendant un arrêt gracieux.
+
+Cette file ne remplace ni la file SQLite de publication sur Ubuntu, qui doit survivre aux coupures réseau, ni les commandes de contrôle signées. Ces chemins gardent leurs frontières de sécurité et leurs garanties propres.
+
 Ne pas publier:
 
 - sauvegardes brutes;

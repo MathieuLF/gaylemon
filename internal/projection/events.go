@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -360,10 +362,7 @@ func facetRows(events []map[string]any, field string) []any {
 func representedEvents(events []map[string]any) int64 {
 	var total int64
 	for _, event := range events {
-		count := integer(object(event["details"])["aggregatedEvents"])
-		if count < 1 {
-			count = 1
-		}
+		count := max(integer(object(event["details"])["aggregatedEvents"]), 1)
 		total += count
 	}
 	return total
@@ -467,9 +466,7 @@ func metric(summary map[string]any, name string, fallback any) any {
 }
 
 func merge(target, source map[string]any) {
-	for key, value := range source {
-		target[key] = value
-	}
+	maps.Copy(target, source)
 }
 
 func shaHex(content []byte) string {
@@ -490,12 +487,7 @@ func defaultString(value any, fallback string) string {
 }
 
 func contains(values []string, expected string) bool {
-	for _, value := range values {
-		if value == expected {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, expected)
 }
 
 func stringSlice(value any) []string {

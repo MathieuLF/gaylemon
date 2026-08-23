@@ -34,7 +34,7 @@ type ResourceUsage struct {
 
 type BatchPayload struct {
 	Documents []Document     `json:"documents,omitempty"`
-	Usage     ResourceUsage  `json:"usage,omitempty"`
+	Usage     ResourceUsage  `json:"usage"`
 	Summary   map[string]any `json:"summary,omitempty"`
 }
 
@@ -103,7 +103,7 @@ type AgentStatus struct {
 	Version       string    `json:"version"`
 	Profile       string    `json:"profile"`
 	QueueDepth    int64     `json:"queueDepth"`
-	LastSuccessAt time.Time `json:"lastSuccessAt,omitempty"`
+	LastSuccessAt time.Time `json:"lastSuccessAt"`
 	LastError     string    `json:"lastError,omitempty"`
 }
 
