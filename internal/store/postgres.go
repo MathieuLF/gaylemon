@@ -39,10 +39,7 @@ func publicEventFreshness(updatedAt, now time.Time) (string, string, int64) {
 	if updatedAt.IsZero() {
 		return "stale", "unknown", 0
 	}
-	lag := now.Sub(updatedAt)
-	if lag < 0 {
-		lag = 0
-	}
+	lag := max(now.Sub(updatedAt), 0)
 	freshness := "current"
 	if lag > publicEventStaleAfter {
 		freshness = "stale"
@@ -72,6 +69,10 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*Postgres, error) {
 func (p *Postgres) Close() { p.pool.Close() }
 
 func (p *Postgres) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
+
+// Pool exposes the shared PostgreSQL pool to database-backed infrastructure
+// owned by the web process, such as the background job queue.
+func (p *Postgres) Pool() *pgxpool.Pool { return p.pool }
 
 func (p *Postgres) Migrate(ctx context.Context) error {
 	entries, err := fs.ReadDir(migrations.Files, ".")
