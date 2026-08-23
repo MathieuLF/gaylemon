@@ -24,6 +24,8 @@ Pour une passe plus rapide:
 
 La validation complète couvre surtout:
 
+- version Go 1.27.0, tests et analyse statique Go;
+- migrations et cycle du worker PostgreSQL avec une base PostgreSQL 16 en intégration continue;
 - syntaxe PowerShell, Bash et JavaScript;
 - JSON d'exemple;
 - tests Python;

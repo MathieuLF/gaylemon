@@ -15,11 +15,21 @@ RUN apk add --no-cache git \
     && cp /source/resources/assets/maps/T_WorldMap.webp /source/resources/assets/maps/T_TreeMap.webp /assets/maps/ \
     && printf '%s docker-v1\n' "${PALWORLD_SAVE_TOOLS_COMMIT}" > /assets/.source-commit
 
-FROM golang:1.26-alpine AS build
+FROM alpine:3.24 AS build
+
+ARG GO_VERSION=1.27.0
+ARG GO_LINUX_AMD64_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
+RUN apk add --no-cache ca-certificates \
+    && wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O /tmp/go.tar.gz \
+    && echo "${GO_LINUX_AMD64_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN test "$(go env GOVERSION)" = "go${GO_VERSION}" \
+    && go mod download
 COPY cmd ./cmd
 COPY db ./db
 COPY internal ./internal

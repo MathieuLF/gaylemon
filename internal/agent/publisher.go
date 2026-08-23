@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -107,9 +108,7 @@ func EnqueueDocuments(ctx context.Context, spool *Spool, agentID, stream, revisi
 			chunkBytes += int64(len(document.Content))
 		}
 		chunkSummary := make(map[string]any, len(summary)+3)
-		for key, value := range summary {
-			chunkSummary[key] = value
-		}
+		maps.Copy(chunkSummary, summary)
 		chunkSummary["documents"] = len(chunk)
 		chunkSummary["part"] = index + 1
 		chunkSummary["parts"] = len(chunks)

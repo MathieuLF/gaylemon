@@ -24,6 +24,10 @@ Les polices Nunito et Baloo 2 distribuées sous `portal/assets/fonts/` utilisent
 
 L’icône d’horloge distribuée sous `portal/assets/icons/clock-3.svg` provient de [Lucide](https://lucide.dev/) et est utilisée sous licence ISC.
 
+## File de travaux PostgreSQL
+
+Le service Go utilise `github.com/riverqueue/river` version 0.44.1 et son pilote pgx v5, distribués sous licence Mozilla Public License 2.0. Gaylémon les consomme sans modifier leurs fichiers sources. Le [code source correspondant](https://github.com/riverqueue/river/tree/v0.44.1) et le [texte de licence](https://github.com/riverqueue/river/blob/v0.44.1/LICENSE) sont disponibles dans le dépôt amont du composant.
+
 ## Nginx et images Docker
 
 Le fichier Compose référence l'image officielle Nginx. L'image elle-même n'est pas redistribuée dans ce dépôt et conserve ses propres licences.

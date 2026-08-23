@@ -7,6 +7,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$requiredGoVersion = (
+    Get-Content -LiteralPath (Join-Path $ProjectRoot "go.mod") -Encoding UTF8 |
+        Where-Object { $_ -match '^go\s+' } |
+        Select-Object -First 1
+) -replace '^go\s+', ''
 $failures = [Collections.Generic.List[string]]::new()
 $warnings = [Collections.Generic.List[string]]::new()
 
@@ -45,6 +50,8 @@ if (-not $SansGo) {
         $previousGoFlags = $env:GOFLAGS
         try {
             $env:GOFLAGS = "-mod=mod"
+            $actualGoVersion = (& $go.Source env GOVERSION 2>&1 | Out-String).Trim()
+            Write-Result ($actualGoVersion -eq "go$requiredGoVersion") "Version Go $requiredGoVersion" $actualGoVersion
             & $go.Source test ./... 2>&1 | Out-Host
             Write-Result ($LASTEXITCODE -eq 0) "Tests Go"
             & $go.Source vet ./... 2>&1 | Out-Host
@@ -88,15 +95,35 @@ foreach ($relativePath in $requiredFiles) {
 }
 
 $dockerfileSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "Dockerfile") -Raw -Encoding UTF8
+$dockerIgnoreSource = Get-Content -LiteralPath (Join-Path $ProjectRoot ".dockerignore") -Raw -Encoding UTF8
+$goModuleSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "go.mod") -Raw -Encoding UTF8
+$backgroundClientSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "internal\background\client.go") -Raw -Encoding UTF8
+$backgroundMaintenanceSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "internal\background\maintenance.go") -Raw -Encoding UTF8
+$webServiceSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "cmd\gaylemon-web\main.go") -Raw -Encoding UTF8
 $releaseVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "VERSION") -Raw -Encoding UTF8).Trim()
 Write-Result ($releaseVersion -match '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*$') "Version canonique du microsite" "VERSION doit respecter AAAA.MM.JJ.REVISION."
+Write-Result (
+    $dockerfileSource.Contains("ARG GO_VERSION=$requiredGoVersion") -and
+    $dockerfileSource.Contains('test "$(go env GOVERSION)" = "go${GO_VERSION}"')
+) "Chaîne Go $requiredGoVersion cohérente" "go.mod et l'image de compilation doivent utiliser la même version."
+Write-Result (
+    $goModuleSource -match '(?m)^\s*github\.com/riverqueue/river v0\.44\.1\s*$' -and
+    $goModuleSource -match '(?m)^\s*github\.com/riverqueue/river/riverdriver/riverpgxv5 v0\.44\.1\s*$' -and
+    $backgroundClientSource.Contains('Schema: schemaName') -and
+    $backgroundClientSource.Contains('maintenanceQueue: {MaxWorkers: 1}') -and
+    $backgroundMaintenanceSource.Contains('RunOnStart: true') -and
+    $backgroundMaintenanceSource.Contains('ByPeriod: maintenanceInterval') -and
+    $webServiceSource.Contains('background.Migrate(ctx, repo.Pool(), logger)') -and
+    $webServiceSource.Contains('jobClient.Stop(jobsShutdown)')
+) "Travaux PostgreSQL persistants et bornés" "La dépendance verrouillée, les migrations, l'unicité quotidienne ou l'arrêt gracieux sont incomplets."
 $saveToolsLock = Get-Content -LiteralPath (Join-Path $ProjectRoot "dependencies\palworld-save-tools.lock.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 Write-Result (
     $dockerfileSource.Contains("ARG PALWORLD_SAVE_TOOLS_REPOSITORY=$($saveToolsLock.repository)") -and
     $dockerfileSource.Contains("ARG PALWORLD_SAVE_TOOLS_COMMIT=$($saveToolsLock.commit)") -and
     $dockerfileSource.Contains('fetch --quiet --filter=blob:none --depth 1 origin "${PALWORLD_SAVE_TOOLS_COMMIT}"') -and
     $dockerfileSource.Contains('sparse-checkout set resources/game_data/icons resources/assets/maps') -and
-    $dockerfileSource.Contains('COPY --from=game-assets --chown=gaylemon:gaylemon /assets/ /app/runtime/public-assets/')
+    $dockerfileSource.Contains('COPY --from=game-assets --chown=gaylemon:gaylemon /assets/ /app/runtime/public-assets/') -and
+    $dockerIgnoreSource -match '(?m)^portal/assets/game$'
 ) "Assets Palworld reproductibles dans l'image" "Le Dockerfile doit suivre exactement la dépendance verrouillée."
 
 $productionComposeSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "compose.production.yaml") -Raw -Encoding UTF8
@@ -612,6 +639,7 @@ if ($git) {
     Write-Result (
         $workflowFiles.Count -eq 1 -and
         (Split-Path -Leaf $workflowFiles[0].FullName) -eq "validation.yml" -and
+        $validationWorkflowSource.Contains("go-version-file: go.mod") -and
         $validationWorkflowSource.Contains("go test ./...") -and
         $validationWorkflowSource.Contains("postgres:16-alpine") -and
         $validationWorkflowSource.Contains("docker build --tag gaylemon-web:validation .") -and

@@ -63,7 +63,7 @@ func WebFromEnv() (Web, error) {
 
 func csvEnv(name, fallback string) []string {
 	var result []string
-	for _, value := range strings.Split(env(name, fallback), ",") {
+	for value := range strings.SplitSeq(env(name, fallback), ",") {
 		value = strings.ToLower(strings.TrimSpace(value))
 		if value != "" {
 			result = append(result, value)
@@ -84,7 +84,7 @@ func (c Web) Validate() error {
 
 func parseAgentKeys(raw string) (map[string]ed25519.PublicKey, error) {
 	result := make(map[string]ed25519.PublicKey)
-	for _, item := range strings.Split(raw, ",") {
+	for item := range strings.SplitSeq(raw, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue

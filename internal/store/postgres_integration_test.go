@@ -5,11 +5,15 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/MathieuLF/gaylemon/internal/background"
 	"github.com/MathieuLF/gaylemon/internal/model"
+	"github.com/riverqueue/river"
 )
 
 func TestPostgresIngestionLifecycle(t *testing.T) {
@@ -17,7 +21,7 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	if databaseURL == "" {
 		t.Skip("GAYLEMON_TEST_DATABASE_URL absent")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	repository, err := OpenPostgres(ctx, databaseURL)
 	if err != nil {
@@ -116,5 +120,51 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	maintenance, err := repository.Maintain(ctx)
 	if err != nil || !json.Valid(maintenance) {
 		t.Fatalf("entretien invalide: %s err=%v", maintenance, err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := background.Migrate(ctx, repository.Pool(), logger); err != nil {
+		t.Fatal(err)
+	}
+	var jobTables int
+	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.tables
+		WHERE table_schema='gaylemon_ops' AND table_name IN ('river_job', 'river_queue', 'river_migration')`).Scan(&jobTables); err != nil {
+		t.Fatal(err)
+	}
+	if jobTables != 3 {
+		t.Fatalf("tables de travaux absentes: %d/3", jobTables)
+	}
+
+	jobClient, err := background.NewClient(repository.Pool(), repository, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, unsubscribe := jobClient.Subscribe(river.EventKindJobCompleted)
+	defer unsubscribe()
+	if err := jobClient.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		stopContext, stop := context.WithTimeout(context.Background(), 20*time.Second)
+		defer stop()
+		if err := jobClient.Stop(stopContext); err != nil {
+			t.Errorf("arrêt des travaux: %v", err)
+		}
+	}()
+	select {
+	case event := <-completed:
+		if event.Job == nil || event.Job.Kind != "database_maintenance" || event.Job.Queue != "maintenance" {
+			t.Fatalf("travail terminé inattendu: %#v", event.Job)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("le travail d'entretien initial n'a pas terminé")
+	}
+	var completedMaintenanceJobs int
+	if err := repository.pool.QueryRow(ctx, `SELECT count(*) FROM gaylemon_ops.river_job
+		WHERE kind='database_maintenance' AND queue='maintenance' AND state='completed'`).Scan(&completedMaintenanceJobs); err != nil {
+		t.Fatal(err)
+	}
+	if completedMaintenanceJobs != 1 {
+		t.Fatalf("travaux d'entretien terminés: %d, attendu 1", completedMaintenanceJobs)
 	}
 }

@@ -11,6 +11,7 @@ runtime
 test-results
 vendor
 portal/data
+portal/assets/game
 portal/joueur
 portal/tests
 scripts
