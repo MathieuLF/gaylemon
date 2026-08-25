@@ -1,3 +1,5 @@
+name: gaylemon
+
 services:
   web:
     build:
@@ -7,6 +9,18 @@ services:
         GAYLEMON_COMMIT: ${GAYLEMON_COMMIT:-unknown}
         GAYLEMON_CHANNEL: ${GAYLEMON_CHANNEL:-production}
     restart: unless-stopped
+    labels:
+      dockpanel.managed: "true"
+      dockpanel.app.template: compose
+      dockpanel.app.management: external-compose
+      dockpanel.app.environment: production
+      dockpanel.app.primary: "true"
+      dockpanel.app.domain: gaylemon.nethercore.dev
+      nethercore.runtime.contract: compose-v1
+      nethercore.service: gaylemon
+      nethercore.component: application
+      nethercore.backup.required-volumes: ""
+      nethercore.backup.excluded-volumes: ""
     environment:
       GAYLEMON_DATABASE_URL: ${GAYLEMON_DATABASE_URL:?GAYLEMON_DATABASE_URL requis}
       GAYLEMON_AGENT_PUBLIC_KEYS: ${GAYLEMON_AGENT_PUBLIC_KEYS:?GAYLEMON_AGENT_PUBLIC_KEYS requis}
