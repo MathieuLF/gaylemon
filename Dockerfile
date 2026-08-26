@@ -19,7 +19,7 @@ FROM alpine:3.24 AS build
 
 ARG GO_VERSION=1.27.0
 ARG GO_LINUX_AMD64_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates build-base \
     && wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O /tmp/go.tar.gz \
     && echo "${GO_LINUX_AMD64_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
