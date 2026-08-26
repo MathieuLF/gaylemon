@@ -32,7 +32,13 @@ try {
 		Invoke-Check 'npm-ci' { npm ci --ignore-scripts }
 		Invoke-Check 'playwright-install' { npx playwright install chromium }
 		Invoke-Check 'playwright-axe' { npm run test:browser }
-        Invoke-Check 'go-race' { go test -race ./... }
+		if ($IsWindows) {
+			$raceImage = "gaylemon-race-validation:$((& git -C $root rev-parse --short=12 HEAD).Trim())"
+			Invoke-Check 'go-race-image' { docker build --target build --tag $raceImage $root }
+			Invoke-Check 'go-race' { docker run --rm --entrypoint /bin/sh $raceImage -c 'CGO_ENABLED=1 go test -mod=readonly -race ./...' }
+		} else {
+			Invoke-Check 'go-race' { $env:CGO_ENABLED='1'; try { go test -race ./... } finally { Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue } }
+		}
         Invoke-Check 'deadcode' { go tool deadcode -test ./... }
 		Invoke-Check 'govulncheck' { govulncheck ./... }
 		Invoke-Check 'gitleaks' { gitleaks detect --source $root --no-banner --redact }
