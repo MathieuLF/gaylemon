@@ -70,7 +70,7 @@ $receipt = [ordered]@{
     artifacts = $artifacts
     sbom = if ($Mode -eq 'Full') { @("release/gaylemon-$version.spdx.json", "release/gaylemon-$version.cdx.json") } else { @() }
 	scan = if ($Mode -eq 'Full') { [ordered]@{ tool='trivy'; blocking=$true; result='success' } } else { $null }
-	signature = if ($Mode -eq 'Full') { [ordered]@{ tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.sig"; agent="release/gaylemon-agent-$version-linux-amd64.sig"; verified=$true } } else { $null }
+	signature = if ($Mode -eq 'Full') { [ordered]@{ tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.cosign-bundle.json"; agent="release/gaylemon-agent-$version-linux-amd64.cosign-bundle.json"; verified=$true } } else { $null }
     validatedAt = [DateTimeOffset]::UtcNow.ToString('o')
 }
 [IO.File]::WriteAllText((Join-Path $receiptDirectory 'local-validation.json'), ($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
