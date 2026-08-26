@@ -4,6 +4,8 @@ Le déploiement public sur PostgreSQL 16 et DockPanel est décrit dans [Publicat
 
 Le dépôt peut préparer une livraison Ubuntu, mais rien ne doit partir en production par surprise.
 
+La clé de signature de release s'initialise une seule fois avec `scripts/setup-signing-key.ps1`. Sa clé privée reste sous `~/.gaylemon`, avec un mot de passe protégé par DPAPI; seule `security/cosign.pub` est versionnée.
+
 ## Avant de livrer
 
 ```powershell
