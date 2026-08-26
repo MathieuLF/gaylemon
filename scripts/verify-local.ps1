@@ -20,10 +20,15 @@ function Invoke-Check([string]$Name, [scriptblock]$Action) {
 }
 
 $inventory = & (Join-Path $PSScriptRoot 'upgrade-preflight.ps1') -Mode Inventory | ConvertFrom-Json
+$routeInventory = & (Join-Path $PSScriptRoot 'inventory-routes.ps1') -Check | ConvertFrom-Json
+$canonicalRoutes = ConvertTo-Json @($routeInventory.routes) -Depth 5 -Compress
+$routeHashBytes = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($canonicalRoutes))
+$routeHash = [Convert]::ToHexString($routeHashBytes).ToLowerInvariant()
 $env:GOFLAGS = '-mod=readonly'
 try {
     Invoke-Check 'go-test' { go test ./... }
     Invoke-Check 'go-vet' { go vet ./... }
+    Invoke-Check 'validation-receipt-contracts' { python -m unittest discover -s scripts/tests -p 'test_*.py' }
     Invoke-Check 'portal-contracts' { node --test portal/tests/portal-v6-static.test.mjs }
     if ($Mode -eq 'Full') {
 		foreach ($requiredTool in 'govulncheck','gitleaks','docker','syft','trivy','cosign','python','bash') {
@@ -50,13 +55,23 @@ try {
 }
 finally { Remove-Item Env:GOFLAGS -ErrorAction SilentlyContinue }
 
+$finalStatus = @(& git -C $root status --porcelain)
+if ($initialStatus.Count -eq 0 -and $finalStatus.Count -gt 0) {
+    throw 'La validation a modifié le dépôt.'
+}
+
 $receiptDirectory = Join-Path $root 'release'
 New-Item -ItemType Directory -Force -Path $receiptDirectory | Out-Null
 $artifacts = @()
-if ($Mode -eq 'Full') { $artifacts += "gaylemon-local:$version" }
+$sbomArtifacts = @()
+if ($Mode -eq 'Full') {
+    $artifacts += "gaylemon-local:$version"
+    $sbomArtifacts += "release/gaylemon-$version.spdx.json"
+    $sbomArtifacts += "release/gaylemon-$version.cdx.json"
+}
 $receipt = [ordered]@{
     schema = 'suite.local-validation.v2'
-    suiteContract = 'suite-foundation-v2'
+    contract = 'suite-foundation-v2'
     profile = 'seasonal-go-microsite'
     application = 'gaylemon'
     result = 'success'
@@ -64,14 +79,22 @@ $receipt = [ordered]@{
     commit = (& git -C $root rev-parse HEAD).Trim()
     branch = (& git -C $root branch --show-current).Trim()
     cleanAtStart = ($initialStatus.Count -eq 0)
-    routes = $inventory.routes
+    cleanAtEnd = ($finalStatus.Count -eq 0)
+    routes = [ordered]@{
+        count = [int]$routeInventory.count
+        sha256 = $routeHash
+        inventory = @($routeInventory.routes)
+    }
     tools = [ordered]@{ go = (& go env GOVERSION).Trim(); node = (& node --version).Trim() }
     checks = $checks
-    artifacts = $artifacts
-    sbom = if ($Mode -eq 'Full') { @("release/gaylemon-$version.spdx.json", "release/gaylemon-$version.cdx.json") } else { @() }
+    artifacts = @($artifacts)
+    sbom = @($sbomArtifacts)
 	scan = if ($Mode -eq 'Full') { [ordered]@{ tool='trivy'; blocking=$true; result='success' } } else { $null }
 	signature = if ($Mode -eq 'Full') { [ordered]@{ tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.cosign-bundle.json"; agent="release/gaylemon-agent-$version-linux-amd64.cosign-bundle.json"; verified=$true } } else { $null }
     validatedAt = [DateTimeOffset]::UtcNow.ToString('o')
 }
-[IO.File]::WriteAllText((Join-Path $receiptDirectory 'local-validation.json'), ($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+$receiptPath = Join-Path $receiptDirectory 'local-validation.json'
+[IO.File]::WriteAllText($receiptPath, ($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+& python (Join-Path $PSScriptRoot 'check_local_validation_receipt.py') $receiptPath
+if ($LASTEXITCODE -ne 0) { throw 'Le reçu de validation locale ne respecte pas suite.local-validation.v2.' }
 Write-Host "Validation locale $Mode réussie."
