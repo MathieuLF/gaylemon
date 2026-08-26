@@ -29,7 +29,6 @@ fi
 stamp="$(basename "$stage")"
 restart_args=()
 manifest_sha256=""
-allow_game_restart="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,10 +53,6 @@ while [[ $# -gt 0 ]]; do
       restart_args+=(--restart-unit "$unit")
       shift 2
       ;;
-    --allow-game-restart)
-      allow_game_restart="true"
-      shift
-      ;;
     *)
       echo "Argument invalide: $1" >&2
       exit 2
@@ -70,19 +65,13 @@ if [[ -z "$manifest_sha256" ]]; then
   exit 2
 fi
 
-if [[ " ${restart_args[*]} " == *" palworld.service "* && "$allow_game_restart" != "true" ]]; then
-  echo "Redemarrage de palworld.service non confirme." >&2
+if [[ " ${restart_args[*]} " == *" palworld.service "* ]]; then
+  echo "Une livraison Gaylemon ne redemarre jamais palworld.service." >&2
   exit 2
-fi
-
-game_restart_args=()
-if [[ "$allow_game_restart" == "true" ]]; then
-  game_restart_args+=(--allow-game-restart)
 fi
 
 exec /usr/bin/python3 "$fixed_deployer" install \
   --stage "$stage" \
   --confirm "$stamp" \
   --manifest-sha256 "$manifest_sha256" \
-  "${game_restart_args[@]}" \
   "${restart_args[@]}"

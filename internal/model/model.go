@@ -51,6 +51,55 @@ type Batch struct {
 	Compressed     bool            `json:"-"`
 }
 
+type SeasonState string
+
+const (
+	SeasonDraft      SeasonState = "draft"
+	SeasonActive     SeasonState = "active"
+	SeasonFinalizing SeasonState = "finalizing"
+	SeasonArchived   SeasonState = "archived"
+	SeasonFailed     SeasonState = "failed"
+)
+
+type Season struct {
+	ID          string          `json:"id"`
+	Slug        string          `json:"slug"`
+	Title       string          `json:"title"`
+	StartsOn    string          `json:"startsOn"`
+	EndsOn      string          `json:"endsOn,omitempty"`
+	State       SeasonState     `json:"state"`
+	Manifest    json.RawMessage `json:"manifest,omitempty"`
+	FinalSHA256 string          `json:"finalSha256,omitempty"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	UpdatedAt   time.Time       `json:"updatedAt"`
+	ArchivedAt  *time.Time      `json:"archivedAt,omitempty"`
+}
+
+type SeasonCreate struct {
+	Slug     string `json:"slug"`
+	Title    string `json:"title"`
+	StartsOn string `json:"startsOn"`
+}
+
+type PublicSeason struct {
+	Slug        string      `json:"slug"`
+	Title       string      `json:"title"`
+	StartsOn    string      `json:"startsOn"`
+	EndsOn      string      `json:"endsOn,omitempty"`
+	State       SeasonState `json:"state"`
+	FinalSHA256 string      `json:"finalSha256,omitempty"`
+	ArchivedAt  *time.Time  `json:"archivedAt,omitempty"`
+}
+
+type SiteState struct {
+	Mode        string        `json:"mode"`
+	Season      *PublicSeason `json:"season,omitempty"`
+	ReadOnly    bool          `json:"readOnly"`
+	Polling     bool          `json:"polling"`
+	Message     string        `json:"message"`
+	GeneratedAt time.Time     `json:"generatedAt"`
+}
+
 type IngestResult struct {
 	BatchID        string `json:"batchId"`
 	Status         string `json:"status"`
@@ -123,12 +172,14 @@ type Command struct {
 }
 
 type CommandAck struct {
-	Status  string `json:"status"`
-	Message string `json:"message,omitempty"`
+	Status  string          `json:"status"`
+	Message string          `json:"message,omitempty"`
+	Details json.RawMessage `json:"details,omitempty"`
 }
 
 type DashboardSnapshot struct {
 	Agents         []AgentStatus    `json:"agents"`
+	Seasons        []Season         `json:"seasons"`
 	RecentRuns     []map[string]any `json:"recentRuns"`
 	RecentCommands []map[string]any `json:"recentCommands"`
 	DatabaseBytes  int64            `json:"databaseBytes"`

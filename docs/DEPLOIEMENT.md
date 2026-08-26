@@ -82,15 +82,7 @@ Pour redémarrer un auxiliaire touché:
   -RestartUnit palworld-welcome.service
 ```
 
-Pour redémarrer le jeu, il faut le demander explicitement:
-
-```powershell
-.\scripts\deployer-ubuntu.ps1 -Install `
-  -RestartUnit palworld.service `
-  -AllowPalworldRestart
-```
-
-Cette option doit rester réservée à une fenêtre annoncée.
+Une livraison Gaylémon refuse toujours `palworld.service`, même lorsqu’un argument de redémarrage est fourni. Une opération sur le jeu passe par la console d’exploitation distincte, avec sa propre autorité et sa propre fenêtre.
 
 ## Manifeste
 

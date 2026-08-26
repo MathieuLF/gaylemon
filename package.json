@@ -1,0 +1,13 @@
+{
+  "name": "gaylemon-validation",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:contracts",
+    "test:contracts": "node --test portal/tests/portal-v6-static.test.mjs",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1"
+  }
+}

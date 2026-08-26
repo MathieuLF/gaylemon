@@ -1,0 +1,42 @@
+{
+  "schema": "suite.profile.v2",
+  "contract": "suite-foundation-v2",
+  "application": "gaylemon",
+  "displayName": "Gaylémon",
+  "profile": "seasonal-go-microsite",
+  "lifecycle": "active-season",
+  "repository": "https://github.com/MathieuLF/gaylemon",
+  "capabilities": [
+    "fr-ca",
+    "accessibility",
+    "command-palette",
+    "safe-offline",
+    "network-recovery-notice",
+    "changelog",
+    "information-page",
+    "season-lifecycle",
+    "signed-agent",
+    "signed-oci",
+    "sbom-spdx",
+    "sbom-cyclonedx",
+    "trivy"
+  ],
+  "dependencies": {
+    "go": "1.27.0",
+    "postgresql": "16",
+    "river": "0.44.1"
+  },
+  "update": {
+    "engine": "gaylemon-seasonal",
+    "source": "digest",
+    "artifact": "ghcr.io/mathieulf/gaylemon"
+  },
+  "validation": {
+    "receiptSchema": "suite.local-validation.v2",
+    "quick": true,
+    "full": true
+  },
+  "exceptions": [
+    "Une clôture de saison est une action opérateur distincte"
+  ]
+}

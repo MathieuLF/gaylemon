@@ -16,7 +16,7 @@ function Build-GaylemonLinuxAgent {
         $env:GOOS = "linux"
         $env:GOARCH = "amd64"
         $env:CGO_ENABLED = "0"
-        $env:GOFLAGS = "-mod=mod"
+        $env:GOFLAGS = "-mod=readonly"
         & $go.Source build -trimpath -ldflags "-s -w" -o $agentBinary .\cmd\gaylemon
         if ($LASTEXITCODE -ne 0) { throw "Compilation Linux de l'agent impossible." }
     }

@@ -65,6 +65,7 @@ func OpenSpool(path string) (*Spool, error) {
 			sequence INTEGER NOT NULL,
 			status TEXT NOT NULL,
 			message TEXT NOT NULL DEFAULT '',
+			details TEXT NOT NULL DEFAULT '{}',
 			executed_at TEXT NOT NULL
 		)`,
 	}
@@ -72,6 +73,17 @@ func OpenSpool(path string) (*Spool, error) {
 		if _, err := db.Exec(statement); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("initialisation de la file: %w", err)
+		}
+	}
+	var detailsColumn int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('command_results') WHERE name='details'`).Scan(&detailsColumn); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspection des résultats de commandes: %w", err)
+	}
+	if detailsColumn == 0 {
+		if _, err := db.Exec(`ALTER TABLE command_results ADD COLUMN details TEXT NOT NULL DEFAULT '{}'`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("mise à niveau des résultats de commandes: %w", err)
 		}
 	}
 	var sourceRevisionColumn int
@@ -147,16 +159,24 @@ func repairQueuedBatchSequences(db *sql.DB) error {
 
 func (s *Spool) CommandResult(ctx context.Context, commandID string) (model.CommandAck, bool, error) {
 	var ack model.CommandAck
-	err := s.db.QueryRowContext(ctx, `SELECT status, message FROM command_results WHERE command_id = ?`, commandID).Scan(&ack.Status, &ack.Message)
+	var details string
+	err := s.db.QueryRowContext(ctx, `SELECT status, message, details FROM command_results WHERE command_id = ?`, commandID).Scan(&ack.Status, &ack.Message, &details)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.CommandAck{}, false, nil
+	}
+	if err == nil && json.Valid([]byte(details)) && details != "{}" {
+		ack.Details = json.RawMessage(details)
 	}
 	return ack, err == nil, err
 }
 
 func (s *Spool) SaveCommandResult(ctx context.Context, command model.Command, ack model.CommandAck) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO command_results(command_id, sequence, status, message, executed_at)
-		VALUES(?, ?, ?, ?, ?) ON CONFLICT(command_id) DO NOTHING`, command.ID, command.Sequence, ack.Status, ack.Message, time.Now().UTC().Format(time.RFC3339Nano))
+	details := string(ack.Details)
+	if !json.Valid(ack.Details) {
+		details = "{}"
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO command_results(command_id, sequence, status, message, details, executed_at)
+		VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(command_id) DO NOTHING`, command.ID, command.Sequence, ack.Status, ack.Message, details, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
 
@@ -263,4 +283,26 @@ func (s *Spool) Depth(ctx context.Context) (int64, error) {
 	var depth int64
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM batches`).Scan(&depth)
 	return depth, err
+}
+
+func (s *Spool) ResetForNewSeason(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var pending int64
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM batches`).Scan(&pending); err != nil {
+		return err
+	}
+	if pending != 0 {
+		return errors.New("la file de la saison précédente n'est pas vide")
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM completed_stream_revisions`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM stream_sequences`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

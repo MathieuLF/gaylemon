@@ -2,12 +2,7 @@ name: gaylemon
 
 services:
   web:
-    build:
-      context: .
-      args:
-        GAYLEMON_VERSION: ${GAYLEMON_VERSION:-}
-        GAYLEMON_COMMIT: ${GAYLEMON_COMMIT:-unknown}
-        GAYLEMON_CHANNEL: ${GAYLEMON_CHANNEL:-production}
+    image: ${GAYLEMON_IMAGE_REFERENCE:?GAYLEMON_IMAGE_REFERENCE avec digest requis}
     restart: unless-stopped
     labels:
       dockpanel.managed: "true"
@@ -17,6 +12,7 @@ services:
       dockpanel.app.primary: "true"
       dockpanel.app.domain: gaylemon.nethercore.dev
       nethercore.runtime.contract: compose-v1
+      nethercore.suite.contract: suite-foundation-v2
       nethercore.service: gaylemon
       nethercore.component: application
       nethercore.backup.required-volumes: ""
@@ -24,6 +20,7 @@ services:
     environment:
       GAYLEMON_DATABASE_URL: ${GAYLEMON_DATABASE_URL:?GAYLEMON_DATABASE_URL requis}
       GAYLEMON_AGENT_PUBLIC_KEYS: ${GAYLEMON_AGENT_PUBLIC_KEYS:?GAYLEMON_AGENT_PUBLIC_KEYS requis}
+      GAYLEMON_RESPONSE_PRIVATE_KEY: ${GAYLEMON_RESPONSE_PRIVATE_KEY:?GAYLEMON_RESPONSE_PRIVATE_KEY requis}
       GAYLEMON_PUBLIC_BASE_URL: https://gaylemon.nethercore.dev
       GAYLEMON_LEGACY_HOSTS: gaylemon.mathieu.pro,www.gaylemon.nethercore.dev
       GAYLEMON_GITHUB_CLIENT_ID: ${GAYLEMON_GITHUB_CLIENT_ID:?GAYLEMON_GITHUB_CLIENT_ID requis}

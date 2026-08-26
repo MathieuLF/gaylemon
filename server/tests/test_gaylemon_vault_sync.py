@@ -19,6 +19,7 @@ def complete_values():
         "GAYLEMON_DATABASE_URL": "postgresql://gaylemon:p%40ss@db:5432/gaylemon",
         "GAYLEMON_GITHUB_CLIENT_ID": "client-id",
         "GAYLEMON_GITHUB_CLIENT_SECRET": "secret-value",
+        "GAYLEMON_RESPONSE_PRIVATE_KEY": "base64-private-key",
     }
 
 

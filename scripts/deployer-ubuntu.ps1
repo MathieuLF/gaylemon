@@ -6,8 +6,6 @@
 
     [string[]]$RestartUnit = @(),
 
-    [switch]$AllowPalworldRestart,
-
     [string]$Confirmation = "",
 
     [string]$Cible,
@@ -33,8 +31,8 @@ foreach ($unit in $RestartUnit) {
         throw "Unité systemd non autorisée: $unit"
     }
 }
-if ($RestartUnit -contains "palworld.service" -and -not $AllowPalworldRestart) {
-    throw "Le redémarrage de palworld.service exige -AllowPalworldRestart."
+if ($RestartUnit -contains "palworld.service") {
+    throw "Une livraison Gaylémon ne redémarre jamais palworld.service. Utiliser la console d'exploitation distincte."
 }
 
 [void](Build-GaylemonLinuxAgent -ProjectRoot $ProjectRoot)
@@ -151,21 +149,11 @@ if (-not $Confirmation) {
 if ($Confirmation -cne "INSTALLER $stamp") {
     throw "Confirmation invalide; installation annulée."
 }
-if ($RestartUnit -contains "palworld.service") {
-    $gameConfirmation = Read-Host "Taper REDEMARRER PALWORLD pour confirmer l'interruption du jeu"
-    if ($gameConfirmation -cne "REDEMARRER PALWORLD") {
-        throw "Confirmation du redémarrage Palworld invalide; installation annulée."
-    }
-}
-
 Write-Host ""
 Write-Host "Installation distante avec le moteur root-owned. Une élévation sudo interactive est requise." -ForegroundColor Cyan
 $wrapperArguments = "'$remoteStage' --manifest-sha256 '$manifestSha256'"
 foreach ($unit in $RestartUnit) {
     $wrapperArguments += " --restart-unit '$unit'"
-}
-if ($AllowPalworldRestart) {
-    $wrapperArguments += " --allow-game-restart"
 }
 $rootInstallLines = @(
     'set -euo pipefail',

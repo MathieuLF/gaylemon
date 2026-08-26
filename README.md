@@ -9,10 +9,10 @@ Le principe est simple: Palworld reste stable, les sauvegardes sont lues en lect
 ## Ce que contient le dépôt
 
 - `cmd/` et `internal/`: service web Go, agent sortant, API signée et accès PostgreSQL 16.
-- `db/`: migrations PostgreSQL, historique et rétention.
+- `db/`: migrations PostgreSQL, historique, rétention et archives multi-saisons.
 - `server/`: scripts Ubuntu, unités `systemd`, collecteurs et tests.
 - `scripts/`: console et outils Windows.
-- `portal/`: microsite statique, routes `/`, `/terminal`, `/resume`, `/classements`, `/carte`, `/github` et exemples JSON.
+- `portal/`: microsite statique, routes `/`, `/terminal`, `/resume`, `/classements`, `/carte`, `/informations`, archives `/saisons/{slug}` et exemples JSON.
 - `docker/`: Nginx local pour le microsite et image du tunnel API Palworld.
 - `docs/`: guides courts, contrats de données et notes d'exploitation.
 - `dependencies/`: verrous des dépendances externes, sans cloner leur code.
@@ -138,6 +138,7 @@ Le flux des échos est traité comme une donnée chaude: projection canonique pr
 - [Sécurité](SECURITY.md)
 - [Support](SUPPORT.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Saisons et archives](docs/SAISONS.md)
 - [Échos publics v6](docs/EVENEMENTS-PUBLICS-V6.md)
 - [Sécurité d'exploitation](docs/SECURITE-EXPLOITATION.md)
 - [Configuration locale](docs/CONFIGURATION-LOCALE.md)

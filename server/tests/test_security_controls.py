@@ -28,8 +28,26 @@ class SecurityControlTests(unittest.TestCase):
         self.assertNotIn("systemctl restart palworld.service", sudoers)
 
         admin = self.read("server/sbin/gaylemon-admin")
-        self.assertNotIn("palworld.service", admin)
+        self.assertNotIn("systemctl restart palworld.service", admin)
+        self.assertIn("palworld_pid_before=", admin)
+        self.assertIn("palworld_pid_after=", admin)
+        self.assertIn("palworld_restarts_before=", admin)
+        self.assertIn("palworld_restarts_after=", admin)
         self.assertNotIn("release)", admin)
+        self.assertIn("trap 'restore_season_timers $?' ERR", admin)
+        self.assertIn('restore_season_timers 1', admin)
+        self.assertIn('/usr/bin/chattr +i -- "$immutable_backup"', admin)
+        self.assertIn('/usr/bin/chattr +i -- "$receipt"', admin)
+        self.assertIn('receipt="$receipt_root/$slug-$backup_sha256.json"', admin)
+        self.assertIn("immutableBackup", admin)
+        self.assertIn("receiptSha256", admin)
+
+        deploy_wrapper = self.read("server/sbin/gaylemon-deploy-install")
+        deploy_engine = self.read("server/deploy/gaylemon_deploy.py")
+        workstation_deployer = self.read("scripts/deployer-ubuntu.ps1")
+        for source in (deploy_wrapper, deploy_engine, workstation_deployer):
+            self.assertNotIn("allow-game-restart", source)
+        self.assertIn("never restart palworld.service", deploy_engine)
 
     def test_scheduled_dependency_maintenance_is_report_only(self):
         runner = self.read("scripts/run-palworld-save-tools-maintenance.ps1")
