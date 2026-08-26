@@ -20,6 +20,7 @@ type Web struct {
 	PublicBaseURL       string
 	LegacyHosts         []string
 	AgentPublicKeys     map[string]ed25519.PublicKey
+	ResponsePrivateKey  ed25519.PrivateKey
 	SignatureMaxSkew    time.Duration
 	GitHubClientID      string
 	GitHubClientSecret  string
@@ -33,6 +34,10 @@ func WebFromEnv() (Web, error) {
 		return Web{}, errors.New("GAYLEMON_GITHUB_ALLOWED_USER_ID doit être un entier positif")
 	}
 	keys, err := parseAgentKeys(os.Getenv("GAYLEMON_AGENT_PUBLIC_KEYS"))
+	if err != nil {
+		return Web{}, err
+	}
+	responseKey, err := parsePrivateKey(strings.TrimSpace(os.Getenv("GAYLEMON_RESPONSE_PRIVATE_KEY")))
 	if err != nil {
 		return Web{}, err
 	}
@@ -53,6 +58,7 @@ func WebFromEnv() (Web, error) {
 		PublicBaseURL:       baseURL,
 		LegacyHosts:         csvEnv("GAYLEMON_LEGACY_HOSTS", "gaylemon.mathieu.pro,www.gaylemon.nethercore.dev"),
 		AgentPublicKeys:     keys,
+		ResponsePrivateKey:  responseKey,
 		SignatureMaxSkew:    durationEnv("GAYLEMON_SIGNATURE_MAX_SKEW", 5*time.Minute),
 		GitHubClientID:      os.Getenv("GAYLEMON_GITHUB_CLIENT_ID"),
 		GitHubClientSecret:  os.Getenv("GAYLEMON_GITHUB_CLIENT_SECRET"),
@@ -79,7 +85,27 @@ func (c Web) Validate() error {
 	if len(c.AgentPublicKeys) == 0 {
 		return errors.New("GAYLEMON_AGENT_PUBLIC_KEYS doit contenir au moins une clé")
 	}
+	if c.CookieSecure && len(c.ResponsePrivateKey) != ed25519.PrivateKeySize {
+		return errors.New("GAYLEMON_RESPONSE_PRIVATE_KEY est requis en production")
+	}
 	return nil
+}
+
+func parsePrivateKey(raw string) (ed25519.PrivateKey, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, errors.New("GAYLEMON_RESPONSE_PRIVATE_KEY doit être encodée en base64")
+	}
+	if len(decoded) == ed25519.SeedSize {
+		return ed25519.NewKeyFromSeed(decoded), nil
+	}
+	if len(decoded) != ed25519.PrivateKeySize {
+		return nil, errors.New("GAYLEMON_RESPONSE_PRIVATE_KEY a une taille invalide")
+	}
+	return ed25519.PrivateKey(decoded), nil
 }
 
 func parseAgentKeys(raw string) (map[string]ed25519.PublicKey, error) {

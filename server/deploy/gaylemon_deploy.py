@@ -501,7 +501,6 @@ def apply_deployment(
     stage: Path,
     confirmation: str,
     restart_units: list[str],
-    allow_game_restart: bool,
 ) -> Path:
     if os.geteuid() != 0:
         raise DeployError("Installation requires root privileges")
@@ -521,8 +520,8 @@ def apply_deployment(
     for unit in restart_units:
         if unit not in allowed_restart_units:
             raise DeployError(f"Restart is outside the deployment manifest: {unit}")
-        if allowed_restart_units[unit] == "game" and not allow_game_restart:
-            raise DeployError("palworld.service restart requires --allow-game-restart")
+        if allowed_restart_units[unit] == "game":
+            raise DeployError("Gaylemon deployments never restart palworld.service")
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_directory = Path(manifest["backupRoot"]) / f"{timestamp}-{stage.name}"
@@ -660,7 +659,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confirm", default="")
     parser.add_argument("--manifest-sha256", default="")
     parser.add_argument("--restart-unit", action="append", default=[])
-    parser.add_argument("--allow-game-restart", action="store_true")
     return parser.parse_args()
 
 
@@ -696,7 +694,6 @@ def main() -> int:
                 snapshot,
                 args.confirm,
                 args.restart_unit,
-                args.allow_game_restart,
             )
         finally:
             shutil.rmtree(snapshot.parent, ignore_errors=True)

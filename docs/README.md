@@ -5,6 +5,7 @@ Les docs sont rangées par usage. Le README racine suffit pour démarrer; cette 
 ## Comprendre
 
 - [Architecture](ARCHITECTURE.md): rôles de Windows, Ubuntu, Nginx, routes publiques et contrats JSON.
+- [Saisons et archives](SAISONS.md): cycle de saison, clôture, invariants Palworld et routes de lecture seule.
 - [Source de vérité](SOURCE-DE-VERITE.md): quels fichiers Git représentent les fichiers actifs sur Ubuntu.
 - [Sécurité d'exploitation](SECURITE-EXPLOITATION.md): sudo borné, wrapper de déploiement et garde-fous.
 - [Sources](SOURCES.md): références externes utiles.

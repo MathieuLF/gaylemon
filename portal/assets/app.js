@@ -116,6 +116,17 @@ const footerBackToTop = document.querySelector("#footer-back-to-top");
 const contextTooltip = document.querySelector("#context-tooltip");
 const siteFooter = document.querySelector(".site-footer");
 const micrositeVersion = document.querySelector("[data-microsite-version]");
+const releaseNotes = document.querySelector("#release-notes");
+const seasonRouteMatch = window.location.pathname.match(/^\/saisons\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?/);
+const seasonSlug = seasonRouteMatch?.[1] || "";
+const seasonBasePath = seasonSlug ? `/saisons/${seasonSlug}` : "";
+let seasonReadOnly = Boolean(seasonSlug);
+
+if (seasonBasePath) {
+  document.querySelectorAll('a[href^="/"]:not([href^="//"])').forEach((link) => {
+    if (!link.getAttribute("href").startsWith("/ops")) link.setAttribute("href", `${seasonBasePath}${link.getAttribute("href")}`);
+  });
+}
 
 const refreshEveryMs = 20000;
 const eventProjectionStaleMs = 25 * 60 * 1000;
@@ -298,6 +309,123 @@ async function loadMicrositeVersion() {
 }
 
 void loadMicrositeVersion();
+
+async function loadReleaseNotes() {
+  if (!releaseNotes) return;
+  try {
+    const response = await fetch(`${seasonBasePath}/release-notes.json`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error("release-notes-unavailable");
+    const payload = await response.json();
+    const releases = Array.isArray(payload.releases) ? payload.releases.slice(0, 20) : [];
+    if (releases.length === 0) throw new Error("release-notes-empty");
+    releaseNotes.replaceChildren(...releases.map((release) => {
+      const article = document.createElement("article");
+      const title = document.createElement("h3");
+      const summary = document.createElement("p");
+      title.textContent = `${String(release.version || "Version")} — ${String(release.title || "Évolution")}`;
+      summary.textContent = String(release.summary || "");
+      article.append(title, summary);
+      return article;
+    }));
+  } catch {
+    releaseNotes.textContent = "Les notes de version sont momentanément indisponibles.";
+  }
+}
+
+void loadReleaseNotes();
+
+async function loadSeasonState() {
+  try {
+    const suffix = seasonSlug ? `?season=${encodeURIComponent(seasonSlug)}` : "";
+    const response = await fetch(`/api/public/site-state/v1${suffix}`, { cache: "no-store", headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const state = await response.json();
+    seasonReadOnly = Boolean(state.readOnly);
+    document.body.classList.toggle("season-archive", seasonReadOnly);
+    if (seasonReadOnly) window.clearInterval(clockTimer);
+    if (seasonReadOnly && state.season) {
+      const banner = document.createElement("div");
+      banner.className = "season-archive-banner";
+      banner.setAttribute("role", "status");
+      const archivedAt = state.season.archivedAt
+        ? new Date(state.season.archivedAt).toLocaleString("fr-CA", { dateStyle: "long", timeStyle: "short" })
+        : "la clôture";
+      banner.innerHTML = `<strong>${escapeHtml(state.season.title)}</strong><span>Saison terminée — archives figées le ${escapeHtml(archivedAt)}.</span>`;
+      document.querySelector(".site-header")?.insertAdjacentElement("afterend", banner);
+      if (headerPlayers) headerPlayers.hidden = true;
+      if (refreshStatus) refreshStatus.setAttribute("aria-label", "Archive en lecture seule");
+      const updatedLabel = document.querySelector(".site-header__updated small");
+      if (updatedLabel) updatedLabel.textContent = "Données figées";
+      document.querySelectorAll(".home-echoes .eyebrow, #uptime-summary, .site-footer__brand > span").forEach((element) => {
+        element.textContent = element.textContent
+          .replace(/En direct de/gi, "Archives de")
+          .replace(/en direct/gi, "dans l’archive")
+          .replace(/L'aventure continue!/gi, "Saison archivée");
+      });
+    }
+    renderNextUpdate();
+    if (!seasonReadOnly) startRefreshClock();
+  } catch {
+    // Le portail reste lisible même si le petit état de saison est momentanément indisponible.
+  }
+}
+
+void loadSeasonState();
+
+function installCommandPalette() {
+  const dialog = document.createElement("dialog");
+  dialog.className = "command-palette";
+  dialog.setAttribute("aria-labelledby", "command-palette-title");
+  const routes = [
+    ["Accueil", "/"], ["Résumé", "/resume"], ["Classements", "/classements"],
+    ["Carte", "/carte"], ["Terminal", "/terminal"], ["Informations", "/informations"],
+  ];
+  dialog.innerHTML = `<div class="command-palette__shell"><header><span>Accès rapide</span><h2 id="command-palette-title">Où veux-tu aller?</h2></header><label><span class="visually-hidden">Filtrer les destinations</span><input type="search" autocomplete="off" placeholder="Rechercher une page…"></label><nav aria-label="Destinations">${routes.map(([label, href]) => `<a href="${seasonBasePath}${href}" data-palette-label="${label.toLocaleLowerCase("fr-CA")}">${label}</a>`).join("")}</nav><button type="button" class="command-palette__close">Fermer</button></div>`;
+  document.body.appendChild(dialog);
+  const input = dialog.querySelector("input");
+  const links = [...dialog.querySelectorAll("nav a")];
+  const close = () => dialog.close();
+  const open = () => { dialog.showModal(); input.value = ""; links.forEach((link) => { link.hidden = false; }); input.focus(); };
+  input.addEventListener("input", () => {
+    const query = input.value.trim().toLocaleLowerCase("fr-CA");
+    links.forEach((link) => { link.hidden = query !== "" && !link.dataset.paletteLabel.includes(query); });
+  });
+  dialog.querySelector(".command-palette__close").addEventListener("click", close);
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) close(); });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const focusable = [input, ...links.filter((link) => !link.hidden), dialog.querySelector(".command-palette__close")];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  document.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase("fr-CA") === "k") {
+      event.preventDefault();
+      dialog.open ? close() : open();
+    }
+  });
+}
+
+installCommandPalette();
+
+function showNetworkToast(message) {
+  const toast = document.createElement("div");
+  toast.className = "network-toast";
+  toast.setAttribute("role", "status");
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.remove(), 5000);
+}
+
+window.addEventListener("online", () => showNetworkToast("Connexion rétablie. Les données peuvent de nouveau être actualisées."));
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
 
 const sourceFreshnessLabels = {
   metrics: "Serveur",
@@ -1751,6 +1879,13 @@ function renderNextUpdate() {
     return;
   }
 
+  if (seasonReadOnly) {
+    nextUpdate.textContent = "Archive figée";
+    if (refreshStatus) refreshStatus.dataset.state = "updated";
+    if (refreshProgress) refreshProgress.style.transform = "scaleX(1)";
+    return;
+  }
+
   if (refreshPending) {
     nextUpdate.textContent = "Synchronisation...";
     if (refreshStatus) refreshStatus.dataset.state = "syncing";
@@ -1791,6 +1926,7 @@ function renderNextUpdate() {
 
 function startRefreshClock() {
   window.clearInterval(clockTimer);
+  if (seasonReadOnly) return;
   clockTimer = window.setInterval(renderNextUpdate, 250);
 }
 
@@ -7982,7 +8118,9 @@ function clearSearchOnEscape(event) {
 }
 
 async function readJson(path, options = {}) {
-  const source = path.startsWith("/") ? path : `/${path}`;
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  const seasonal = normalized.startsWith("/data/") || normalized.startsWith("/api/public/") || normalized === "/public-events-channel.json";
+  const source = seasonBasePath && seasonal ? `${seasonBasePath}${normalized}` : normalized;
   const requestSource = options.revalidate || options.immutable
     ? source
     : `${source}${source.includes("?") ? "&" : "?"}ts=${Date.now()}`;
@@ -8290,7 +8428,7 @@ async function loadEventsWithRecentOverlay(silent = false) {
 }
 
 async function refreshDataInBackground() {
-  if (refreshPending) return;
+  if (refreshPending || seasonReadOnly) return;
 
   refreshPending = true;
   renderNextUpdate();

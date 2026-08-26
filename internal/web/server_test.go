@@ -30,6 +30,7 @@ type fakeRepository struct {
 	eventBlock        <-chan struct{}
 	eventStarted      chan<- struct{}
 	batch             model.Batch
+	ingestError       error
 	nonces            map[string]bool
 	oauthStateCreates int
 }
@@ -58,6 +59,9 @@ func (f *fakeRepository) ClaimNonce(_ context.Context, agentID, nonce string, _ 
 }
 
 func (f *fakeRepository) IngestBatch(_ context.Context, batch model.Batch, _ string, activate bool) (model.IngestResult, error) {
+	if f.ingestError != nil {
+		return model.IngestResult{}, f.ingestError
+	}
 	if !activate {
 		return model.IngestResult{}, errors.New("activation attendue")
 	}
@@ -65,11 +69,52 @@ func (f *fakeRepository) IngestBatch(_ context.Context, batch model.Batch, _ str
 	return model.IngestResult{BatchID: batch.ID, Status: "active", ActiveSequence: batch.Sequence}, nil
 }
 
+func TestArchivedSeasonReturnsLockedAfterSignedIngest(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := &fakeRepository{ingestError: store.ErrSeasonArchived}
+	_, responsePrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(config.Web{PublicBaseURL: "https://example.test", AgentPublicKeys: map[string]ed25519.PublicKey{"agent-1": publicKey}, ResponsePrivateKey: responsePrivateKey, SignatureMaxSkew: time.Minute}, repository, slog.Default())
+	body := []byte(`{"batchId":"batch-1","agentId":"agent-1","stream":"stats","schemaVersion":1,"sequence":1,"capturedAt":"2026-08-26T12:00:00Z","payload":{"documents":[]}}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(body))
+	if err := auth.SignRequest(request, body, "agent-1", privateKey, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusLocked || response.Header().Get("X-Gaylemon-Season-State") != "archived" || response.Header().Get("X-Gaylemon-Response-Signature") == "" || !strings.Contains(response.Body.String(), "season-archived") {
+		t.Fatalf("réponse d'archive inattendue: status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
+
+func TestPublicSeasonStateIsExposed(t *testing.T) {
+	server := NewServer(config.Web{PublicBaseURL: "https://example.test"}, &fakeRepository{}, slog.Default())
+	for _, route := range []string{"/api/public/seasons/v1", "/api/public/site-state/v1"} {
+		request := httptest.NewRequest(http.MethodGet, route, nil)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "saison-2026") {
+			t.Fatalf("route %s: status=%d body=%s", route, response.Code, response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), "manifest") || strings.Contains(response.Body.String(), "/srv/storage") || strings.Contains(response.Body.String(), "season-2026") {
+			t.Fatalf("route %s expose des détails opérationnels: %s", route, response.Body.String())
+		}
+	}
+}
+
 func (f *fakeRepository) GetPublicDocument(_ context.Context, path string) (model.PublicDocument, bool, error) {
 	if f.document.Path != path {
 		return model.PublicDocument{}, false, nil
 	}
 	return f.document, true, nil
+}
+func (f *fakeRepository) GetPublicDocumentForSeason(ctx context.Context, _ string, path string) (model.PublicDocument, bool, error) {
+	return f.GetPublicDocument(ctx, path)
 }
 
 func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
@@ -92,6 +137,9 @@ func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.Publ
 	page.Limit = query.Limit
 	page.Date = query.Day
 	return page, true, nil
+}
+func (f *fakeRepository) QueryPublicEventsForSeason(ctx context.Context, _ string, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+	return f.QueryPublicEvents(ctx, query)
 }
 
 func (f *fakeRepository) PendingCommands(context.Context, string, int64) ([]model.Command, error) {
@@ -122,6 +170,25 @@ func (f *fakeRepository) GetSession(context.Context, string, time.Time) (store.S
 func (f *fakeRepository) DeleteSession(context.Context, string) error { return nil }
 func (f *fakeRepository) Dashboard(context.Context) (model.DashboardSnapshot, error) {
 	return model.DashboardSnapshot{}, nil
+}
+func (f *fakeRepository) ResolveSeason(context.Context, string) (model.Season, bool, error) {
+	return model.Season{ID: "season-2026", Slug: "saison-2026", Title: "Saison 2026", State: model.SeasonActive, Manifest: json.RawMessage(`{"immutableBackup":"/srv/storage/private.tar.zst"}`)}, true, nil
+}
+func (f *fakeRepository) ListSeasons(context.Context) ([]model.Season, error) {
+	season, _, _ := f.ResolveSeason(context.Background(), "")
+	return []model.Season{season}, nil
+}
+func (f *fakeRepository) CreateSeason(context.Context, model.SeasonCreate, string) (model.Season, error) {
+	return model.Season{ID: "season-new", State: model.SeasonDraft}, nil
+}
+func (f *fakeRepository) ActivateSeasonWithCommand(context.Context, string, string, string, string, time.Time) (model.Season, model.Command, error) {
+	return model.Season{ID: "season-new", State: model.SeasonActive}, model.Command{ID: "activate-command", Kind: "season.activate", Status: "pending"}, nil
+}
+func (f *fakeRepository) BeginSeasonArchive(context.Context, string, string, string, string, time.Time) (model.Command, error) {
+	return model.Command{ID: "archive-command", Kind: "season.archive", Status: "pending"}, nil
+}
+func (f *fakeRepository) ReopenSeason(context.Context, string, string, string, string, time.Time) (model.Season, model.Command, error) {
+	return model.Season{ID: "season-2026", State: model.SeasonActive}, model.Command{ID: "activate-command", Kind: "season.activate"}, nil
 }
 
 func testServer(t *testing.T, repository *fakeRepository) (http.Handler, ed25519.PrivateKey) {
