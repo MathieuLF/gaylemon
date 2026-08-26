@@ -35,16 +35,18 @@ try { go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=$Version"
 finally { Remove-Item Env:CGO_ENABLED,Env:GOOS,Env:GOARCH -ErrorAction SilentlyContinue }
 $agentSha = (Get-FileHash -LiteralPath $agent -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText("$agent.sha256", "$agentSha  $([IO.Path]::GetFileName($agent))`n", [Text.UTF8Encoding]::new($false))
-cosign sign-blob --yes --key $CosignKey --output-signature "$agent.sig" --output-certificate "$agent.pem" $agent
+$agentBundle = "$agent.cosign-bundle.json"
+cosign sign-blob --yes --key $CosignKey --bundle $agentBundle $agent
 if ($LASTEXITCODE -ne 0) { throw 'Signature du bundle agent impossible.' }
-cosign verify-blob --key $CosignPublicKey --signature "$agent.sig" $agent
+cosign verify-blob --key $CosignPublicKey --bundle $agentBundle $agent
 if ($LASTEXITCODE -ne 0) { throw 'Vérification du bundle agent impossible.' }
 $localImageID = (docker image inspect $tag --format '{{.Id}}').Trim()
 $descriptor = Join-Path $output "gaylemon-$Version-local-image.json"
 [IO.File]::WriteAllText($descriptor, (([ordered]@{ image=$tag; imageId=$localImageID; commit=$commit } | ConvertTo-Json) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-cosign sign-blob --yes --key $CosignKey --output-signature "$descriptor.sig" --output-certificate "$descriptor.pem" $descriptor
+$descriptorBundle = "$descriptor.cosign-bundle.json"
+cosign sign-blob --yes --key $CosignKey --bundle $descriptorBundle $descriptor
 if ($LASTEXITCODE -ne 0) { throw "Preuve Cosign locale de l'image impossible." }
-cosign verify-blob --key $CosignPublicKey --signature "$descriptor.sig" $descriptor
+cosign verify-blob --key $CosignPublicKey --bundle $descriptorBundle $descriptor
 if ($LASTEXITCODE -ne 0) { throw "Vérification de la preuve locale de l'image impossible." }
 if ($Publish) {
     docker push $tag
