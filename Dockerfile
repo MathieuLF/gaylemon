@@ -43,7 +43,8 @@ RUN release="${GAYLEMON_VERSION:-$(tr -d '\r\n' < VERSION)}" \
     && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.channel=${GAYLEMON_CHANNEL}" -o /out/gaylemon-web ./cmd/gaylemon-web
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 gaylemon \
     && adduser -S -D -H -u 10001 -G gaylemon gaylemon
 WORKDIR /app
