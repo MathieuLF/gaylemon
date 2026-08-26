@@ -786,7 +786,7 @@ test("l'accueil distingue le contrôle du flux du dernier écho", async () => {
 });
 
 test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
-  const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
+  const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html", "informations.html"];
   for (const page of pages) {
     const html = await portalFile(page);
     assert.match(html, /styles\.css\?v=20260822\.4/);
@@ -820,4 +820,20 @@ test("la version du microsite est rendue comme du texte non interprété", async
   assert.match(loader, /cache: "no-store"/);
   assert.match(loader, /micrositeVersion\.textContent/);
   assert.doesNotMatch(loader, /innerHTML/);
+});
+
+test("le socle hors ligne, la palette et les archives restent publics mais bornés", async () => {
+  const app = await portalFile("assets/app.js");
+  const worker = await portalFile("sw.js");
+  const information = await portalFile("informations.html");
+  const releaseNotes = JSON.parse(await portalFile("release-notes.json"));
+
+  assert.match(app, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(app, /seasonReadOnly/);
+  assert.match(app, /Archive figée/);
+  assert.match(worker, /request\.mode === "navigate"/);
+  assert.match(worker, /url\.pathname\.startsWith\("\/ops"\)/);
+  assert.match(worker, /url\.origin !== self\.location\.origin/);
+  assert.match(information, /Gaylémon suit l’aventure, sans diriger le jeu/);
+  assert.equal(releaseNotes.schema, "gaylemon.release-notes.v1");
 });

@@ -23,8 +23,9 @@ Les fichiers `*.example.json` sous `portal/data/` sont publiables seulement parc
 - `portal/joueur/`;
 - `portal/assets/game/`;
 - `runtime/`;
-- `vendor/PalworldSaveTools/`;
 - caches, rapports, sorties Playwright et dépendances locales.
+
+Le dépôt ne contient plus de répertoire Go `vendor`. L’outil PalworldSaveTools utilisé sur Ubuntu est livré séparément depuis son archive épinglée et vérifiée; il ne doit pas être cloné sous la racine du module Go.
 
 ## Avant de pousser
 

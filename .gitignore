@@ -13,9 +13,9 @@ portal/data/public-catalogs/
 portal/joueur/
 output/
 .playwright-cli/
-vendor/PalworldSaveTools/
 portal/assets/game/
 runtime/
+release/
 server/build/
 config/local/
 .env
@@ -33,6 +33,8 @@ venv/
 .ruff_cache/
 node_modules/
 coverage/
+test-results/
+playwright-report/
 *.tar
 *.tar.gz
 *.zip

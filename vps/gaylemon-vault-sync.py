@@ -42,6 +42,10 @@ SECRET_DEFINITIONS = {
         "password",
         "Secret de l'application OAuth GitHub du portail d'exploitation.",
     ),
+    "GAYLEMON_RESPONSE_PRIVATE_KEY": (
+        "password",
+        "Clé privée Ed25519 des réponses de cycle de saison.",
+    ),
 }
 SECRET_KEYS = frozenset(SECRET_DEFINITIONS)
 ENV_KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")

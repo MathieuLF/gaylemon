@@ -49,7 +49,7 @@ if (-not $SansGo) {
     else {
         $previousGoFlags = $env:GOFLAGS
         try {
-            $env:GOFLAGS = "-mod=mod"
+            $env:GOFLAGS = "-mod=readonly"
             $actualGoVersion = (& $go.Source env GOVERSION 2>&1 | Out-String).Trim()
             Write-Result ($actualGoVersion -eq "go$requiredGoVersion") "Version Go $requiredGoVersion" $actualGoVersion
             & $go.Source test ./... 2>&1 | Out-Host
@@ -128,16 +128,18 @@ Write-Result (
 
 $productionComposeSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "compose.production.yaml") -Raw -Encoding UTF8
 $productionDeploySource = Get-Content -LiteralPath (Join-Path $ProjectRoot "vps\gaylemon-deploy-production") -Raw -Encoding UTF8
+$releaseSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\release.ps1") -Raw -Encoding UTF8
 $versionComparatorSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "scripts\comparer-version.ps1") -Raw -Encoding UTF8
 Write-Result (
     $dockerfileSource.Contains('COPY VERSION ./VERSION') -and
     $dockerfileSource.Contains('-X main.version=${release}') -and
     $dockerfileSource.Contains('-X main.commit=${GAYLEMON_COMMIT}') -and
     $dockerfileSource.Contains('-X main.channel=${GAYLEMON_CHANNEL}') -and
-    $productionComposeSource.Contains('GAYLEMON_COMMIT: ${GAYLEMON_COMMIT:-unknown}') -and
-    $productionComposeSource.Contains('GAYLEMON_CHANNEL: ${GAYLEMON_CHANNEL:-production}') -and
-    $productionDeploySource.Contains('GAYLEMON_VERSION="$release_version"') -and
-    $productionDeploySource.Contains('GAYLEMON_COMMIT="$commit"') -and
+    $productionComposeSource.Contains('image: ${GAYLEMON_IMAGE_REFERENCE:?GAYLEMON_IMAGE_REFERENCE avec digest requis}') -and
+    $productionDeploySource.Contains('commit="$(/usr/bin/git -C "$project_root" rev-parse HEAD)"') -and
+    $productionDeploySource.Contains('"image":"%s"') -and
+    $releaseSource.Contains('--build-arg "GAYLEMON_COMMIT=$commit"') -and
+    $releaseSource.Contains('docker buildx imagetools inspect $tag') -and
     $versionComparatorSource.Contains('Invoke-RestMethod -Uri $versionUri') -and
     $versionComparatorSource.Contains('gitHubMatchesProduction')
 ) "Provenance de version local-GitHub-VPS" "Le build, le déploiement et le comparateur doivent utiliser VERSION et le commit Git exacts."
@@ -146,9 +148,10 @@ $adminHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\sb
 $announceHelperSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "server\bin\palworld-announce.sh") -Raw -Encoding UTF8
 Write-Result (
     $adminHelperSource.Contains('/usr/bin/systemctl start --no-block palworld-backup.service') -and
-    $adminHelperSource.Contains('/usr/bin/systemd-run --quiet --collect --on-active=5s --unit=gaylemon-agent-restart') -and
-    -not $adminHelperSource.Contains('palworld-update.service') -and
-    -not $adminHelperSource.Contains('palworld.service') -and
+	$adminHelperSource.Contains('/usr/bin/systemd-run --quiet --collect --on-active=5s --unit=gaylemon-agent-restart') -and
+	$adminHelperSource.Contains('palworld_pid_before=') -and
+	$adminHelperSource.Contains('palworld_pid_after=') -and
+	-not $adminHelperSource.Contains('/usr/bin/systemctl restart palworld.service') -and
     $announceHelperSource.Contains('Annonce transmise au chat du jeu.')
 ) "Commandes Ops avec retour non bloquant" "Les actions sûres rendent un résultat exploitable; Palworld reste hors du canal non interactif."
 

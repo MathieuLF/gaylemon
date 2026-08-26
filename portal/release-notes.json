@@ -1,0 +1,10 @@
+{
+  "schema": "gaylemon.release-notes.v1",
+  "releases": [
+    {
+      "version": "2026.08.26.1",
+      "title": "Saisons durables",
+      "summary": "Gaylémon peut maintenant préserver une saison terminée comme microsite en lecture seule, puis accueillir une nouvelle aventure sans écraser ses archives."
+    }
+  ]
+}

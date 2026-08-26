@@ -4,6 +4,8 @@ Le déploiement public sur PostgreSQL 16 et DockPanel est décrit dans [Publicat
 
 Le dépôt peut préparer une livraison Ubuntu, mais rien ne doit partir en production par surprise.
 
+La clé de signature de release s'initialise une seule fois avec `scripts/setup-signing-key.ps1`. Sa clé privée reste sous `~/.gaylemon`, avec un mot de passe protégé par DPAPI; seule `security/cosign.pub` est versionnée.
+
 ## Avant de livrer
 
 ```powershell
@@ -82,15 +84,7 @@ Pour redémarrer un auxiliaire touché:
   -RestartUnit palworld-welcome.service
 ```
 
-Pour redémarrer le jeu, il faut le demander explicitement:
-
-```powershell
-.\scripts\deployer-ubuntu.ps1 -Install `
-  -RestartUnit palworld.service `
-  -AllowPalworldRestart
-```
-
-Cette option doit rester réservée à une fenêtre annoncée.
+Une livraison Gaylémon refuse toujours `palworld.service`, même lorsqu’un argument de redémarrage est fourni. Une opération sur le jeu passe par la console d’exploitation distincte, avec sa propre autorité et sa propre fenêtre.
 
 ## Manifeste
 

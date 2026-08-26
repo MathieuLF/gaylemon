@@ -14957,3 +14957,53 @@ body.terminal-view .event-line__tooltip-items li {
     max-block-size: 190px;
   }
 }
+/* Continuité réseau, archives saisonnières et navigation au clavier. */
+.season-archive-banner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: .4rem 1rem;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, #176d70 35%, transparent);
+  background: #fff7d8;
+  color: #27463e;
+  text-align: center;
+}
+
+.season-archive .site-header__players,
+.season-archive .site-header__updated {
+  opacity: .78;
+}
+
+.command-palette {
+  width: min(92vw, 34rem);
+  padding: 0;
+  border: 1px solid #76aa95;
+  border-radius: 1.25rem;
+  background: #f8fff9;
+  color: #173f36;
+  box-shadow: 0 2rem 5rem #09231b55;
+}
+
+.command-palette::backdrop { background: #061d18aa; backdrop-filter: blur(5px); }
+.command-palette__shell { display: grid; gap: 1rem; padding: 1.25rem; }
+.command-palette header span { color: #176d70; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.command-palette h2 { margin: .15rem 0 0; font-family: "Baloo 2", system-ui, sans-serif; }
+.command-palette input { width: 100%; padding: .85rem 1rem; border: 1px solid #9ac7b4; border-radius: .8rem; background: #fff; color: inherit; font: inherit; }
+.command-palette nav { display: grid; gap: .35rem; }
+.command-palette nav a { padding: .7rem .85rem; border-radius: .7rem; color: inherit; font-weight: 750; text-decoration: none; }
+.command-palette nav a:hover,
+.command-palette nav a:focus-visible { background: #dff3e8; outline: 2px solid #176d70; outline-offset: 1px; }
+.command-palette__close { justify-self: end; border: 0; background: transparent; color: #176d70; font: inherit; font-weight: 800; cursor: pointer; }
+.network-toast { position: fixed; z-index: 10000; right: 1rem; bottom: 1rem; max-width: 24rem; padding: .8rem 1rem; border-radius: .8rem; background: #123f34; color: #fff; box-shadow: 0 .8rem 2rem #0005; }
+
+/* Les couleurs dynamiques demeurent décoratives; le texte conserve un contraste AA stable. */
+.adventurer-card__team span,
+.adventurer-card__team b { color: #3f4d5c !important; }
+.event-line__meta b,
+.event-line__meta .event-line__player,
+.event-line__visual .event-line__token { color: #4d493f !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .command-palette::backdrop { backdrop-filter: none; }
+}

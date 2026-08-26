@@ -17,10 +17,11 @@ Les fonctionnalités passent par des branches courtes et une pull request. La VP
 
 ## Secrets de la VPS
 
-Le Vault DockPanel **Gaylémon production**, rattaché au site `gaylemon.nethercore.dev`, est la source de vérité. Il contient exactement quatre entrées avec l'injection automatique activée :
+Le Vault DockPanel **Gaylémon production**, rattaché au site `gaylemon.nethercore.dev`, est la source de vérité. Il contient exactement cinq entrées avec l'injection automatique activée :
 
 - `GAYLEMON_DATABASE_URL`;
 - `GAYLEMON_AGENT_PUBLIC_KEYS`;
+- `GAYLEMON_RESPONSE_PRIVATE_KEY`;
 - `GAYLEMON_GITHUB_CLIENT_ID`;
 - `GAYLEMON_GITHUB_CLIENT_SECRET`.
 
@@ -33,7 +34,7 @@ sudo install -o root -g root -m 0755 vps/gaylemon-vault-sync.py /usr/local/sbin/
 sudo install -o root -g root -m 0755 vps/gaylemon-deploy-production /usr/local/sbin/gaylemon-deploy-production
 ```
 
-Lors d'une première adoption seulement, importer les quatre valeurs de l'ancien fichier puis les relire immédiatement depuis le coffre :
+Lors d'une première adoption seulement, importer les cinq valeurs de l'ancien fichier puis les relire immédiatement depuis le coffre :
 
 ```bash
 sudo gaylemon-vault-sync bootstrap --source /etc/gaylemon/production.env
@@ -41,13 +42,16 @@ sudo gaylemon-vault-sync sync
 sudo gaylemon-vault-sync check
 ```
 
-Après une rotation dans DockPanel, ou pour livrer une nouvelle version, utiliser la commande unique :
+Après une rotation dans DockPanel, ou pour livrer une nouvelle version, utiliser la commande unique avec le digest signé et le reçu root-only de la sauvegarde préalable :
 
 ```bash
-sudo gaylemon-deploy-production
+sudo env \
+  GAYLEMON_IMAGE_REFERENCE='ghcr.io/mathieulf/gaylemon@sha256:EMPREINTE' \
+  GAYLEMON_BACKUP_RECEIPT='/var/lib/gaylemon/backups/AAAAMMJJTHHMMSSZ.json' \
+  gaylemon-deploy-production
 ```
 
-Elle synchronise d'abord le Vault, valide le Compose sans afficher les valeurs, redéploie uniquement le service web et vérifie le port local `18081`. Elle ne touche ni à PostgreSQL, ni à l'agent Ubuntu, ni à Palworld.
+Elle vérifie CoSign, les attestations SPDX et CycloneDX, la sauvegarde, puis synchronise le Vault sans afficher les valeurs. Elle redéploie uniquement le service web, vérifie les routes, le durcissement et les journaux, et revient au digest précédent en cas d’échec. Elle ne touche ni à PostgreSQL, ni à l'agent Ubuntu, ni à Palworld; le PID et `NRestarts` de `palworld.service` doivent être identiques avant et après.
 
 Le déploiement lit la version produit dans `VERSION` et injecte aussi le commit Git complet dans le binaire. Après livraison, la route publique suivante permet de vérifier exactement ce qui répond:
 
@@ -101,7 +105,7 @@ install -m 0600 /tmp/gaylemon-agent.key /home/gaylemon/.config/gaylemon/agent.ke
 install -m 0600 server/agent.env.example /home/gaylemon/.config/gaylemon/agent.env
 ```
 
-La commande affiche uniquement la clé publique à placer dans `GAYLEMON_AGENT_PUBLIC_KEYS` sur la VPS. Le fichier temporaire privé doit ensuite être retiré.
+La commande affiche uniquement la clé publique à placer dans `GAYLEMON_AGENT_PUBLIC_KEYS` sur la VPS. Le fichier temporaire privé doit ensuite être retiré. La clé publique correspondant à `GAYLEMON_RESPONSE_PRIVATE_KEY` est épinglée dans `GAYLEMON_RESPONSE_PUBLIC_KEY` sur l’agent; elle peut être comparée à `GET /api/public/signing-key/v1` avant activation. Ainsi, un refus `423 season-archived` n’est accepté qu’avec une signature Ed25519 fraîche du service.
 
 ## Démarrage progressif
 
@@ -121,8 +125,8 @@ $env:GAYLEMON_AGENT_ID = "bootstrap-windows"
 $env:GAYLEMON_API_BASE_URL = "https://gaylemon.nethercore.dev"
 $env:GAYLEMON_AGENT_PRIVATE_KEY_FILE = "C:\chemin\prive\bootstrap.key"
 $env:GAYLEMON_AGENT_SPOOL = "C:\chemin\prive\bootstrap-spool.db"
-go run -mod=mod .\cmd\gaylemon publish --source .\portal\data --prefix data --stream bootstrap
-go run -mod=mod .\cmd\gaylemon publish --source .\portal\public-events-channel.json --prefix public-events-channel.json --stream bootstrap
+go run -mod=readonly .\cmd\gaylemon publish --source .\portal\data --prefix data --stream bootstrap
+go run -mod=readonly .\cmd\gaylemon publish --source .\portal\public-events-channel.json --prefix public-events-channel.json --stream bootstrap
 ```
 
 Retirer la clé publique `bootstrap-windows` de la VPS après l'import.

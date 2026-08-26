@@ -19,7 +19,7 @@ FROM alpine:3.24 AS build
 
 ARG GO_VERSION=1.27.0
 ARG GO_LINUX_AMD64_SHA256=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates build-base \
     && wget -q "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -O /tmp/go.tar.gz \
     && echo "${GO_LINUX_AMD64_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
@@ -33,16 +33,18 @@ RUN test "$(go env GOVERSION)" = "go${GO_VERSION}" \
 COPY cmd ./cmd
 COPY db ./db
 COPY internal ./internal
+COPY portal ./portal
 COPY VERSION ./VERSION
 ARG GAYLEMON_VERSION
 ARG GAYLEMON_COMMIT=unknown
 ARG GAYLEMON_CHANNEL=development
 RUN release="${GAYLEMON_VERSION:-$(tr -d '\r\n' < VERSION)}" \
     && test -n "${release}" \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=mod -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.channel=${GAYLEMON_CHANNEL}" -o /out/gaylemon-web ./cmd/gaylemon-web
+    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.channel=${GAYLEMON_CHANNEL}" -o /out/gaylemon-web ./cmd/gaylemon-web
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 gaylemon \
     && adduser -S -D -H -u 10001 -G gaylemon gaylemon
 WORKDIR /app

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -10,11 +11,12 @@ import (
 )
 
 type Runner struct {
-	Config  Config
-	Spool   *Spool
-	Client  *Client
-	Logger  *slog.Logger
-	Version string
+	Config               Config
+	Spool                *Spool
+	Client               *Client
+	Logger               *slog.Logger
+	Version              string
+	CommandDrainInterval time.Duration
 }
 
 func (r *Runner) Flush(ctx context.Context) (int, error) {
@@ -67,6 +69,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			r.Logger.Warn("commandes indisponibles", "error", err)
 		} else {
 			executor := CommandExecutor{Helper: r.Config.CommandHelper, UseSudo: r.Config.CommandSudo}
+			execute := func(commandContext context.Context, command model.Command) model.CommandAck {
+				return executor.Execute(commandContext, command)
+			}
 			for _, command := range commands {
 				ack, found, resultErr := r.Spool.CommandResult(ctx, command.ID)
 				if resultErr != nil {
@@ -74,7 +79,15 @@ func (r *Runner) Run(ctx context.Context) error {
 					break
 				}
 				if !found {
-					ack = executor.Execute(ctx, command)
+					if command.Kind == "season.activate" && commandTransition(command) == "activate" {
+						if err := r.Spool.ResetForNewSeason(ctx); err != nil {
+							ack = model.CommandAck{Status: "failed", Message: "préparation locale de la saison impossible: " + err.Error()}
+						} else {
+							ack = r.executeCommand(ctx, command, execute)
+						}
+					} else {
+						ack = r.executeCommand(ctx, command, execute)
+					}
 					if err := r.Spool.SaveCommandResult(ctx, command, ack); err != nil {
 						r.Logger.Warn("résultat local non enregistré", "command", command.ID, "error", err)
 						break
@@ -94,4 +107,40 @@ func (r *Runner) Run(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (r *Runner) executeCommand(ctx context.Context, command model.Command, execute func(context.Context, model.Command) model.CommandAck) model.CommandAck {
+	if command.Kind != "season.archive" {
+		return execute(ctx, command)
+	}
+	completed := make(chan model.CommandAck, 1)
+	go func() { completed <- execute(ctx, command) }()
+	drainInterval := r.CommandDrainInterval
+	if drainInterval <= 0 {
+		drainInterval = 2 * time.Second
+	}
+	ticker := time.NewTicker(drainInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case ack := <-completed:
+			return ack
+		case <-ticker.C:
+			if _, err := r.Flush(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				r.Logger.Warn("vidage final reporté", "command", command.ID, "error", err)
+			}
+		case <-ctx.Done():
+			return model.CommandAck{Status: "failed", Message: ctx.Err().Error()}
+		}
+	}
+}
+
+func commandTransition(command model.Command) string {
+	var arguments struct {
+		Transition string `json:"transition"`
+	}
+	if json.Unmarshal(command.Arguments, &arguments) != nil {
+		return ""
+	}
+	return arguments.Transition
 }
