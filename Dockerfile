@@ -33,6 +33,7 @@ RUN test "$(go env GOVERSION)" = "go${GO_VERSION}" \
 COPY cmd ./cmd
 COPY db ./db
 COPY internal ./internal
+COPY portal ./portal
 COPY VERSION ./VERSION
 ARG GAYLEMON_VERSION
 ARG GAYLEMON_COMMIT=unknown
