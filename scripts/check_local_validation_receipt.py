@@ -31,6 +31,24 @@ REQUIRED_KEYS = {
     "signature",
     "validatedAt",
 }
+FULL_TOOLS = {
+    "go",
+    "node",
+    "powershell",
+    "python",
+    "git",
+    "npm",
+    "docker",
+    "playwright",
+    "axe",
+    "deadcode",
+    "govulncheck",
+    "gitleaks",
+    "syft",
+    "trivy",
+    "cosign",
+    "bash",
+}
 
 
 def _canonical_routes(routes: list[dict[str, Any]]) -> bytes:
@@ -88,8 +106,14 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
             elif normalized != sorted(normalized) or len(normalized) != len(set(normalized)):
                 errors.append("l'inventaire des routes doit être trié et sans doublon")
 
-    if not isinstance(receipt.get("tools"), dict) or not receipt.get("tools"):
+    tools = receipt.get("tools")
+    if not isinstance(tools, dict) or not tools:
         errors.append("tools doit être un objet non vide")
+    elif any(not isinstance(value, str) or not value.strip() for value in tools.values()):
+        errors.append("chaque outil doit fournir une version détectée")
+    elif receipt.get("mode") == "full":
+        missing_tools = sorted(FULL_TOOLS - tools.keys())
+        errors.extend(f"outil Full manquant: {tool}" for tool in missing_tools)
     if not isinstance(receipt.get("checks"), list) or not receipt.get("checks"):
         errors.append("checks doit être une liste non vide")
     if not isinstance(receipt.get("artifacts"), list):

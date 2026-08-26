@@ -35,7 +35,24 @@ def valid_receipt() -> dict[str, object]:
         "cleanAtStart": True,
         "cleanAtEnd": True,
         "routes": {"count": len(routes), "sha256": digest, "inventory": routes},
-        "tools": {"go": "go1.27.0"},
+        "tools": {
+            "go": "go1.27.0",
+            "node": "v24.19.0",
+            "powershell": "7.6.4",
+            "python": "Python 3.14.7",
+            "git": "git version 2.55.0.windows.3",
+            "npm": "12.0.2",
+            "docker": "29.7.2",
+            "playwright": "1.62.1",
+            "axe": "4.13.0",
+            "deadcode": "v0.49.0",
+            "govulncheck": "v1.7.0",
+            "gitleaks": "8.30.1",
+            "syft": "1.51.0",
+            "trivy": "0.74.0",
+            "cosign": "3.1.3",
+            "bash": "5.2.37(1)-release",
+        },
         "checks": [{"name": "go-test", "result": "success"}],
         "artifacts": ["gaylemon-local:2026.08.26.1"],
         "sbom": ["release/gaylemon-2026.08.26.1.spdx.json"],
@@ -65,6 +82,12 @@ class LocalValidationReceiptTests(unittest.TestCase):
         receipt = copy.deepcopy(valid_receipt())
         receipt["suiteContract"] = receipt.pop("contract")
         with self.assertRaisesRegex(ValueError, "contract"):
+            MODULE.validate_receipt(receipt)
+
+    def test_rejects_incomplete_full_tool_inventory(self) -> None:
+        receipt = valid_receipt()
+        del receipt["tools"]["cosign"]
+        with self.assertRaisesRegex(ValueError, "outil Full manquant: cosign"):
             MODULE.validate_receipt(receipt)
 
 
