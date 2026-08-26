@@ -18,6 +18,13 @@ function Invoke-Check([string]$Name, [scriptblock]$Action) {
     if ($LASTEXITCODE -ne 0) { throw "$Name a échoué." }
     $checks.Add([ordered]@{ name = $Name; result = 'success' })
 }
+function Get-VersionCapture([string]$Text, [string]$Pattern, [string]$Tool) {
+    $match = [regex]::Match($Text, $Pattern, [Text.RegularExpressions.RegexOptions]::Multiline)
+    if (-not $match.Success -or -not $match.Groups[1].Value.Trim()) {
+        throw "Version de $Tool indétectable."
+    }
+    return $match.Groups[1].Value.Trim()
+}
 
 $inventory = & (Join-Path $PSScriptRoot 'upgrade-preflight.ps1') -Mode Inventory | ConvertFrom-Json
 $routeInventory = & (Join-Path $PSScriptRoot 'inventory-routes.ps1') -Check | ConvertFrom-Json
@@ -69,6 +76,27 @@ if ($Mode -eq 'Full') {
     $sbomArtifacts += "release/gaylemon-$version.spdx.json"
     $sbomArtifacts += "release/gaylemon-$version.cdx.json"
 }
+$toolVersions = [ordered]@{
+    go = (& go env GOVERSION).Trim()
+    node = (& node --version).Trim()
+    powershell = $PSVersionTable.PSVersion.ToString()
+    python = (& python --version 2>&1 | Out-String).Trim()
+    git = (& git --version).Trim()
+}
+if ($Mode -eq 'Full') {
+    $packages = Get-Content -Raw -LiteralPath (Join-Path $root 'package.json') | ConvertFrom-Json
+    $toolVersions['npm'] = (& npm --version).Trim()
+    $toolVersions['docker'] = (& docker version --format '{{.Client.Version}}').Trim()
+    $toolVersions['playwright'] = $packages.devDependencies.'@playwright/test'
+    $toolVersions['axe'] = $packages.devDependencies.'@axe-core/playwright'
+    $toolVersions['deadcode'] = (& go list -m -f '{{.Version}}' golang.org/x/tools).Trim()
+    $toolVersions['govulncheck'] = Get-VersionCapture ((& govulncheck -version 2>&1 | Out-String)) '^Scanner:\s+govulncheck@(\S+)' 'govulncheck'
+    $toolVersions['gitleaks'] = (& gitleaks version).Trim()
+    $toolVersions['syft'] = Get-VersionCapture ((& syft version 2>&1 | Out-String)) '^Version:\s+(\S+)' 'Syft'
+    $toolVersions['trivy'] = Get-VersionCapture ((& trivy version 2>&1 | Out-String)) '^Version:\s+(\S+)' 'Trivy'
+    $toolVersions['cosign'] = Get-VersionCapture ((& cosign version 2>&1 | Out-String)) '^GitVersion:\s+v?(\S+)' 'Cosign'
+    $toolVersions['bash'] = Get-VersionCapture ((& bash --version 2>&1 | Out-String)) '^GNU bash, version\s+(\S+)' 'Bash'
+}
 $receipt = [ordered]@{
     schema = 'suite.local-validation.v2'
     contract = 'suite-foundation-v2'
@@ -85,7 +113,7 @@ $receipt = [ordered]@{
         sha256 = $routeHash
         inventory = @($routeInventory.routes)
     }
-    tools = [ordered]@{ go = (& go env GOVERSION).Trim(); node = (& node --version).Trim() }
+    tools = $toolVersions
     checks = $checks
     artifacts = @($artifacts)
     sbom = @($sbomArtifacts)
