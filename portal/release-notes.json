@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "2026.08.26.2",
+      "title": "Validation reproductible",
+      "summary": "Les contrôles de sécurité et la chaîne de release utilisent désormais des outils conteneurisés et épinglés, avec une provenance exacte du commit publié."
+    },
+    {
       "version": "2026.08.26.1",
       "title": "Saisons durables",
       "summary": "Gaylémon peut maintenant préserver une saison terminée comme microsite en lecture seule, puis accueillir une nouvelle aventure sans écraser ses archives."
