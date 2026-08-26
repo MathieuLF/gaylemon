@@ -9,9 +9,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+$syftImage = 'anchore/syft:v1.50.0@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026'
+$trivyImage = 'aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+$cosignImage = 'ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8'
 if (@(& git -C $root status --porcelain).Count -ne 0) { throw 'La publication exige un arbre Git propre.' }
-foreach ($command in 'docker','syft','trivy','cosign','go') {
+foreach ($command in 'docker','go') {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "Outil de release absent: $command" }
+}
+function Invoke-Checked([scriptblock]$Action, [string]$Message) {
+    & $Action
+    if ($LASTEXITCODE -ne 0) { throw $Message }
+}
+function New-GHCRDockerConfig {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI est requis pour publier dans GHCR.' }
+    $login = (& gh api user --jq .login).Trim()
+    $token = (& gh auth token).Trim()
+    if (-not $login -or -not $token) { throw 'Authentification GitHub/GHCR absente.' }
+    $auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("${login}:$token"))
+    $directory = Join-Path ([IO.Path]::GetTempPath()) ('gaylemon-cosign-docker-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $directory | Out-Null
+    $config = [ordered]@{ auths = [ordered]@{ 'ghcr.io' = [ordered]@{ auth = $auth } } }
+    [IO.File]::WriteAllText((Join-Path $directory 'config.json'), ($config | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
+    $token = $null
+    return $directory
 }
 foreach ($keyPath in $CosignKey,$CosignPublicKey) {
     if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) { throw "Clé CoSign absente: $keyPath" }
@@ -34,10 +54,14 @@ docker build --build-arg "GAYLEMON_VERSION=$Version" --build-arg "GAYLEMON_COMMI
 if ($LASTEXITCODE -ne 0) { throw 'Construction OCI impossible.' }
 $output = Join-Path $root 'release'
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-syft $tag -o "spdx-json=$output\gaylemon-$Version.spdx.json" -o "cyclonedx-json=$output\gaylemon-$Version.cdx.json"
-if ($LASTEXITCODE -ne 0) { throw 'SBOM impossible.' }
-trivy image --exit-code 1 --severity HIGH,CRITICAL $tag
-if ($LASTEXITCODE -ne 0) { throw 'Scan Trivy bloquant.' }
+$outputMount = $output.Replace('\', '/')
+Invoke-Checked {
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${outputMount}:/out" $syftImage $tag `
+        -o "spdx-json=/out/gaylemon-$Version.spdx.json" -o "cyclonedx-json=/out/gaylemon-$Version.cdx.json"
+} 'SBOM impossible.'
+Invoke-Checked {
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $trivyImage image --exit-code 1 --severity HIGH,CRITICAL $tag
+} 'Scan Trivy bloquant.'
 $agent = Join-Path $output "gaylemon-agent-$Version-linux-amd64"
 $env:CGO_ENABLED = '0'; $env:GOOS = 'linux'; $env:GOARCH = 'amd64'
 try { go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=$Version" -o $agent ./cmd/gaylemon }
@@ -48,30 +72,49 @@ $previousCosignPassword = $env:COSIGN_PASSWORD
 try {
     $env:COSIGN_PASSWORD = Read-CosignPassword $CosignKey
     $agentBundle = "$agent.cosign-bundle.json"
-    cosign sign-blob --yes --key $CosignKey --bundle $agentBundle $agent
-    if ($LASTEXITCODE -ne 0) { throw 'Signature du bundle agent impossible.' }
-    cosign verify-blob --key $CosignPublicKey --bundle $agentBundle $agent
-    if ($LASTEXITCODE -ne 0) { throw 'Vérification du bundle agent impossible.' }
+    $keyDirectory = [IO.Path]::GetFullPath((Split-Path -Parent $CosignKey))
+    $keyName = Split-Path -Leaf $CosignKey
+    $publicKeyDirectory = [IO.Path]::GetFullPath((Split-Path -Parent $CosignPublicKey))
+    $publicKeyName = Split-Path -Leaf $CosignPublicKey
+    $agentName = Split-Path -Leaf $agent
+    $agentBundleName = Split-Path -Leaf $agentBundle
+    Invoke-Checked {
+        docker run --rm -e COSIGN_PASSWORD -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out" $cosignImage `
+            sign-blob --yes --use-signing-config=false --key "/keys/$keyName" --bundle "/out/$agentBundleName" "/out/$agentName"
+    } 'Signature du bundle agent impossible.'
+    Invoke-Checked {
+        docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
+            verify-blob --key "/trust/$publicKeyName" --bundle "/out/$agentBundleName" "/out/$agentName"
+    } 'Vérification du bundle agent impossible.'
     $localImageID = (docker image inspect $tag --format '{{.Id}}').Trim()
     $descriptor = Join-Path $output "gaylemon-$Version-local-image.json"
     [IO.File]::WriteAllText($descriptor, (([ordered]@{ image=$tag; imageId=$localImageID; commit=$commit } | ConvertTo-Json) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
     $descriptorBundle = "$descriptor.cosign-bundle.json"
-    cosign sign-blob --yes --key $CosignKey --bundle $descriptorBundle $descriptor
-    if ($LASTEXITCODE -ne 0) { throw "Preuve Cosign locale de l'image impossible." }
-    cosign verify-blob --key $CosignPublicKey --bundle $descriptorBundle $descriptor
-    if ($LASTEXITCODE -ne 0) { throw "Vérification de la preuve locale de l'image impossible." }
+    $descriptorName = Split-Path -Leaf $descriptor
+    $descriptorBundleName = Split-Path -Leaf $descriptorBundle
+    Invoke-Checked {
+        docker run --rm -e COSIGN_PASSWORD -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out" $cosignImage `
+            sign-blob --yes --use-signing-config=false --key "/keys/$keyName" --bundle "/out/$descriptorBundleName" "/out/$descriptorName"
+    } "Preuve Cosign locale de l'image impossible."
+    Invoke-Checked {
+        docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
+            verify-blob --key "/trust/$publicKeyName" --bundle "/out/$descriptorBundleName" "/out/$descriptorName"
+    } "Vérification de la preuve locale de l'image impossible."
     if ($Publish) {
         docker push $tag
         if ($LASTEXITCODE -ne 0) { throw 'Publication GHCR impossible.' }
         $digest = (docker buildx imagetools inspect $tag --format '{{.Manifest.Digest}}').Trim()
         if ($digest -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Digest GHCR introuvable.' }
         $reference = "$Image@$digest"
-        cosign sign --yes --key $CosignKey $reference
-        if ($LASTEXITCODE -ne 0) { throw 'Signature du digest GHCR impossible.' }
-        cosign attest --yes --key $CosignKey --type spdxjson --predicate "$output\gaylemon-$Version.spdx.json" $reference
-        if ($LASTEXITCODE -ne 0) { throw 'Attestation SPDX impossible.' }
-        cosign attest --yes --key $CosignKey --type cyclonedx --predicate "$output\gaylemon-$Version.cdx.json" $reference
-        if ($LASTEXITCODE -ne 0) { throw 'Attestation CycloneDX impossible.' }
+        $dockerConfigDirectory = New-GHCRDockerConfig
+        try {
+            Invoke-Checked { docker run --rm -e COSIGN_PASSWORD -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${keyDirectory}:/keys:ro" $cosignImage sign --yes --key "/keys/$keyName" $reference } 'Signature du digest GHCR impossible.'
+            Invoke-Checked { docker run --rm -e COSIGN_PASSWORD -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out:ro" $cosignImage attest --yes --key "/keys/$keyName" --type spdxjson --predicate "/out/gaylemon-$Version.spdx.json" $reference } 'Attestation SPDX impossible.'
+            Invoke-Checked { docker run --rm -e COSIGN_PASSWORD -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out:ro" $cosignImage attest --yes --key "/keys/$keyName" --type cyclonedx --predicate "/out/gaylemon-$Version.cdx.json" $reference } 'Attestation CycloneDX impossible.'
+        }
+        finally {
+            if ($dockerConfigDirectory -and (Test-Path -LiteralPath $dockerConfigDirectory)) { Remove-Item -LiteralPath $dockerConfigDirectory -Recurse -Force }
+        }
         [ordered]@{ schema='gaylemon.release.v2'; version=$Version; commit=$commit; image=$reference; agentSha256=$agentSha; signed=$true; attested=$true } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output "gaylemon-$Version-release.json") -Encoding utf8NoBOM
     }
