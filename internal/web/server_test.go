@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 )
 
 type fakeRepository struct {
+	mu                sync.Mutex
 	document          model.PublicDocument
 	eventPage         model.PublicEventPage
 	eventQuery        model.PublicEventQuery
@@ -118,7 +120,9 @@ func (f *fakeRepository) GetPublicDocumentForSeason(ctx context.Context, _ strin
 }
 
 func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
+	f.mu.Lock()
 	f.eventQuery = query
+	f.mu.Unlock()
 	if f.eventStarted != nil {
 		f.eventStarted <- struct{}{}
 	}
@@ -137,6 +141,12 @@ func (f *fakeRepository) QueryPublicEvents(ctx context.Context, query model.Publ
 	page.Limit = query.Limit
 	page.Date = query.Day
 	return page, true, nil
+}
+
+func (f *fakeRepository) lastEventQuery() model.PublicEventQuery {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.eventQuery
 }
 func (f *fakeRepository) QueryPublicEventsForSeason(ctx context.Context, _ string, query model.PublicEventQuery) (model.PublicEventPage, bool, error) {
 	return f.QueryPublicEvents(ctx, query)
@@ -506,7 +516,7 @@ func TestPublicEventsFilterOneTorontoDay(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("filtre journalier refusé: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	query := repository.eventQuery
+	query := repository.lastEventQuery()
 	if query.Day != "2026-01-15" || query.Limit != 500 || query.From.IsZero() || query.Before.IsZero() {
 		t.Fatalf("requête journalière inattendue: %#v", query)
 	}
@@ -525,8 +535,9 @@ func TestPublicEventsRejectInvalidDay(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/public/events/v1?date=2026-02-31", nil))
 
-	if recorder.Code != http.StatusBadRequest || repository.eventQuery.Day != "" {
-		t.Fatalf("date invalide acceptée: status=%d query=%#v body=%s", recorder.Code, repository.eventQuery, recorder.Body.String())
+	query := repository.lastEventQuery()
+	if recorder.Code != http.StatusBadRequest || query.Day != "" {
+		t.Fatalf("date invalide acceptée: status=%d query=%#v body=%s", recorder.Code, query, recorder.Body.String())
 	}
 }
 
