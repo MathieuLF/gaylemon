@@ -31,6 +31,66 @@ services_for_stream() {
   esac
 }
 
+season_timers=(
+  gaylemon-collect-metrics.timer gaylemon-collect-stats.timer
+  gaylemon-publish-events.timer gaylemon-publish-snapshot.timer
+  palworld-stats.timer palworld-events.timer palworld-save-snapshot.timer
+)
+
+season_services=(
+  gaylemon-collect-metrics.service palworld-stats.service
+  gaylemon-collect-stats.service palworld-events.service
+  gaylemon-publish-events.service palworld-save-snapshot.service
+  gaylemon-publish-snapshot.service
+)
+
+season_managed_timers=("${season_timers[@]}" palworld-update.timer palworld-backup.timer)
+season_enabled_before=()
+season_active_before=()
+
+snapshot_season_timers() {
+  local unit
+  for unit in "${season_managed_timers[@]}"; do
+    /usr/bin/systemctl is-enabled --quiet "$unit" && season_enabled_before+=("$unit") || true
+    /usr/bin/systemctl is-active --quiet "$unit" && season_active_before+=("$unit") || true
+  done
+}
+
+restore_season_timers() {
+  local previous_status="$?"
+  local status="${1:-$previous_status}"
+  local unit
+  trap - ERR
+  /usr/bin/systemctl disable --now "${season_managed_timers[@]}" >/dev/null 2>&1 || true
+  for unit in "${season_enabled_before[@]}"; do /usr/bin/systemctl enable "$unit" >/dev/null 2>&1 || true; done
+  for unit in "${season_active_before[@]}"; do /usr/bin/systemctl start "$unit" >/dev/null 2>&1 || true; done
+  exit "$status"
+}
+
+fail_season() {
+  echo "$1" >&2
+  restore_season_timers 1
+}
+
+safe_season_token() {
+  [[ "$1" =~ ^[a-z0-9]+([a-z0-9-]*[a-z0-9])?$ ]]
+}
+
+wait_oneshots() {
+  local deadline=$((SECONDS + 900))
+  local unit
+  for unit in "${season_services[@]}" palworld-backup.service; do
+    while /usr/bin/systemctl is-active --quiet "$unit"; do
+      (( SECONDS < deadline )) || { echo "Attente trop longue: $unit" >&2; return 1; }
+      /usr/bin/sleep 2
+    done
+  done
+}
+
+spool_depth() {
+  /usr/local/bin/gaylemon queue-status | /usr/bin/sed -n 's/.*"queueDepth":\([0-9][0-9]*\).*/\1/p'
+}
+
 case "$action" in
   status)
     exec /usr/bin/systemctl --no-pager --full status gaylemon-agent.service gaylemon-collect-metrics.timer gaylemon-collect-stats.timer gaylemon-publish-events.timer gaylemon-publish-snapshot.timer palworld-stats.timer palworld-events.timer palworld-save-snapshot.timer
@@ -94,6 +154,80 @@ case "$action" in
     fi
     /usr/bin/systemctl start --no-block palworld-backup.service
     echo "Sauvegarde demarree."
+    ;;
+  season)
+    operation="${1:-}"
+    season_id="${2:-}"
+    slug="${3:-}"
+    safe_season_token "$season_id" && safe_season_token "$slug" || { echo "Saison refusee." >&2; exit 2; }
+    exec 8>/run/lock/gaylemon-season.lock
+    /usr/bin/flock -n 8 || { echo "Un cycle de saison est deja actif." >&2; exit 75; }
+    snapshot_season_timers
+    trap 'restore_season_timers $?' ERR
+    trap 'restore_season_timers 124' HUP INT TERM
+    palworld_pid_before="$(/usr/bin/systemctl show palworld.service -p MainPID --value)"
+    palworld_restarts_before="$(/usr/bin/systemctl show palworld.service -p NRestarts --value)"
+    case "$operation" in
+      activate)
+        /usr/bin/systemctl enable --now "${season_managed_timers[@]}"
+        ;;
+      archive)
+        /usr/bin/systemctl disable --now "${season_timers[@]}" palworld-update.timer
+        wait_oneshots
+        /usr/bin/systemctl start palworld-backup.service
+        wait_oneshots
+        backup="$(/usr/bin/find /srv/storage/steam/servers/palworld/backups -maxdepth 1 -type f -name 'palworld-backup-*.tar.zst' -printf '%T@ %p\n' | /usr/bin/sort -nr | /usr/bin/head -n1 | /usr/bin/cut -d' ' -f2-)"
+        [[ -n "$backup" && -f "$backup" ]] || fail_season "Sauvegarde finale introuvable."
+        backup_sha256="$(/usr/bin/sha256sum "$backup" | /usr/bin/cut -d' ' -f1)"
+        immutable_root="/srv/storage/steam/servers/palworld/backups/seasons/$slug"
+        immutable_backup="$immutable_root/final-$backup_sha256.tar.zst"
+        /usr/bin/install -d -o root -g root -m 0700 "$immutable_root"
+        if [[ ! -f "$immutable_backup" ]]; then
+          immutable_temp="$immutable_root/.final-$backup_sha256.$$.tmp"
+          /usr/bin/cp --reflink=auto -- "$backup" "$immutable_temp"
+          /usr/bin/chown root:root "$immutable_temp"
+          /usr/bin/chmod 0440 "$immutable_temp"
+          /usr/bin/mv -T -- "$immutable_temp" "$immutable_backup"
+        fi
+        [[ "$(/usr/bin/sha256sum "$immutable_backup" | /usr/bin/cut -d' ' -f1)" == "$backup_sha256" ]] || fail_season "Copie finale incoherente."
+        /usr/bin/chattr +i -- "$immutable_backup"
+        /usr/bin/lsattr -d -- "$immutable_backup" | /usr/bin/awk '{print $1}' | /usr/bin/grep -q 'i' || fail_season "Sauvegarde finale non immuable."
+        /usr/bin/systemctl disable --now palworld-backup.timer
+        /usr/bin/systemctl start palworld-stats.service gaylemon-collect-stats.service gaylemon-collect-metrics.service palworld-events.service gaylemon-publish-events.service palworld-save-snapshot.service gaylemon-publish-snapshot.service
+        wait_oneshots
+        deadline=$((SECONDS + 900))
+        while [[ "$(spool_depth)" != "0" ]]; do
+          (( SECONDS < deadline )) || fail_season "La file locale ne s'est pas videe."
+          /usr/bin/sleep 3
+        done
+        ;;
+      *) fail_season "Transition de saison refusee." ;;
+    esac
+    palworld_pid_after="$(/usr/bin/systemctl show palworld.service -p MainPID --value)"
+    palworld_restarts_after="$(/usr/bin/systemctl show palworld.service -p NRestarts --value)"
+    [[ "$palworld_pid_before" == "$palworld_pid_after" && "$palworld_restarts_before" == "$palworld_restarts_after" ]] || fail_season "Invariant Palworld viole."
+    if [[ "$operation" == "archive" ]]; then
+      receipt_root="/var/lib/gaylemon-agent/season-receipts"
+      receipt="$receipt_root/$slug-$backup_sha256.json"
+      /usr/bin/install -d -o root -g root -m 0700 "$receipt_root"
+      if [[ ! -f "$receipt" ]]; then
+        receipt_temp="$receipt_root/.$slug-$backup_sha256.$$.tmp"
+        /usr/bin/printf '{"schema":"gaylemon.season-closure.v1","seasonId":"%s","slug":"%s","immutableBackup":"%s","backupSha256":"%s","queueDepth":0,"palworldPid":"%s","palworldRestarts":"%s","closedAt":"%s"}\n' \
+          "$season_id" "$slug" "$immutable_backup" "$backup_sha256" "$palworld_pid_after" "$palworld_restarts_after" "$(/usr/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" > "$receipt_temp"
+        /usr/bin/chown root:root "$receipt_temp"
+        /usr/bin/chmod 0400 "$receipt_temp"
+        /usr/bin/mv -T -- "$receipt_temp" "$receipt"
+      fi
+      /usr/bin/chattr +i -- "$receipt"
+      /usr/bin/lsattr -d -- "$receipt" | /usr/bin/awk '{print $1}' | /usr/bin/grep -q 'i' || fail_season "Recu final non immuable."
+      receipt_sha256="$(/usr/bin/sha256sum "$receipt" | /usr/bin/cut -d' ' -f1)"
+      /usr/bin/printf '{"seasonId":"%s","slug":"%s","immutableBackup":"%s","backupSha256":"%s","receipt":"%s","receiptSha256":"%s","queueDepth":0,"palworldPid":"%s","palworldRestarts":"%s"}\n' \
+        "$season_id" "$slug" "$immutable_backup" "$backup_sha256" "$receipt" "$receipt_sha256" "$palworld_pid_after" "$palworld_restarts_after"
+    else
+      /usr/bin/printf '{"seasonId":"%s","slug":"%s","activated":true,"palworldPid":"%s","palworldRestarts":"%s"}\n' \
+        "$season_id" "$slug" "$palworld_pid_after" "$palworld_restarts_after"
+    fi
+    trap - ERR HUP INT TERM
     ;;
   performance)
     exec /usr/bin/systemctl start palworld-performance.service

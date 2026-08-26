@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +24,8 @@ import (
 
 const compressRequestThreshold = 32 << 10
 
+var ErrSeasonArchived = errors.New("saison archivée confirmée par le service")
+
 type Client struct {
 	config     Config
 	httpClient *http.Client
@@ -28,14 +34,6 @@ type Client struct {
 
 func NewClient(config Config) *Client {
 	return &Client{config: config, httpClient: &http.Client{Timeout: config.HTTPTimeout}, Shadow: config.Shadow}
-}
-
-func (c *Client) SendBatch(ctx context.Context, batch model.Batch) (model.IngestResult, int64, error) {
-	body, err := json.Marshal(batch)
-	if err != nil {
-		return model.IngestResult{}, 0, err
-	}
-	return c.SendBatchBody(ctx, body)
 }
 
 func (c *Client) SendBatchBody(ctx context.Context, body []byte) (model.IngestResult, int64, error) {
@@ -112,6 +110,12 @@ func (c *Client) sendJSON(ctx context.Context, method, path string, body []byte,
 		return int64(len(wireBody)), err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusLocked {
+			if err := c.verifySeasonLocked(response, responseBody, time.Now().UTC()); err != nil {
+				return int64(len(wireBody)), err
+			}
+			return int64(len(wireBody)), ErrSeasonArchived
+		}
 		message := strings.TrimSpace(string(responseBody))
 		if len(message) > 500 {
 			message = message[:500]
@@ -124,6 +128,33 @@ func (c *Client) sendJSON(ctx context.Context, method, path string, body []byte,
 		}
 	}
 	return int64(len(wireBody)), nil
+}
+
+func (c *Client) verifySeasonLocked(response *http.Response, body []byte, now time.Time) error {
+	if response.Header.Get("X-Gaylemon-Season-State") != "archived" || len(c.config.ResponsePublicKey) != ed25519.PublicKeySize {
+		return errors.New("réponse season-archived non vérifiable")
+	}
+	timestamp := response.Header.Get("X-Gaylemon-Response-Timestamp")
+	signedAt, err := time.Parse(time.RFC3339Nano, timestamp)
+	if err != nil || now.Sub(signedAt) > 5*time.Minute || signedAt.Sub(now) > 5*time.Minute {
+		return errors.New("réponse season-archived expirée")
+	}
+	signature, err := base64.StdEncoding.DecodeString(response.Header.Get("X-Gaylemon-Response-Signature"))
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return errors.New("signature season-archived invalide")
+	}
+	digest := sha256.Sum256(body)
+	message := timestamp + "\n423\n" + hex.EncodeToString(digest[:])
+	if !ed25519.Verify(c.config.ResponsePublicKey, []byte(message), signature) {
+		return errors.New("signature season-archived refusée")
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) != nil || payload.Error != "season-archived" {
+		return errors.New("payload season-archived invalide")
+	}
+	return nil
 }
 
 func compressJSONBody(body []byte) ([]byte, string, error) {

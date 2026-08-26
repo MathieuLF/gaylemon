@@ -12,20 +12,25 @@ import (
 )
 
 type Config struct {
-	AgentID       string
-	APIBaseURL    string
-	PrivateKey    ed25519.PrivateKey
-	SpoolPath     string
-	CommandHelper string
-	CommandSudo   bool
-	HTTPTimeout   time.Duration
-	PollInterval  time.Duration
-	Profile       string
-	Shadow        bool
+	AgentID           string
+	APIBaseURL        string
+	PrivateKey        ed25519.PrivateKey
+	ResponsePublicKey ed25519.PublicKey
+	SpoolPath         string
+	CommandHelper     string
+	CommandSudo       bool
+	HTTPTimeout       time.Duration
+	PollInterval      time.Duration
+	Profile           string
+	Shadow            bool
 }
 
 func ConfigFromEnv() (Config, error) {
 	key, err := loadPrivateKey(strings.TrimSpace(os.Getenv("GAYLEMON_AGENT_PRIVATE_KEY_FILE")))
+	if err != nil {
+		return Config{}, err
+	}
+	responseKey, err := loadPublicKey(strings.TrimSpace(os.Getenv("GAYLEMON_RESPONSE_PUBLIC_KEY")))
 	if err != nil {
 		return Config{}, err
 	}
@@ -34,16 +39,17 @@ func ConfigFromEnv() (Config, error) {
 		spool = absolute
 	}
 	return Config{
-		AgentID:       env("GAYLEMON_AGENT_ID", "palworld-ubuntu"),
-		APIBaseURL:    strings.TrimRight(os.Getenv("GAYLEMON_API_BASE_URL"), "/"),
-		PrivateKey:    key,
-		SpoolPath:     spool,
-		CommandHelper: env("GAYLEMON_COMMAND_HELPER", "/usr/local/sbin/gaylemon-admin"),
-		CommandSudo:   boolEnv("GAYLEMON_COMMAND_SUDO", true),
-		HTTPTimeout:   durationEnv("GAYLEMON_AGENT_HTTP_TIMEOUT", 60*time.Second),
-		PollInterval:  durationEnv("GAYLEMON_AGENT_POLL_INTERVAL", 15*time.Second),
-		Profile:       env("GAYLEMON_AGENT_PROFILE", "ubuntu-palworld"),
-		Shadow:        boolEnv("GAYLEMON_AGENT_SHADOW", true),
+		AgentID:           env("GAYLEMON_AGENT_ID", "palworld-ubuntu"),
+		APIBaseURL:        strings.TrimRight(os.Getenv("GAYLEMON_API_BASE_URL"), "/"),
+		PrivateKey:        key,
+		ResponsePublicKey: responseKey,
+		SpoolPath:         spool,
+		CommandHelper:     env("GAYLEMON_COMMAND_HELPER", "/usr/local/sbin/gaylemon-admin"),
+		CommandSudo:       boolEnv("GAYLEMON_COMMAND_SUDO", true),
+		HTTPTimeout:       durationEnv("GAYLEMON_AGENT_HTTP_TIMEOUT", 60*time.Second),
+		PollInterval:      durationEnv("GAYLEMON_AGENT_POLL_INTERVAL", 15*time.Second),
+		Profile:           env("GAYLEMON_AGENT_PROFILE", "ubuntu-palworld"),
+		Shadow:            boolEnv("GAYLEMON_AGENT_SHADOW", true),
 	}, nil
 }
 
@@ -65,7 +71,21 @@ func (c Config) Validate() error {
 	if len(c.PrivateKey) != ed25519.PrivateKeySize {
 		return errors.New("GAYLEMON_AGENT_PRIVATE_KEY_FILE doit contenir une clé Ed25519")
 	}
+	if strings.HasPrefix(c.APIBaseURL, "https://") && len(c.ResponsePublicKey) != ed25519.PublicKeySize {
+		return errors.New("GAYLEMON_RESPONSE_PUBLIC_KEY est requis avec l'API HTTPS")
+	}
 	return nil
+}
+
+func loadPublicKey(raw string) (ed25519.PublicKey, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		return nil, errors.New("GAYLEMON_RESPONSE_PUBLIC_KEY est invalide")
+	}
+	return ed25519.PublicKey(decoded), nil
 }
 
 func loadPrivateKey(path string) (ed25519.PrivateKey, error) {

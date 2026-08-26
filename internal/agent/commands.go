@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -25,10 +26,7 @@ func (e CommandExecutor) Execute(ctx context.Context, command model.Command) mod
 	if e.Helper == "" {
 		return model.CommandAck{Status: "refused", Message: "outil d'exploitation non configuré"}
 	}
-	timeout := e.Timeout
-	if timeout <= 0 {
-		timeout = 2 * time.Minute
-	}
+	timeout := commandTimeout(command.Kind, e.Timeout)
 	commandContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	executable := e.Helper
@@ -38,6 +36,10 @@ func (e CommandExecutor) Execute(ctx context.Context, command model.Command) mod
 		processArguments = append([]string{"-n", e.Helper}, arguments...)
 	}
 	process := exec.CommandContext(commandContext, executable, processArguments...)
+	if command.Kind == "season.archive" {
+		process.Cancel = func() error { return process.Process.Signal(os.Interrupt) }
+		process.WaitDelay = 30 * time.Second
+	}
 	output, execErr := process.CombinedOutput()
 	message := strings.TrimSpace(string(output))
 	if len(message) > 4000 {
@@ -49,7 +51,22 @@ func (e CommandExecutor) Execute(ctx context.Context, command model.Command) mod
 		}
 		return model.CommandAck{Status: "failed", Message: message}
 	}
-	return model.CommandAck{Status: "completed", Message: message}
+	ack := model.CommandAck{Status: "completed", Message: message}
+	if json.Valid([]byte(message)) {
+		ack.Details = json.RawMessage(message)
+		ack.Message = "Cycle de saison exécuté et preuves structurées reçues."
+	}
+	return ack
+}
+
+func commandTimeout(kind string, configured time.Duration) time.Duration {
+	if configured > 0 {
+		return configured
+	}
+	if kind == "season.archive" {
+		return 75 * time.Minute
+	}
+	return 2 * time.Minute
 }
 
 func commandArguments(command model.Command) ([]string, error) {
@@ -101,6 +118,14 @@ func commandArguments(command model.Command) ([]string, error) {
 		return []string{"backup"}, nil
 	case "server.update":
 		return nil, errors.New("mise à jour Palworld réservée à une session sudo interactive")
+	case "season.activate", "season.archive":
+		seasonID, _ := values["seasonId"].(string)
+		slug, _ := values["slug"].(string)
+		if !safeSeasonToken(seasonID) || !safeSeasonToken(slug) {
+			return nil, errors.New("saison refusée")
+		}
+		action := strings.TrimPrefix(command.Kind, "season.")
+		return []string{"season", action, seasonID, slug}, nil
 	case "service.restart":
 		unit, _ := values["unit"].(string)
 		if !allowedUnit(unit) {
@@ -113,6 +138,18 @@ func commandArguments(command model.Command) ([]string, error) {
 	default:
 		return nil, errors.New("commande inconnue")
 	}
+}
+
+func safeSeasonToken(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func allowedSchedule(schedule string) bool {

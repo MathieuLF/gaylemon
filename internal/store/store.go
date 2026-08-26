@@ -27,7 +27,9 @@ type Repository interface {
 	ClaimNonce(context.Context, string, string, time.Time) error
 	IngestBatch(context.Context, model.Batch, string, bool) (model.IngestResult, error)
 	GetPublicDocument(context.Context, string) (model.PublicDocument, bool, error)
+	GetPublicDocumentForSeason(context.Context, string, string) (model.PublicDocument, bool, error)
 	QueryPublicEvents(context.Context, model.PublicEventQuery) (model.PublicEventPage, bool, error)
+	QueryPublicEventsForSeason(context.Context, string, model.PublicEventQuery) (model.PublicEventPage, bool, error)
 	UpsertHeartbeat(context.Context, model.AgentStatus) error
 	PendingCommands(context.Context, string, int64) ([]model.Command, error)
 	AckCommand(context.Context, string, string, model.CommandAck) error
@@ -39,4 +41,10 @@ type Repository interface {
 	DeleteSession(context.Context, string) error
 	Dashboard(context.Context) (model.DashboardSnapshot, error)
 	Maintain(context.Context) (json.RawMessage, error)
+	ResolveSeason(context.Context, string) (model.Season, bool, error)
+	ListSeasons(context.Context) ([]model.Season, error)
+	CreateSeason(context.Context, model.SeasonCreate, string) (model.Season, error)
+	ActivateSeasonWithCommand(context.Context, string, string, string, string, time.Time) (model.Season, model.Command, error)
+	BeginSeasonArchive(context.Context, string, string, string, string, time.Time) (model.Command, error)
+	ReopenSeason(context.Context, string, string, string, string, time.Time) (model.Season, model.Command, error)
 }

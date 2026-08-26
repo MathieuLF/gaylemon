@@ -5,9 +5,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,5 +176,173 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 	}
 	if completedMaintenanceJobs != 1 {
 		t.Fatalf("travaux d'entretien terminés: %d, attendu 1", completedMaintenanceJobs)
+	}
+}
+
+func TestSeasonArchivePreservesProjectionsAndIsolatesNextSequences(t *testing.T) {
+	databaseURL := os.Getenv("GAYLEMON_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("GAYLEMON_TEST_DATABASE_URL absent")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	repository, err := OpenPostgres(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if err := repository.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	active, found, err := repository.ResolveSeason(ctx, "")
+	if err != nil || !found || active.State != model.SeasonActive {
+		t.Fatalf("saison active absente: %#v found=%v err=%v", active, found, err)
+	}
+	if err := repository.UpsertHeartbeat(ctx, model.AgentStatus{AgentID: "season-agent", Version: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	expiredCommand, err := repository.BeginSeasonArchive(ctx, active.ID, "season-agent", "archive-expired-"+active.ID, "integration", time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryCommands, err := repository.PendingCommands(ctx, "season-agent", expiredCommand.Sequence-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recoveryCommands) != 1 || recoveryCommands[0].Kind != "season.activate" || !strings.Contains(string(recoveryCommands[0].Arguments), `"transition": "recover"`) {
+		t.Fatalf("commande compensatoire absente: %#v", recoveryCommands)
+	}
+	active, found, err = repository.ResolveSeason(ctx, active.Slug)
+	if err != nil || !found || active.State != model.SeasonFinalizing {
+		t.Fatalf("archive expirée non maintenue en récupération: %#v found=%v err=%v", active, found, err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", recoveryCommands[0].ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","activated":true,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	active, found, err = repository.ResolveSeason(ctx, active.Slug)
+	if err != nil || !found || active.State != model.SeasonActive {
+		t.Fatalf("récupération compensatoire non confirmée: %#v found=%v err=%v", active, found, err)
+	}
+	expiredCommand, err = repository.BeginSeasonArchive(ctx, active.ID, "season-agent", "archive-expired-bounded-"+active.ID, "integration", time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryCommands, err = repository.PendingCommands(ctx, "season-agent", expiredCommand.Sequence-1)
+	if err != nil || len(recoveryCommands) != 1 {
+		t.Fatalf("seconde compensation absente: %#v err=%v", recoveryCommands, err)
+	}
+	if _, err := repository.pool.Exec(ctx, `UPDATE gaylemon_ops.control_commands SET expires_at=now()-interval '1 minute' WHERE command_id=$1`, recoveryCommands[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.Maintain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var recoveryState model.SeasonState
+	if err := repository.pool.QueryRow(ctx, `SELECT state FROM gaylemon_ops.seasons WHERE season_id=$1`, active.ID).Scan(&recoveryState); err != nil || recoveryState != model.SeasonFailed {
+		t.Fatalf("expiration compensatoire non bornée: state=%s err=%v", recoveryState, err)
+	}
+	recoveredSeason, recoveryCommand, err := repository.ReopenSeason(ctx, active.ID, "season-agent", "recover-manual-"+active.ID, "integration", time.Now().Add(time.Minute))
+	if err != nil || recoveredSeason.State != model.SeasonFailed {
+		t.Fatalf("reprise opérateur impossible: %#v err=%v", recoveredSeason, err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", recoveryCommand.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","activated":true,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	active, found, err = repository.ResolveSeason(ctx, active.Slug)
+	if err != nil || !found || active.State != model.SeasonActive {
+		t.Fatalf("reprise opérateur non confirmée: %#v found=%v err=%v", active, found, err)
+	}
+	failedCommand, err := repository.BeginSeasonArchive(ctx, active.ID, "season-agent", "archive-failed-"+active.ID, "integration", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", failedCommand.ID, model.CommandAck{Status: "failed", Message: "sauvegarde finale impossible"}); err != nil {
+		t.Fatal(err)
+	}
+	active, found, err = repository.ResolveSeason(ctx, active.Slug)
+	if err != nil || !found || active.State != model.SeasonActive {
+		t.Fatalf("échec d'archive non restauré: %#v found=%v err=%v", active, found, err)
+	}
+	command, err := repository.BeginSeasonArchive(ctx, active.ID, "season-agent", "archive-"+active.ID, "integration", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", command.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","immutableBackup":"/srv/storage/steam/servers/palworld/backups/seasons/saison-2026/final-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.zst","backupSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receipt":"/var/lib/gaylemon-agent/season-receipts/saison-2026-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json","receiptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","queueDepth":0,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	archived, found, err := repository.ResolveSeason(ctx, active.Slug)
+	if err != nil || !found || archived.State != model.SeasonArchived || len(archived.FinalSHA256) != 64 || !json.Valid(archived.Manifest) {
+		t.Fatalf("archive non scellée: %#v found=%v err=%v", archived, found, err)
+	}
+	emptyPayload, _ := json.Marshal(model.BatchPayload{Documents: []model.Document{{Path: "data/public-stats.json", Content: json.RawMessage(`{"ok":true}`), CachePolicy: model.CacheNoStore}}})
+	if _, err := repository.IngestBatch(ctx, model.Batch{ID: "blocked-" + active.ID, AgentID: "season-agent", Stream: "stats", SchemaVersion: 1, Sequence: 999, CapturedAt: time.Now(), Payload: emptyPayload}, "blocked", true); !errors.Is(err, ErrSeasonArchived) {
+		t.Fatalf("ingestion après archive: %v", err)
+	}
+	reopened, activateCommand, err := repository.ReopenSeason(ctx, active.ID, "season-agent", "reopen-activate-"+active.ID, "integration", time.Now().Add(time.Minute))
+	if err != nil || reopened.State != model.SeasonArchived || activateCommand.Kind != "season.activate" {
+		t.Fatalf("réouverture sans réactivation agent: %#v command=%#v err=%v", reopened, activateCommand, err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", activateCommand.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","activated":true,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, found, err = repository.ResolveSeason(ctx, active.Slug)
+	if err != nil || !found || reopened.State != model.SeasonActive {
+		t.Fatalf("réouverture non confirmée après acquittement: %#v err=%v", reopened, err)
+	}
+	command, err = repository.BeginSeasonArchive(ctx, active.ID, "season-agent", "archive-again-"+active.ID, "integration", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", command.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","immutableBackup":"/srv/storage/steam/servers/palworld/backups/seasons/saison-2026/final-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.zst","backupSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receipt":"/var/lib/gaylemon-agent/season-receipts/saison-2026-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json","receiptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","queueDepth":0,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	suffix := time.Now().UTC().Format("20060102-150405000000000")
+	next, err := repository.CreateSeason(ctx, model.SeasonCreate{Slug: "saison-" + suffix, Title: "Saison suivante", StartsOn: time.Now().UTC().Format(time.DateOnly)}, "integration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, failedActivation, err := repository.ActivateSeasonWithCommand(ctx, next.ID, "season-agent", "activate-failed-"+next.ID, "integration", time.Now().Add(time.Minute))
+	if err != nil || next.State != model.SeasonDraft {
+		t.Fatalf("préparation de l'échec d'activation: %#v err=%v", next, err)
+	}
+	if _, _, err := repository.ActivateSeasonWithCommand(ctx, next.ID, "season-agent", "activate-duplicate-"+next.ID, "integration", time.Now().Add(time.Minute)); !errors.Is(err, ErrSeasonConflict) {
+		t.Fatalf("activation concurrente acceptée: %v", err)
+	}
+	if err := repository.AckCommand(ctx, "season-agent", failedActivation.ID, model.CommandAck{Status: "failed", Message: "timers indisponibles"}); err != nil {
+		t.Fatal(err)
+	}
+	var nextState model.SeasonState
+	if err := repository.pool.QueryRow(ctx, `SELECT state FROM gaylemon_ops.seasons WHERE season_id=$1`, next.ID).Scan(&nextState); err != nil || nextState != model.SeasonFailed {
+		t.Fatalf("échec d'activation non reflété: state=%s err=%v", nextState, err)
+	}
+	next, nextCommand, err := repository.ActivateSeasonWithCommand(ctx, next.ID, "season-agent", "activate-"+next.ID, "integration", time.Now().Add(time.Minute))
+	if err != nil || next.State != model.SeasonFailed || nextCommand.Kind != "season.activate" {
+		t.Fatalf("préparation de l'activation suivante: %#v command=%#v err=%v", next, nextCommand, err)
+	}
+	nextProof, _ := json.Marshal(map[string]any{"seasonId": next.ID, "slug": next.Slug, "activated": true, "palworldPid": "4242", "palworldRestarts": "0"})
+	if err := repository.AckCommand(ctx, "season-agent", nextCommand.ID, model.CommandAck{Status: "completed", Details: nextProof}); err != nil {
+		t.Fatal(err)
+	}
+	next, found, err = repository.ResolveSeason(ctx, next.Slug)
+	if err != nil || !found || next.State != model.SeasonActive {
+		t.Fatalf("activation suivante: %#v found=%v err=%v", next, found, err)
+	}
+	newPayload, _ := json.Marshal(model.BatchPayload{Documents: []model.Document{{Path: "data/public-stats.json", Content: json.RawMessage(`{"ok":true,"season":"next"}`), CachePolicy: model.CacheNoStore}}})
+	newBatch := model.Batch{ID: "next-" + next.ID, AgentID: "season-agent", Stream: "stats", SchemaVersion: 1, Sequence: 1, CapturedAt: time.Now(), Payload: newPayload}
+	if _, err := repository.IngestBatch(ctx, newBatch, "next-hash", true); err != nil {
+		t.Fatal(err)
+	}
+	document, found, err := repository.GetPublicDocument(ctx, "data/public-stats.json")
+	if err != nil || !found || !strings.Contains(string(document.Content), `"next"`) {
+		t.Fatalf("projection suivante absente: %s found=%v err=%v", document.Content, found, err)
+	}
+	if _, found, err := repository.GetPublicDocumentForSeason(ctx, active.Slug, "data/public-stats.json"); err != nil || !found {
+		t.Fatalf("projection archivée perdue: found=%v err=%v", found, err)
+	}
+	if _, _, err := repository.ReopenSeason(ctx, active.ID, "season-agent", "reopen-command", "integration", time.Now().Add(time.Minute)); !errors.Is(err, ErrSeasonConflict) {
+		t.Fatalf("ancienne saison rouverte malgré la suivante: %v", err)
+	}
+	if _, err := repository.pool.Exec(ctx, `UPDATE gaylemon_ops.season_lifecycle_events SET actor='tampered' WHERE season_id=$1`, active.ID); err == nil {
+		t.Fatal("le journal de cycle de vie aurait dû être append-only")
 	}
 }

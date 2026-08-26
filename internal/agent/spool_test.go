@@ -150,7 +150,7 @@ func TestCommandResultSurvivesAcknowledgementRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, found, err := spool.CommandResult(ctx, command.ID)
-	if err != nil || !found || got != want {
+	if err != nil || !found || got.Status != want.Status || got.Message != want.Message || len(got.Details) != 0 {
 		t.Fatalf("résultat perdu: got=%#v found=%v err=%v", got, found, err)
 	}
 }
@@ -199,5 +199,36 @@ func TestSpoolRecognizesLegacyHashedSourceRevision(t *testing.T) {
 	present, err := spool.HasRevision(ctx, "events", "revision-43")
 	if err != nil || !present {
 		t.Fatalf("ancienne empreinte non reconnue: present=%v err=%v", present, err)
+	}
+}
+
+func TestSpoolResetForNewSeasonRequiresEmptyQueueAndClearsDeduplication(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer spool.Close()
+	ctx := context.Background()
+	document := model.Document{Path: "data/public-stats.json", Content: json.RawMessage(`{"ok":true}`), CachePolicy: model.CacheNoStore}
+	batches, err := EnqueueDocuments(ctx, spool, "test", "stats", "same-revision", []model.Document{document}, model.ResourceUsage{}, nil)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("lot initial absent: %v", err)
+	}
+	if err := spool.ResetForNewSeason(ctx); err == nil {
+		t.Fatal("une file non vide ne doit pas être réinitialisée")
+	}
+	pending, found, err := spool.Peek(ctx)
+	if err != nil || !found {
+		t.Fatalf("lot attendu: found=%v err=%v", found, err)
+	}
+	if err := spool.Complete(ctx, pending.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.ResetForNewSeason(ctx); err != nil {
+		t.Fatal(err)
+	}
+	batches, err = EnqueueDocuments(ctx, spool, "test", "stats", "same-revision", []model.Document{document}, model.ResourceUsage{}, nil)
+	if err != nil || len(batches) != 1 || batches[0].Sequence != 1 {
+		t.Fatalf("la nouvelle saison doit accepter la même révision à la séquence 1: %#v err=%v", batches, err)
 	}
 }

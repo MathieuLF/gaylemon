@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -146,13 +147,23 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/agent/v1/commands", s.handlePendingCommands)
 	s.mux.HandleFunc("POST /api/agent/v1/commands/{id}/ack", s.handleCommandAck)
 	s.mux.HandleFunc("GET /api/public/events/v1", s.handlePublicEvents)
+	s.mux.HandleFunc("GET /api/public/seasons/v1", s.handlePublicSeasons)
+	s.mux.HandleFunc("GET /api/public/site-state/v1", s.handleSiteState)
+	s.mux.HandleFunc("GET /api/public/signing-key/v1", s.handlePublicSigningKey)
 	s.mux.HandleFunc("GET /data/{path...}", s.handlePublicData)
 	s.mux.HandleFunc("GET /public-events-channel.json", s.handlePublicChannel)
+	s.mux.HandleFunc("GET /saisons/{slug}/api/public/events/v1", s.handleSeasonPublicEvents)
+	s.mux.HandleFunc("GET /saisons/{slug}/data/{path...}", s.handleSeasonPublicData)
+	s.mux.HandleFunc("GET /saisons/{slug}/public-events-channel.json", s.handleSeasonPublicChannel)
 	s.mux.HandleFunc("GET /ops/auth/login", s.handleOAuthLogin)
 	s.mux.HandleFunc("GET /ops/auth/github/callback", s.handleOAuthCallback)
 	s.mux.HandleFunc("POST /ops/auth/logout", s.requireSession(s.handleLogout))
 	s.mux.HandleFunc("GET /ops/api/snapshot", s.requireSession(s.handleOpsSnapshot))
 	s.mux.HandleFunc("POST /ops/api/commands", s.requireSession(s.handleOpsCommand))
+	s.mux.HandleFunc("POST /ops/api/seasons", s.requireSession(s.handleCreateSeason))
+	s.mux.HandleFunc("POST /ops/api/seasons/{id}/activate", s.requireSession(s.handleActivateSeason))
+	s.mux.HandleFunc("POST /ops/api/seasons/{id}/archive", s.requireSession(s.handleArchiveSeason))
+	s.mux.HandleFunc("POST /ops/api/seasons/{id}/reopen", s.requireSession(s.handleReopenSeason))
 	s.mux.HandleFunc("GET /ops", s.requireSession(s.handleOpsPage))
 	s.mux.HandleFunc("GET /assets/game/{path...}", s.handleGameAsset)
 	s.mux.HandleFunc("GET /", s.handlePortal)
@@ -243,6 +254,9 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusUnprocessableEntity
 		if errors.Is(err, store.ErrStaleBatch) {
 			status = http.StatusConflict
+		} else if errors.Is(err, store.ErrSeasonArchived) {
+			s.writeSeasonLocked(w)
+			return
 		}
 		s.logger.Warn("lot refusé", "agent", payload.Request.AgentID, "stream", batch.Stream, "batch", batch.ID, "error", err)
 		writeError(w, status, "batch-refused")
@@ -303,14 +317,104 @@ func (s *Server) handleCommandAck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePublicData(w http.ResponseWriter, r *http.Request) {
-	s.servePublicDocument(w, r, "data/"+r.PathValue("path"))
+	s.servePublicDocument(w, r, "", "data/"+r.PathValue("path"))
 }
 
 func (s *Server) handlePublicChannel(w http.ResponseWriter, r *http.Request) {
-	s.servePublicDocument(w, r, "public-events-channel.json")
+	s.servePublicDocument(w, r, "", "public-events-channel.json")
+}
+
+func (s *Server) handleSeasonPublicData(w http.ResponseWriter, r *http.Request) {
+	s.servePublicDocument(w, r, r.PathValue("slug"), "data/"+r.PathValue("path"))
+}
+
+func (s *Server) handleSeasonPublicChannel(w http.ResponseWriter, r *http.Request) {
+	s.servePublicDocument(w, r, r.PathValue("slug"), "public-events-channel.json")
+}
+
+func (s *Server) handlePublicSeasons(w http.ResponseWriter, r *http.Request) {
+	seasons, err := s.repo.ListSeasons(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "seasons-unavailable")
+		return
+	}
+	publicSeasons := make([]model.PublicSeason, 0, len(seasons))
+	for _, season := range seasons {
+		if season.State != model.SeasonActive && season.State != model.SeasonFinalizing && season.State != model.SeasonArchived {
+			continue
+		}
+		publicSeasons = append(publicSeasons, publicSeason(season))
+	}
+	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+	writeJSON(w, http.StatusOK, map[string]any{"seasons": publicSeasons})
+}
+
+func (s *Server) handleSiteState(w http.ResponseWriter, r *http.Request) {
+	season, found, err := s.repo.ResolveSeason(r.Context(), strings.TrimSpace(r.URL.Query().Get("season")))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "site-state-unavailable")
+		return
+	}
+	state := model.SiteState{Mode: "empty", ReadOnly: true, Polling: false, Message: "Aucune saison publiée.", GeneratedAt: time.Now().UTC()}
+	if found {
+		public := publicSeason(season)
+		state.Season = &public
+		state.Mode = string(season.State)
+		state.ReadOnly = season.State != model.SeasonActive
+		state.Polling = season.State == model.SeasonActive
+		if state.ReadOnly {
+			state.Message = "Saison terminée — archives figées."
+		} else {
+			state.Message = "Saison en cours."
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, state)
+}
+
+func publicSeason(season model.Season) model.PublicSeason {
+	return model.PublicSeason{
+		Slug: season.Slug, Title: season.Title, StartsOn: season.StartsOn, EndsOn: season.EndsOn,
+		State: season.State, FinalSHA256: season.FinalSHA256, ArchivedAt: season.ArchivedAt,
+	}
+}
+
+func (s *Server) handlePublicSigningKey(w http.ResponseWriter, _ *http.Request) {
+	if len(s.config.ResponsePrivateKey) != ed25519.PrivateKeySize {
+		writeError(w, http.StatusServiceUnavailable, "signing-key-unavailable")
+		return
+	}
+	publicKey := s.config.ResponsePrivateKey.Public().(ed25519.PublicKey)
+	w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
+	writeJSON(w, http.StatusOK, map[string]any{"algorithm": "Ed25519", "publicKey": base64.StdEncoding.EncodeToString(publicKey)})
+}
+
+func (s *Server) writeSeasonLocked(w http.ResponseWriter) {
+	body, _ := json.Marshal(map[string]any{"ok": false, "error": "season-archived"})
+	body = append(body, '\n')
+	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	digest := sha256.Sum256(body)
+	message := timestamp + "\n423\n" + hex.EncodeToString(digest[:])
+	w.Header().Set("X-Gaylemon-Season-State", "archived")
+	w.Header().Set("X-Gaylemon-Response-Timestamp", timestamp)
+	if len(s.config.ResponsePrivateKey) == ed25519.PrivateKeySize {
+		signature := ed25519.Sign(s.config.ResponsePrivateKey, []byte(message))
+		w.Header().Set("X-Gaylemon-Response-Signature", base64.StdEncoding.EncodeToString(signature))
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusLocked)
+	_, _ = w.Write(body)
 }
 
 func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
+	s.handlePublicEventsForSeason(w, r, "")
+}
+
+func (s *Server) handleSeasonPublicEvents(w http.ResponseWriter, r *http.Request) {
+	s.handlePublicEventsForSeason(w, r, r.PathValue("slug"))
+}
+
+func (s *Server) handlePublicEventsForSeason(w http.ResponseWriter, r *http.Request, slug string) {
 	dateKey := strings.TrimSpace(r.URL.Query().Get("date"))
 	var dayStart, dayEnd time.Time
 	if dateKey != "" {
@@ -370,7 +474,7 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	page, found, err := s.repo.QueryPublicEvents(ctx, query)
+	page, found, err := s.repo.QueryPublicEventsForSeason(ctx, slug, query)
 	if err != nil {
 		s.logger.Warn("lecture des échos PostgreSQL impossible", "error", err)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -389,8 +493,8 @@ func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page)
 }
 
-func (s *Server) servePublicDocument(w http.ResponseWriter, r *http.Request, documentPath string) {
-	document, found, err := s.repo.GetPublicDocument(r.Context(), documentPath)
+func (s *Server) servePublicDocument(w http.ResponseWriter, r *http.Request, slug, documentPath string) {
+	document, found, err := s.repo.GetPublicDocumentForSeason(r.Context(), slug, documentPath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "document-unavailable")
 		return
@@ -437,17 +541,19 @@ func (s *Server) handleGameAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 var portalRoutes = map[string]string{
-	"/":             "index.html",
-	"/terminal":     "terminal.html",
-	"/terminal/":    "terminal.html",
-	"/resume":       "resume.html",
-	"/resume/":      "resume.html",
-	"/classements":  "classements.html",
-	"/classements/": "classements.html",
-	"/carte":        "carte.html",
-	"/carte/":       "carte.html",
-	"/github":       "github.html",
-	"/github/":      "github.html",
+	"/":              "index.html",
+	"/terminal":      "terminal.html",
+	"/terminal/":     "terminal.html",
+	"/resume":        "resume.html",
+	"/resume/":       "resume.html",
+	"/classements":   "classements.html",
+	"/classements/":  "classements.html",
+	"/carte":         "carte.html",
+	"/carte/":        "carte.html",
+	"/github":        "github.html",
+	"/github/":       "github.html",
+	"/informations":  "informations.html",
+	"/informations/": "informations.html",
 }
 
 func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
@@ -463,6 +569,32 @@ func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		http.ServeFile(w, r, filepath.Join(s.config.PortalRoot, fileName))
 		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/saisons/") {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/saisons/"), "/")
+		if len(parts) >= 1 && parts[0] != "" {
+			if season, found, err := s.repo.ResolveSeason(r.Context(), parts[0]); err == nil && found {
+				_ = season
+				pagePath := "/"
+				if len(parts) > 1 {
+					pagePath += strings.Join(parts[1:], "/")
+				}
+				if fileName, ok := portalRoutes[pagePath]; ok {
+					w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+					http.ServeFile(w, r, filepath.Join(s.config.PortalRoot, fileName))
+					return
+				}
+				staticPath := strings.TrimPrefix(pagePath, "/")
+				if strings.HasPrefix(staticPath, "assets/") || staticPath == "site.webmanifest" || staticPath == "sw.js" || staticPath == "offline.html" || staticPath == "release-notes.json" {
+					target := filepath.Join(s.config.PortalRoot, filepath.FromSlash(staticPath))
+					if strings.HasPrefix(target, s.config.PortalRoot+string(os.PathSeparator)) {
+						w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
+						http.ServeFile(w, r, target)
+						return
+					}
+				}
+			}
+		}
 	}
 	relative := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(r.URL.Path, "/")))
 	if relative == "." || strings.HasPrefix(relative, "..") || filepath.IsAbs(relative) {
@@ -775,6 +907,113 @@ func (s *Server) handleOpsCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (s *Server) handleCreateSeason(w http.ResponseWriter, r *http.Request) {
+	var input model.SeasonCreate
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "season-invalid")
+		return
+	}
+	session := r.Context().Value(sessionContextKey{}).(store.Session)
+	season, err := s.repo.CreateSeason(r.Context(), input, session.GitHubLogin)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrInvalidBatch) {
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, "season-create-refused")
+		return
+	}
+	writeJSON(w, http.StatusCreated, season)
+}
+
+func (s *Server) handleActivateSeason(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		AgentID string `json:"agentId"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request) != nil || request.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "season-activate-invalid")
+		return
+	}
+	session := r.Context().Value(sessionContextKey{}).(store.Session)
+	commandID, err := randomToken(18)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "season-activate-failed")
+		return
+	}
+	season, command, err := s.repo.ActivateSeasonWithCommand(r.Context(), r.PathValue("id"), request.AgentID, commandID, session.GitHubLogin, time.Now().UTC().Add(15*time.Minute))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrSeasonConflict) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, "season-activate-refused")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"season": season, "command": command})
+}
+
+func (s *Server) handleArchiveSeason(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		AgentID string `json:"agentId"`
+		Confirm string `json:"confirm"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request) != nil || request.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "season-archive-invalid")
+		return
+	}
+	session := r.Context().Value(sessionContextKey{}).(store.Session)
+	if request.Confirm != "ARCHIVER" || time.Since(session.CreatedAt) > 5*time.Minute {
+		writeError(w, http.StatusPreconditionFailed, "recent-login-and-confirmation-required")
+		return
+	}
+	commandID, err := randomToken(18)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "season-archive-failed")
+		return
+	}
+	command, err := s.repo.BeginSeasonArchive(r.Context(), r.PathValue("id"), request.AgentID, commandID, session.GitHubLogin, time.Now().UTC().Add(90*time.Minute))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrSeasonConflict) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, "season-archive-refused")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, command)
+}
+
+func (s *Server) handleReopenSeason(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		AgentID string `json:"agentId"`
+		Confirm string `json:"confirm"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request) != nil || request.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "season-reopen-invalid")
+		return
+	}
+	session := r.Context().Value(sessionContextKey{}).(store.Session)
+	if request.Confirm != "RÉOUVRIR" || time.Since(session.CreatedAt) > 5*time.Minute {
+		writeError(w, http.StatusPreconditionFailed, "recent-login-and-confirmation-required")
+		return
+	}
+	commandID, err := randomToken(18)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "season-reopen-failed")
+		return
+	}
+	season, command, err := s.repo.ReopenSeason(r.Context(), r.PathValue("id"), request.AgentID, commandID, session.GitHubLogin, time.Now().UTC().Add(15*time.Minute))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, store.ErrSeasonConflict) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, "season-reopen-refused")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"season": season, "command": command})
 }
 
 func validRestartArguments(raw json.RawMessage) bool {
