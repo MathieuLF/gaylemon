@@ -295,7 +295,7 @@ async function loadMicrositeVersion() {
     if (!releaseVersion || releaseVersion.length > 64) throw new Error("version-invalid");
     const releaseCommit = String(release.commit || "").trim();
     const releaseChannel = String(release.channel || "").trim();
-    const parts = [`v${releaseVersion}`];
+    const parts = [`Version v${releaseVersion.replace(/^v/i, "")}`];
     if (/^[0-9a-f]{7,64}$/i.test(releaseCommit)) parts.push(releaseCommit.slice(0, 7));
     if (releaseChannel && releaseChannel.length <= 32) parts.push(releaseChannel);
     micrositeVersion.textContent = parts.join(" · ");

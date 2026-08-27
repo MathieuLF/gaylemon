@@ -9896,6 +9896,37 @@ button,
   letter-spacing: .02em;
 }
 
+.site-footer__privacy {
+  width: fit-content;
+  margin-top: 3px;
+  color: var(--teal-700, #176d70);
+  font-size: .68rem;
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.privacy-page {
+  width: min(1180px, calc(100% - 32px));
+  margin: 28px auto 90px;
+}
+
+.privacy-hero h1 { max-width: 900px; }
+.privacy-hero > p { max-width: 820px; line-height: 1.65; }
+.privacy-cards { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin-top: 16px; }
+.privacy-cards .panel { margin: 0; }
+.privacy-cards h2 { margin-top: 6px; }
+.privacy-cards p:last-child, .privacy-details p { line-height: 1.65; }
+.privacy-details { margin-top: 16px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .dashboard-hero__route, .metric-card, .privacy-cards .panel { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .dashboard-hero__route:hover, .metric-card:hover, .privacy-cards .panel:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(25,67,69,.12); }
+}
+
+@media (max-width: 760px) {
+  .privacy-cards { grid-template-columns: 1fr; }
+}
+
 .site-footer__links {
   display: flex;
   flex-wrap: wrap;

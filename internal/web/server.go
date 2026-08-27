@@ -541,19 +541,21 @@ func (s *Server) handleGameAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 var portalRoutes = map[string]string{
-	"/":              "index.html",
-	"/terminal":      "terminal.html",
-	"/terminal/":     "terminal.html",
-	"/resume":        "resume.html",
-	"/resume/":       "resume.html",
-	"/classements":   "classements.html",
-	"/classements/":  "classements.html",
-	"/carte":         "carte.html",
-	"/carte/":        "carte.html",
-	"/github":        "github.html",
-	"/github/":       "github.html",
-	"/informations":  "informations.html",
-	"/informations/": "informations.html",
+	"/":                 "index.html",
+	"/terminal":         "terminal.html",
+	"/terminal/":        "terminal.html",
+	"/resume":           "resume.html",
+	"/resume/":          "resume.html",
+	"/classements":      "classements.html",
+	"/classements/":     "classements.html",
+	"/carte":            "carte.html",
+	"/carte/":           "carte.html",
+	"/github":           "github.html",
+	"/github/":          "github.html",
+	"/informations":     "informations.html",
+	"/informations/":    "informations.html",
+	"/confidentialite":  "confidentialite.html",
+	"/confidentialite/": "confidentialite.html",
 }
 
 func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
