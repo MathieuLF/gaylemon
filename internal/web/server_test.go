@@ -369,7 +369,7 @@ func TestOpsPageWaitsForTheAgentResult(t *testing.T) {
 }
 
 func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
-	for _, page := range []string{"index.html", "resume.html", "terminal.html", "classements.html", "carte.html", "github.html"} {
+	for _, page := range []string{"index.html", "resume.html", "terminal.html", "classements.html", "carte.html", "github.html", "informations.html", "confidentialite.html"} {
 		source, err := os.ReadFile(filepath.Join("..", "..", "portal", page))
 		if err != nil {
 			t.Fatal(err)
@@ -385,7 +385,7 @@ func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := string(appSource)
-	for _, required := range []string{"fetch(\"/version\"", "micrositeVersion.textContent", "cache: \"no-store\""} {
+	for _, required := range []string{"fetch(\"/version\"", "micrositeVersion.textContent", "Version v", "cache: \"no-store\""} {
 		if !strings.Contains(app, required) {
 			t.Fatalf("chargement sûr de la version incomplet: %s", required)
 		}
