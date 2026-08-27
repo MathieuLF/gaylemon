@@ -1,5 +1,5 @@
 const CACHE = "gaylemon-public-v1";
-const SHELL = ["/", "/offline.html", "/informations", "/assets/styles.css", "/assets/app.js", "/assets/favicon.svg", "/site.webmanifest"];
+const SHELL = ["/", "/offline.html", "/informations", "/confidentialite", "/assets/styles.css", "/assets/app.js", "/assets/favicon.svg", "/site.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
