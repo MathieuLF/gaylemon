@@ -11,11 +11,15 @@ $profile = Get-Content -Raw -LiteralPath $profilePath | ConvertFrom-Json
 if ($profile.schema -ne 'suite.profile.v2' -or $profile.contract -ne 'suite-foundation-v2' -or $profile.application -ne 'gaylemon') {
     throw 'Le profil Gaylémon ne respecte pas suite-foundation-v2.'
 }
+if ($profile.update.backup -ne 'restic-gdrive-postgresql-spool-and-palworld-final') {
+    throw 'Le profil Gaylémon doit utiliser la sauvegarde Restic vers Google Drive.'
+}
 if ($ContractPath) {
     $resolvedContract = (Resolve-Path -LiteralPath $ContractPath).Path
     $contract = Get-Content -Raw -LiteralPath $resolvedContract | ConvertFrom-Json
     $entry = @($contract.applications | Where-Object { $_.id -eq 'gaylemon' })
-    if ($entry.Count -ne 1 -or $entry[0].profile -ne $profile.profile) { throw 'Le profil local diverge du contrat central.' }
+    if ($entry.Count -ne 1 -or $entry[0].profile -ne $profile.profile -or
+        $entry[0].backup -ne $profile.update.backup) { throw 'Le profil local diverge du contrat central.' }
 }
 $routes = & (Join-Path $PSScriptRoot 'inventory-routes.ps1') -Check | ConvertFrom-Json
 $goVersion = (& go env GOVERSION).Trim()
