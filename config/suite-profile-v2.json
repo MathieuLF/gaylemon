@@ -30,7 +30,8 @@
   "update": {
     "engine": "gaylemon-seasonal",
     "source": "digest",
-    "artifact": "ghcr.io/mathieulf/gaylemon"
+    "artifact": "ghcr.io/mathieulf/gaylemon",
+    "backup": "restic-gdrive-postgresql-spool-and-palworld-final"
   },
   "validation": {
     "receiptSchema": "suite.local-validation.v2",
