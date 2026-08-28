@@ -282,26 +282,26 @@ nextUpdate?.setAttribute("aria-live", "off");
 async function loadMicrositeVersion() {
   if (!micrositeVersion) return;
   try {
-    const response = await fetch("/version", {
+    const response = await fetch("/api/version", {
       cache: "no-store",
-      headers: { Accept: "application/json, text/plain" },
+      headers: { Accept: "application/json" },
     });
     if (!response.ok) throw new Error("version-unavailable");
     const contentType = response.headers.get("Content-Type") || "";
-    const release = contentType.includes("application/json")
-      ? await response.json()
-      : { version: (await response.text()).trim(), commit: "unknown", channel: "local" };
+    if (!contentType.includes("application/json")) throw new Error("version-mime-invalid");
+    const release = await response.json();
+    const keys = Object.keys(release).sort();
+    if (keys.join(",") !== "application,builtAt,commit,schema,version" ||
+        release.schema !== "suite.version.v1" || release.application !== "gaylemon") {
+      throw new Error("version-contract-invalid");
+    }
     const releaseVersion = String(release.version || "").trim();
     if (!releaseVersion || releaseVersion.length > 64) throw new Error("version-invalid");
     const releaseCommit = String(release.commit || "").trim();
-    const releaseChannel = String(release.channel || "").trim();
     const parts = [`Version v${releaseVersion.replace(/^v/i, "")}`];
-    if (/^[0-9a-f]{7,64}$/i.test(releaseCommit)) parts.push(releaseCommit.slice(0, 7));
-    if (releaseChannel && releaseChannel.length <= 32) parts.push(releaseChannel);
+    if (/^[0-9a-f]{40}$/.test(releaseCommit)) parts.push(releaseCommit.slice(0, 7));
     micrositeVersion.textContent = parts.join(" · ");
-    micrositeVersion.title = releaseCommit && releaseCommit !== "unknown"
-      ? `Version ${releaseVersion}, commit ${releaseCommit}, canal ${releaseChannel || "non précisé"}`
-      : `Version ${releaseVersion}, canal ${releaseChannel || "non précisé"}`;
+    micrositeVersion.title = `Version ${releaseVersion}, commit ${releaseCommit}, construit ${release.builtAt}`;
   } catch {
     micrositeVersion.textContent = "Version indisponible";
     micrositeVersion.removeAttribute("title");

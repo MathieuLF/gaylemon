@@ -134,11 +134,12 @@ Write-Result (
     $dockerfileSource.Contains('COPY VERSION ./VERSION') -and
     $dockerfileSource.Contains('-X main.version=${release}') -and
     $dockerfileSource.Contains('-X main.commit=${GAYLEMON_COMMIT}') -and
-    $dockerfileSource.Contains('-X main.channel=${GAYLEMON_CHANNEL}') -and
+    $dockerfileSource.Contains('-X main.builtAt=${GAYLEMON_BUILT_AT}') -and
     $productionComposeSource.Contains('image: ${GAYLEMON_IMAGE_REFERENCE:?GAYLEMON_IMAGE_REFERENCE avec digest requis}') -and
     $productionDeploySource.Contains('commit="$(/usr/bin/git -C "$project_root" rev-parse HEAD)"') -and
     $productionDeploySource.Contains('"image":"%s"') -and
     $releaseSource.Contains('--build-arg "GAYLEMON_COMMIT=$commit"') -and
+    $releaseSource.Contains('--build-arg "GAYLEMON_BUILT_AT=$builtAt"') -and
     $releaseSource.Contains('docker buildx imagetools inspect $tag') -and
     $releaseSource.Contains("'https://gaylemon.nethercore.dev/attestations/release-manifest/v1'") -and
     $releaseSource.Contains('--type $releasePredicateType --predicate') -and
@@ -205,8 +206,8 @@ Write-Result (
     $nginxConfig.Contains('return 404;')
 ) "Marqueur source cache non servi"
 Write-Result (
-    $nginxConfig.Contains('location = /version') -and
-    $nginxConfig.Contains('alias /etc/gaylemon-version;') -and
+    $nginxConfig.Contains('location = /api/version') -and
+    $nginxConfig.Contains('alias /etc/gaylemon-version.json;') -and
     $nginxConfig.Contains('add_header Cache-Control "no-store" always;')
 ) "Version locale servie sans cache"
 
@@ -220,7 +221,7 @@ Write-Result (
     $composeConfig.Contains('read_only: true') -and
     $composeConfig.Contains('restart: unless-stopped')
 ) "Tunnel API Docker local et persistant"
-Write-Result ($composeConfig.Contains('./VERSION:/etc/gaylemon-version:ro')) "Version canonique montée dans le microsite local"
+Write-Result ($composeConfig.Contains('./config/local-version.json:/etc/gaylemon-version.json:ro')) "Contrat de version local monté dans le microsite"
 Write-Result (
     $apiTunnelScript.Contains('Assert-TunnelPort') -and
     $apiTunnelScript.Contains('Assert-SshAlias') -and

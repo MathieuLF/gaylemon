@@ -43,10 +43,11 @@ type Server struct {
 }
 
 type ReleaseInfo struct {
-	Product string `json:"product"`
-	Version string `json:"version"`
-	Commit  string `json:"commit"`
-	Channel string `json:"channel"`
+	Schema      string `json:"schema"`
+	Application string `json:"application"`
+	Version     string `json:"version"`
+	Commit      string `json:"commit"`
+	BuiltAt     string `json:"builtAt"`
 }
 
 type sessionContextKey struct{}
@@ -97,21 +98,19 @@ func NewServerWithRelease(cfg config.Web, repo store.Repository, logger *slog.Lo
 }
 
 func (release ReleaseInfo) normalized() ReleaseInfo {
-	release.Product = strings.TrimSpace(release.Product)
+	release.Schema = "suite.version.v1"
+	release.Application = "gaylemon"
 	release.Version = strings.TrimSpace(release.Version)
 	release.Commit = strings.TrimSpace(release.Commit)
-	release.Channel = strings.TrimSpace(release.Channel)
-	if release.Product == "" {
-		release.Product = "gaylemon-microsite"
-	}
+	release.BuiltAt = strings.TrimSpace(release.BuiltAt)
 	if release.Version == "" {
-		release.Version = "dev"
+		release.Version = "0.0.0-dev"
 	}
 	if release.Commit == "" {
-		release.Commit = "unknown"
+		release.Commit = "0000000000000000000000000000000000000000"
 	}
-	if release.Channel == "" {
-		release.Channel = "development"
+	if release.BuiltAt == "" {
+		release.BuiltAt = "1970-01-01T00:00:00Z"
 	}
 	return release
 }
@@ -141,6 +140,7 @@ func (s *Server) redirectLegacyHost(next http.Handler) http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health/live", s.handleLive)
 	s.mux.HandleFunc("GET /health/ready", s.handleReady)
+	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /version", s.handleVersion)
 	s.mux.HandleFunc("POST /api/ingest/v1/batches", s.handleIngest)
 	s.mux.HandleFunc("POST /api/agent/v1/heartbeat", s.handleHeartbeat)

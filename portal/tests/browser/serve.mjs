@@ -7,7 +7,7 @@ const pages = new Map([["/", "index.html"], ["/resume", "resume.html"], ["/class
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
 createServer((request, response) => {
   const url = new URL(request.url, "http://127.0.0.1:4179");
-  if (url.pathname === "/version") return json(response, { version: "2026.08.26.1", commit: "0123456789abcdef", channel: "test" });
+  if (url.pathname === "/api/version") return json(response, { schema: "suite.version.v1", application: "gaylemon", version: "1.0.0", commit: "0123456789abcdef0123456789abcdef01234567", builtAt: "2026-08-26T12:00:00Z" });
   if (url.pathname === "/api/public/site-state/v1") {
     const archived = url.searchParams.get("season") === "saison-2026";
     return json(response, { mode: archived ? "archived" : "active", readOnly: archived, polling: !archived, season: { id: "season-2026", slug: "saison-2026", title: "Saison 2026", state: archived ? "archived" : "active", archivedAt: archived ? "2026-08-26T12:00:00Z" : null } });

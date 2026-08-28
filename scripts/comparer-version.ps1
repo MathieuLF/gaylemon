@@ -62,20 +62,27 @@ catch {
 
 $productionVersion = ""
 $productionCommit = ""
-$productionChannel = ""
+$productionBuiltAt = ""
 $productionError = ""
 try {
-    $versionUri = [uri]::new($ProductionUrl.AbsoluteUri.TrimEnd('/') + "/version")
+    $versionUri = [uri]::new($ProductionUrl.AbsoluteUri.TrimEnd('/') + "/api/version")
     $production = Invoke-RestMethod -Uri $versionUri -Headers @{ Accept = "application/json" } -TimeoutSec 10
+    $productionKeys = @($production.PSObject.Properties.Name | Sort-Object)
     $productionVersion = [string]$production.version
     $productionCommit = [string]$production.commit
-    $productionChannel = [string]$production.channel
+    $productionBuiltAt = [string]$production.builtAt
+    if (($productionKeys -join ',') -ne 'application,builtAt,commit,schema,version' -or
+        [string]$production.schema -ne 'suite.version.v1' -or [string]$production.application -ne 'gaylemon') {
+        throw 'La VPS ne respecte pas le contrat suite.version.v1 exact.'
+    }
     if ($productionVersion -notmatch $versionPattern) {
         throw "La VPS annonce une version invalide: $productionVersion"
     }
     if ($productionCommit -notmatch "^[0-9a-f]{40}$") {
         throw "La VPS n'annonce pas un commit Git complet."
     }
+    try { [DateTimeOffset]::Parse($productionBuiltAt, [Globalization.CultureInfo]::InvariantCulture) | Out-Null }
+    catch { throw "La VPS n'annonce pas un builtAt RFC 3339." }
 }
 catch {
     $productionError = $_.Exception.Message
@@ -106,7 +113,7 @@ $result = [pscustomobject]@{
     production = [pscustomobject]@{
         version = $productionVersion
         commit = $productionCommit
-        channel = $productionChannel
+        builtAt = $productionBuiltAt
         url = $ProductionUrl.AbsoluteUri.TrimEnd('/')
         error = $productionError
     }
