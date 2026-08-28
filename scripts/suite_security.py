@@ -215,4 +215,3 @@ def validate_full_security(repository: Path, receipt: dict[str, Any], errors: li
                 errors.append("manifeste Full sécurité différent du reçu")
         except (OSError, json.JSONDecodeError):
             errors.append("manifeste Full sécurité illisible")
-
