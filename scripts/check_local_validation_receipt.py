@@ -14,22 +14,20 @@ from typing import Any
 REQUIRED_KEYS = {
     "schema",
     "contract",
+    "contractRevision",
     "profile",
     "application",
+    "version",
     "result",
     "mode",
-    "commit",
-    "branch",
-    "cleanAtStart",
-    "cleanAtEnd",
+    "startedAt",
+    "completedAt",
+    "git",
     "routes",
     "tools",
     "checks",
     "artifacts",
-    "sbom",
-    "scan",
-    "signature",
-    "validatedAt",
+    "security",
 }
 FULL_TOOLS = {
     "go",
@@ -49,6 +47,11 @@ FULL_TOOLS = {
     "cosign",
     "bash",
 }
+SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 
 
 def _canonical_routes(routes: list[dict[str, Any]]) -> bytes:
@@ -65,7 +68,8 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
         "contract": "suite-foundation-v2",
         "application": "gaylemon",
         "profile": "seasonal-go-microsite",
-        "result": "success",
+        "contractRevision": "2.1.0",
+        "result": "passed",
     }
     for key, value in expected.items():
         if receipt.get(key) != value:
@@ -75,10 +79,19 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
         errors.append("suiteContract est obsolète; utiliser contract")
     if receipt.get("mode") not in {"quick", "full"}:
         errors.append("mode doit être quick ou full")
-    if not isinstance(receipt.get("commit"), str) or not re.fullmatch(r"[0-9a-f]{40}", receipt["commit"]):
+    if not isinstance(receipt.get("version"), str) or not SEMVER.fullmatch(receipt.get("version", "")):
+        errors.append("version doit être une valeur SemVer sans préfixe v")
+    for key in ("startedAt", "completedAt"):
+        if not isinstance(receipt.get(key), str) or not receipt.get(key):
+            errors.append(f"{key} est requis")
+    git = receipt.get("git")
+    if not isinstance(git, dict):
+        errors.append("git doit être un objet")
+        git = {}
+    if not isinstance(git.get("commit"), str) or not re.fullmatch(r"[0-9a-f]{40}", git.get("commit", "")):
         errors.append("commit doit être un SHA Git complet")
     for key in ("cleanAtStart", "cleanAtEnd"):
-        if not isinstance(receipt.get(key), bool):
+        if not isinstance(git.get(key), bool):
             errors.append(f"{key} doit être booléen")
 
     route_summary = receipt.get("routes")
@@ -114,12 +127,17 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
     elif receipt.get("mode") == "full":
         missing_tools = sorted(FULL_TOOLS - tools.keys())
         errors.extend(f"outil Full manquant: {tool}" for tool in missing_tools)
-    if not isinstance(receipt.get("checks"), list) or not receipt.get("checks"):
+    checks = receipt.get("checks")
+    if not isinstance(checks, list) or not checks:
         errors.append("checks doit être une liste non vide")
-    if not isinstance(receipt.get("artifacts"), list):
-        errors.append("artifacts doit être une liste")
-    if not isinstance(receipt.get("sbom"), list):
-        errors.append("sbom doit être une liste")
+    else:
+        for index, check in enumerate(checks):
+            if not isinstance(check, dict) or not check.get("name") or check.get("status") not in {"passed", "failed", "not-applicable"}:
+                errors.append(f"checks[{index}] invalide")
+    if not isinstance(receipt.get("artifacts"), dict):
+        errors.append("artifacts doit être un objet")
+    if not isinstance(receipt.get("security"), dict):
+        errors.append("security doit être un objet")
 
     if errors:
         raise ValueError("\n".join(errors))

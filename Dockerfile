@@ -43,6 +43,13 @@ RUN release="${GAYLEMON_VERSION:-$(tr -d '\r\n' < VERSION)}" \
     && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.channel=${GAYLEMON_CHANNEL}" -o /out/gaylemon-web ./cmd/gaylemon-web
 
 FROM alpine:3.22
+ARG GAYLEMON_VERSION=0.0.0-dev
+ARG GAYLEMON_COMMIT=unknown
+LABEL org.opencontainers.image.title="Gaylémon" \
+      org.opencontainers.image.description="Microsite Palworld saisonnier et archivable" \
+      org.opencontainers.image.source="https://github.com/MathieuLF/gaylemon" \
+      org.opencontainers.image.version="${GAYLEMON_VERSION}" \
+      org.opencontainers.image.revision="${GAYLEMON_COMMIT}"
 RUN apk upgrade --no-cache \
     && apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 gaylemon \
@@ -60,4 +67,5 @@ ENV GAYLEMON_WEB_LISTEN=:8080 \
     GAYLEMON_PORTAL_ROOT=/app/portal \
     GAYLEMON_ASSET_ROOT=/app/runtime/public-assets
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:8080/health/live || exit 1
 ENTRYPOINT ["/usr/local/bin/gaylemon-web"]
