@@ -57,6 +57,19 @@ function Read-CosignPassword([string]$KeyPath) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 }
 $commit = (& git -C $root rev-parse HEAD).Trim()
+$validationReceiptPath = Join-Path $root 'release\local-validation.json'
+if (-not (Test-Path -LiteralPath $validationReceiptPath -PathType Leaf)) {
+    throw 'Un reçu Full suite.local-validation.v2 est requis avant la release.'
+}
+$validationReceipt = Get-Content -Raw -LiteralPath $validationReceiptPath | ConvertFrom-Json
+if ($validationReceipt.schema -ne 'suite.local-validation.v2' -or
+    $validationReceipt.contractRevision -ne '2.2.0' -or $validationReceipt.application -ne 'gaylemon' -or
+    $validationReceipt.mode -ne 'full' -or $validationReceipt.result -ne 'passed' -or
+    -not $validationReceipt.git.cleanAtStart -or -not $validationReceipt.git.cleanAtEnd -or
+    $validationReceipt.git.commit -ne $commit -or $validationReceipt.version -ne $Version) {
+    throw 'Le reçu Full ne prouve pas ce commit propre et cette version.'
+}
+$validationReceiptHash = (Get-FileHash -LiteralPath $validationReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $releaseNotes = Get-Content -Raw -LiteralPath (Join-Path $root 'portal\release-notes.json') | ConvertFrom-Json
 if (-not @($releaseNotes.releases | Where-Object { $_.version -eq $Version })) { throw 'Les notes de version ne couvrent pas la version demandée.' }
 if (-not (Select-String -LiteralPath (Join-Path $root 'CHANGELOG.md') -SimpleMatch 'multi-saisons' -Quiet)) { throw 'Le journal des changements ne couvre pas le cycle multi-saisons.' }
@@ -66,12 +79,18 @@ if ($LASTEXITCODE -ne 0) { throw 'Construction OCI impossible.' }
 $output = Join-Path $root 'release'
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $outputMount = $output.Replace('\', '/')
+$artifactName = "gaylemon-$Version-linux-amd64.oci.tar"
+$artifact = Join-Path $output $artifactName
+Invoke-Checked { docker image save --output $artifact $tag } 'Matérialisation OCI locale impossible.'
+$artifactHash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+$artifactDigest = "sha256:$artifactHash"
 Invoke-Checked {
     docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${outputMount}:/out" $syftImage $tag `
         -o "spdx-json=/out/gaylemon-$Version.spdx.json" -o "cyclonedx-json=/out/gaylemon-$Version.cdx.json"
 } 'SBOM impossible.'
 Invoke-Checked {
-    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock $trivyImage image --exit-code 1 --severity HIGH,CRITICAL $tag
+    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${outputMount}:/out" $trivyImage image `
+        --exit-code 1 --severity HIGH,CRITICAL --format json --output "/out/gaylemon-$Version-trivy.json" $tag
 } 'Scan Trivy bloquant.'
 $agent = Join-Path $output "gaylemon-agent-$Version-linux-amd64"
 $env:CGO_ENABLED = '0'; $env:GOOS = 'linux'; $env:GOARCH = 'amd64'
@@ -111,6 +130,32 @@ try {
         docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
             verify-blob --key "/trust/$publicKeyName" --bundle "/out/$descriptorBundleName" "/out/$descriptorName"
     } "Vérification de la preuve locale de l'image impossible."
+    $artifactBundle = "$artifact.cosign-bundle.json"
+    $artifactBundleName = Split-Path -Leaf $artifactBundle
+    Invoke-Checked {
+        docker run --rm -e COSIGN_PASSWORD -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out" $cosignImage `
+            sign-blob --yes --use-signing-config=false --key "/keys/$keyName" --bundle "/out/$artifactBundleName" "/out/$artifactName"
+    } 'Signature OCI locale impossible.'
+    Invoke-Checked {
+        docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
+            verify-blob --key "/trust/$publicKeyName" --bundle "/out/$artifactBundleName" "/out/$artifactName"
+    } 'Vérification de la signature OCI locale impossible.'
+    $localAttestation = Join-Path $output "gaylemon-$Version-local-attestation.json"
+    [IO.File]::WriteAllText($localAttestation, (([ordered]@{
+        schema='gaylemon.local-attestation.v1'; application='gaylemon'; version=$Version; commit=$commit
+        artifactDigest=$artifactDigest; routes=$validationReceipt.routes; validationReceiptSha256=$validationReceiptHash
+    } | ConvertTo-Json -Depth 6) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+    $localAttestationBundle = "$localAttestation.cosign-bundle.json"
+    $localAttestationName = Split-Path -Leaf $localAttestation
+    $localAttestationBundleName = Split-Path -Leaf $localAttestationBundle
+    Invoke-Checked {
+        docker run --rm -e COSIGN_PASSWORD -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out" $cosignImage `
+            sign-blob --yes --use-signing-config=false --key "/keys/$keyName" --bundle "/out/$localAttestationBundleName" "/out/$localAttestationName"
+    } "Signature de l'attestation locale impossible."
+    Invoke-Checked {
+        docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
+            verify-blob --key "/trust/$publicKeyName" --bundle "/out/$localAttestationBundleName" "/out/$localAttestationName"
+    } "Vérification de l'attestation locale impossible."
     if ($Publish) {
         docker push $tag
         if ($LASTEXITCODE -ne 0) { throw 'Publication GHCR impossible.' }
@@ -119,9 +164,13 @@ try {
         $reference = "$Image@$digest"
         $releaseManifestPath = Join-Path $output "gaylemon-$Version-release.json"
         $releaseManifest = [ordered]@{
-            schema = 'gaylemon.release.v2'
+            schema = 'suite.release.v1'
+            contract = 'suite-foundation-v2'
+            contractRevision = '2.2.0'
+            application = 'gaylemon'
             version = $Version
             commit = $commit
+            immutableSource = $true
             image = $reference
             agentSha256 = $agentSha
             signed = $true
@@ -148,6 +197,42 @@ finally {
     if ($null -eq $previousCosignPassword) { Remove-Item Env:COSIGN_PASSWORD -ErrorAction SilentlyContinue }
     else { $env:COSIGN_PASSWORD = $previousCosignPassword }
 }
-[ordered]@{ schema='gaylemon.release.v2'; version=$Version; commit=$commit; image=$tag; imageId=$localImageID; agentSha256=$agentSha; localSigningVerified=$true; published=[bool]$Publish } |
-    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'release-local.json') -Encoding utf8NoBOM
+$spdxPath = Join-Path $output "gaylemon-$Version.spdx.json"
+$cyclonePath = Join-Path $output "gaylemon-$Version.cdx.json"
+$trivyPath = Join-Path $output "gaylemon-$Version-trivy.json"
+$scanEvidencePath = Join-Path $output "gaylemon-$Version-scan-evidence.json"
+$signatureEvidencePath = Join-Path $output "gaylemon-$Version-signature-evidence.json"
+$attestationEvidencePath = Join-Path $output "gaylemon-$Version-attestation-evidence.json"
+[IO.File]::WriteAllText($scanEvidencePath, (([ordered]@{
+    schema='suite.security-evidence.v1'; control='scan'; application='gaylemon'; version=$Version; commit=$commit
+    artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Trivy';command='trivy image --exit-code 1 --severity HIGH,CRITICAL --format json';exitCode=0}
+} | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($signatureEvidencePath, (([ordered]@{
+    schema='suite.security-evidence.v1'; control='signature'; application='gaylemon'; version=$Version; commit=$commit
+    artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Cosign';command='cosign verify-blob --key security/cosign.pub --bundle artifact.cosign-bundle.json';exitCode=0}
+} | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($attestationEvidencePath, (([ordered]@{
+    schema='suite.attestation-evidence.v1'; predicateType=$releasePredicateType; application='gaylemon'; version=$Version; commit=$commit
+    artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Cosign';command='cosign verify-blob --key security/cosign.pub --bundle local-attestation.cosign-bundle.json local-attestation.json';exitCode=0}
+} | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+function New-Evidence([string]$Path) {
+    [ordered]@{ path = "release/$([IO.Path]::GetFileName($Path))"; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+$receipt = [ordered]@{
+    schema='suite.release.v1'; contract='suite-foundation-v2'; contractRevision='2.2.0'; application='gaylemon'; version=$Version; commit=$commit
+    source=[ordered]@{kind='digest';value="local:$artifactName@$artifactDigest"}
+    artifact=(New-Evidence $artifact); artifactDigest=$artifactDigest
+    routes=[ordered]@{count=[int]$validationReceipt.routes.count;sha256=[string]$validationReceipt.routes.sha256}
+    validation=[ordered]@{mode='full';receipt=(New-Evidence $validationReceiptPath);result='passed'}
+    sbom=[ordered]@{spdx=(New-Evidence $spdxPath);cycloneDx=(New-Evidence $cyclonePath)}
+    scan=[ordered]@{status='passed';evidence=(New-Evidence $scanEvidencePath)}
+    signature=[ordered]@{status='passed';evidence=(New-Evidence $signatureEvidencePath)}
+    attestations=@((New-Evidence $attestationEvidencePath))
+    operations=[ordered]@{
+        update='scripts/deployer-ubuntu.ps1';backup='docs/PLAN-ENRICHISSEMENT-SAUVEGARDES.md';restore='docs/OPERATIONS.md'
+        health='scripts/verify-microsite-recovery.ps1';rollback='docs/DEPLOIEMENT.md'
+    }
+    result='passed'
+}
+[IO.File]::WriteAllText((Join-Path $output 'release.json'), (($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 Write-Host "Release préparée: $tag"

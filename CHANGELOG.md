@@ -4,6 +4,12 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 ## [Non publié]
 
+### Modifié
+
+- Le profil Gaylémon suit la révision 2.2.0 du socle commun, avec contrat d’exploitation et reçu de release `suite.release.v1`.
+- Les sauvegardes d’exploitation utilisent désormais un vocabulaire Restic hors site indépendant du fournisseur et du déployeur.
+- La validation Full rejoue les migrations et scénarios multi-saisons sur PostgreSQL 16 isolé; Quick vérifie systématiquement les invariants de l’agent et l’interdiction de redémarrer Palworld.
+
 ## [1.0.0] - 2026-08-28
 
 ### Modifié

@@ -147,7 +147,7 @@ Apres une panne electrique, Internet ou un redemarrage force, lancer:
 
 `export-palworld-uptime.ps1` ajoute une sonde locale, recalcule les fenêtres d'indisponibilité et régénère `public-uptime.json`, `public-uptime-history.json` et `public-availability.json`.
 
-## Updates et backups
+## Mises à jour et sauvegardes Palworld
 
 Version Steam:
 
@@ -175,6 +175,8 @@ Rappels:
 - update reportée si des joueurs sont connectés;
 - sauvegarde obligatoire avant arrêt technique;
 - reprise confirmée par l'API REST avant de déclarer la maintenance terminée.
+
+Ces sauvegardes locales servent au fonctionnement et aux reprises rapides de Palworld. Elles ne remplacent pas le contrat d’exploitation `restic-offsite-postgresql-spool-and-palworld-final`, qui protège hors site PostgreSQL, la file durable de l’agent et les sauvegardes finales de saison. La chaîne nocturne Restic, sa rétention et ses tests de restauration sont pilotés par Nethercore; Gaylémon n’inscrit aucun fournisseur ni secret de dépôt dans ses fichiers versionnés.
 
 ## API Palworld
 
