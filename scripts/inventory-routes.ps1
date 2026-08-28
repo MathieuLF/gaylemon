@@ -21,6 +21,7 @@ $requiredRoutes = @(
     'GET /ops',
     'GET /saisons/{slug}/api/public/events/v1',
     'GET /saisons/{slug}/data/{path...}',
+    'GET /api/version',
     'GET /version',
     'POST /api/agent/v1/commands/{id}/ack',
     'POST /api/agent/v1/heartbeat',
@@ -35,7 +36,7 @@ if ($Check) {
     $routeKeys = @($routes | ForEach-Object { "$($_.method) $($_.path)" })
     $duplicates = @($routeKeys | Group-Object | Where-Object Count -gt 1 | ForEach-Object Name)
     $missingRoutes = @($requiredRoutes | Where-Object { $_ -notin $routeKeys })
-    if ($routes.Count -ne 28) { throw "Inventaire de routes inattendu: $($routes.Count), attendu: 28." }
+if ($routes.Count -ne 29) { throw "Inventaire de routes inattendu: $($routes.Count), attendu: 29." }
     if ($duplicates.Count -gt 0) { throw "Routes dupliquées: $($duplicates -join ', ')." }
     if ($missingRoutes.Count -gt 0) { throw "Routes contractuelles absentes: $($missingRoutes -join ', ')." }
 }

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -234,12 +235,11 @@ func TestLegacyHostsRedirectPreservesPathAndQuery(t *testing.T) {
 func TestVersionRoutePublishesOnlyReleaseMetadataWithoutCaching(t *testing.T) {
 	repository := &fakeRepository{}
 	server := NewServerWithRelease(config.Web{}, repository, slog.New(slog.NewTextHandler(testWriter{t}, nil)), ReleaseInfo{
-		Product: "gaylemon-microsite",
-		Version: "2026.08.10.1",
+		Version: "1.0.0",
 		Commit:  "a815220a66fa16ffc9f55f71b6782993988c2fd9",
-		Channel: "production",
+		BuiltAt: "2026-08-10T12:30:00Z",
 	})
-	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.nethercore.dev/version", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.nethercore.dev/api/version", nil)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 
@@ -249,18 +249,34 @@ func TestVersionRoutePublishesOnlyReleaseMetadataWithoutCaching(t *testing.T) {
 	if recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("métadonnées de version mises en cache: %q", recorder.Header().Get("Cache-Control"))
 	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("MIME du contrat de version inattendu: %q", got)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	expectedKeys := []string{"application", "builtAt", "commit", "schema", "version"}
+	actualKeys := make([]string, 0, len(raw))
+	for key := range raw {
+		actualKeys = append(actualKeys, key)
+	}
+	slices.Sort(actualKeys)
+	if !slices.Equal(actualKeys, expectedKeys) {
+		t.Fatalf("clés du contrat de version inattendues: %v", actualKeys)
+	}
 	var release ReleaseInfo
 	if err := json.Unmarshal(recorder.Body.Bytes(), &release); err != nil {
 		t.Fatal(err)
 	}
-	if release.Product != "gaylemon-microsite" || release.Version != "2026.08.10.1" || release.Commit != "a815220a66fa16ffc9f55f71b6782993988c2fd9" || release.Channel != "production" {
+	if release.Schema != "suite.version.v1" || release.Application != "gaylemon" || release.Version != "1.0.0" || release.Commit != "a815220a66fa16ffc9f55f71b6782993988c2fd9" || release.BuiltAt != "2026-08-10T12:30:00Z" {
 		t.Fatalf("métadonnées de version inattendues: %+v", release)
 	}
 }
 
 func TestDefaultReleaseMetadataRemainsExplicit(t *testing.T) {
 	server := NewServer(config.Web{}, &fakeRepository{}, nil)
-	if server.release.Version != "dev" || server.release.Commit != "unknown" || server.release.Channel != "development" {
+	if server.release.Schema != "suite.version.v1" || server.release.Application != "gaylemon" || server.release.Version != "0.0.0-dev" || server.release.Commit != "0000000000000000000000000000000000000000" || server.release.BuiltAt != "1970-01-01T00:00:00Z" {
 		t.Fatalf("valeurs de développement ambiguës: %+v", server.release)
 	}
 }
@@ -385,7 +401,7 @@ func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := string(appSource)
-	for _, required := range []string{"fetch(\"/version\"", "micrositeVersion.textContent", "Version v", "cache: \"no-store\""} {
+	for _, required := range []string{"fetch(\"/api/version\"", "micrositeVersion.textContent", "Version v", "cache: \"no-store\""} {
 		if !strings.Contains(app, required) {
 			t.Fatalf("chargement sûr de la version incomplet: %s", required)
 		}

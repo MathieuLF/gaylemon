@@ -816,7 +816,7 @@ test("la version du microsite est rendue comme du texte non interprété", async
     app.indexOf("void loadMicrositeVersion"),
   );
 
-  assert.match(loader, /fetch\("\/version"/);
+  assert.match(loader, /fetch\("\/api\/version"/);
   assert.match(loader, /cache: "no-store"/);
   assert.match(loader, /micrositeVersion\.textContent/);
   assert.doesNotMatch(loader, /innerHTML/);
