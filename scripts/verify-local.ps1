@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $startedAt = [DateTimeOffset]::UtcNow
-$gitleaksImage = 'ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f'
+$fullSecurity = $null
 $initialStatus = @(& git -C $root status --porcelain)
 if ($Mode -eq 'Full' -and $initialStatus.Count -gt 0 -and -not $AllowDirty) {
     throw 'La validation Full exige un commit propre. Utiliser -AllowDirty uniquement avant le commit final.'
@@ -56,20 +56,10 @@ try {
 		}
         Invoke-Check 'deadcode' { go tool deadcode -test ./... }
 		Invoke-Check 'govulncheck' { govulncheck ./... }
-		$gitleaksSnapshot = Join-Path ([IO.Path]::GetTempPath()) ('gaylemon-gitleaks-' + [guid]::NewGuid().ToString('N'))
-		New-Item -ItemType Directory -Path $gitleaksSnapshot | Out-Null
-		try {
-			$archivePath = Join-Path $gitleaksSnapshot 'tracked.tar'
-			$snapshotPath = Join-Path $gitleaksSnapshot 'tracked'
-			New-Item -ItemType Directory -Path $snapshotPath | Out-Null
-			Invoke-Check 'gitleaks-archive' { git -C $root archive --format=tar --output $archivePath HEAD }
-			Invoke-Check 'gitleaks-extract' { tar -xf $archivePath -C $snapshotPath }
-			$snapshotMount = $snapshotPath.Replace('\', '/')
-			Invoke-Check 'gitleaks' { docker run --rm -v "${snapshotMount}:/repo:ro" -w /repo $gitleaksImage dir --redact=100 --no-banner --exit-code 1 /repo }
-		}
-		finally {
-			if (Test-Path -LiteralPath $gitleaksSnapshot) { Remove-Item -LiteralPath $gitleaksSnapshot -Recurse -Force }
-		}
+        Invoke-Check 'full-security-gates' {
+            $securityJson = & python -B (Join-Path $PSScriptRoot 'run-full-security.py') --repository $root
+            if ($LASTEXITCODE -eq 0) { $script:fullSecurity = $securityJson | ConvertFrom-Json }
+        }
         Invoke-Check 'repository-contracts' { & (Join-Path $PSScriptRoot 'valider-depot.ps1') -SansDocker }
         Invoke-Check 'server-contracts' { python -m unittest discover -s server/tests -p 'test_*.py' }
         Invoke-Check 'postgresql-multi-season' { & (Join-Path $PSScriptRoot 'test-postgres-seasons.ps1') }
@@ -89,7 +79,23 @@ New-Item -ItemType Directory -Force -Path $receiptDirectory | Out-Null
 $artifacts = @()
 $sbomArtifacts = @()
 if ($Mode -eq 'Full') {
-    $artifacts += "gaylemon-local:$version"
+    foreach ($artifactPath in @(
+        'config/full-security-policy-v1.json',
+        'scripts/run-full-security.py',
+        'scripts/suite_security.py',
+        'release/evidence/gitleaks.json',
+        'release/evidence/trivy-fs.json',
+        'release/evidence/full-security.json',
+        'release/sbom/source.spdx.json',
+        'release/sbom/source.cyclonedx.json'
+    )) {
+        $file = Get-Item -LiteralPath (Join-Path $root $artifactPath)
+        $artifacts += [ordered]@{
+            path = $artifactPath
+            bytes = $file.Length
+            sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
     $sbomArtifacts += "release/gaylemon-$version.spdx.json"
     $sbomArtifacts += "release/gaylemon-$version.cdx.json"
 }
@@ -108,11 +114,34 @@ if ($Mode -eq 'Full') {
     $toolVersions['axe'] = $packages.devDependencies.'@axe-core/playwright'
     $toolVersions['deadcode'] = (& go list -m -f '{{.Version}}' golang.org/x/tools).Trim()
     $toolVersions['govulncheck'] = Get-VersionCapture ((& govulncheck -version 2>&1 | Out-String)) '^Scanner:\s+govulncheck@(\S+)' 'govulncheck'
-    $toolVersions['gitleaks'] = '8.30.1-container'
-    $toolVersions['syft'] = '1.50.0-container'
-    $toolVersions['trivy'] = '0.73.0-container'
+    $toolVersions['gitleaks'] = $fullSecurity.tools.gitleaks
+    $toolVersions['syft'] = $fullSecurity.tools.syft
+    $toolVersions['trivy'] = $fullSecurity.tools.trivy
     $toolVersions['cosign'] = '3.1.3-container'
     $toolVersions['bash'] = Get-VersionCapture ((& bash --version 2>&1 | Out-String)) '^GNU bash, version\s+(\S+)' 'Bash'
+}
+$branch = (& git -C $root branch --show-current).Trim()
+$upstream = (& git -C $root rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>$null)
+if ($LASTEXITCODE -ne 0) { $upstream = $null } else { $upstream = $upstream.Trim() }
+$ahead = $null
+$behind = $null
+if ($upstream) {
+    $divergence = ((& git -C $root rev-list --left-right --count "HEAD...$upstream").Trim() -split '\s+')
+    if ($LASTEXITCODE -eq 0 -and $divergence.Count -eq 2) {
+        $ahead = [int]$divergence[0]
+        $behind = [int]$divergence[1]
+    }
+}
+$checkReceipts = @($checks)
+$security = [ordered]@{ schema='suite.full-security-evidence.v1'; requiredInFull=$true; result='not-run' }
+if ($Mode -eq 'Full') {
+    $checkReceipts += @(
+        [ordered]@{ name='gitleaks'; status='passed' },
+        [ordered]@{ name='trivy-filesystem'; status='passed' },
+        [ordered]@{ name='sbom-spdx'; status='passed' },
+        [ordered]@{ name='sbom-cyclonedx'; status='passed' }
+    )
+    $security = $fullSecurity
 }
 $receipt = [ordered]@{
     schema = 'suite.local-validation.v2'
@@ -126,10 +155,10 @@ $receipt = [ordered]@{
     completedAt = [DateTimeOffset]::UtcNow.ToString('o')
     git = [ordered]@{
         commit = (& git -C $root rev-parse HEAD).Trim()
-        branch = (& git -C $root branch --show-current).Trim()
-        upstream = $null
-        ahead = $null
-        behind = $null
+        branch = $branch
+        upstream = $upstream
+        ahead = $ahead
+        behind = $behind
         cleanAtStart = ($initialStatus.Count -eq 0)
         cleanAtEnd = ($finalStatus.Count -eq 0)
     }
@@ -139,13 +168,9 @@ $receipt = [ordered]@{
         inventory = @($routeInventory.routes)
     }
     tools = $toolVersions
-    checks = $checks
+    checks = $checkReceipts
     artifacts = [ordered]@{ files = @($artifacts); sbom = @($sbomArtifacts) }
-    security = [ordered]@{
-        sbom = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; files=@($sbomArtifacts) } } else { [ordered]@{ status='not-applicable'; reason='Quick ne construit pas les artefacts OCI.' } }
-        vulnerabilityScan = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; tool='trivy'; blocking=$true } } else { [ordered]@{ status='not-applicable'; reason='Quick ne construit pas les artefacts OCI.' } }
-        signature = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.cosign-bundle.json"; agent="release/gaylemon-agent-$version-linux-amd64.cosign-bundle.json" } } else { [ordered]@{ status='not-applicable'; reason='Quick ne signe pas les artefacts locaux.' } }
-    }
+    security = $security
     lifecycle = [ordered]@{
         palworldRestartForbidden = $true
         agentContracts = [ordered]@{ status='passed'; check='season-agent-contracts' }

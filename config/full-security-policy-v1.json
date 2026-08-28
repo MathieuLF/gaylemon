@@ -1,0 +1,27 @@
+{
+  "schema": "suite.full-security-policy.v1",
+  "tools": {
+    "gitleaks": {
+      "version": "8.30.1",
+      "scope": "git-history:HEAD"
+    },
+    "trivy": {
+      "version": "0.74.0",
+      "scope": "git-archive:HEAD",
+      "scanners": ["vuln", "misconfig", "secret"],
+      "severity": ["HIGH", "CRITICAL"]
+    },
+    "syft": {
+      "version": "1.51.0",
+      "scope": "dir:git-archive:HEAD",
+      "formats": ["spdx-json", "cyclonedx-json"]
+    }
+  },
+  "requiredChecks": [
+    "gitleaks",
+    "trivy-filesystem",
+    "sbom-spdx",
+    "sbom-cyclonedx"
+  ]
+}
+
