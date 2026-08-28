@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "1.0.0",
+      "title": "Fondation durable",
+      "summary": "Gaylémon adopte le contrat commun de la suite, une version SemVer unique et des validations reproductibles, tout en conservant son cycle de saisons et son identité Palworld."
+    },
+    {
       "version": "2026.08.26.2",
       "title": "Validation reproductible",
       "summary": "Les contrôles de sécurité et la chaîne de release utilisent désormais des outils conteneurisés et épinglés, avec une provenance exacte du commit publié."

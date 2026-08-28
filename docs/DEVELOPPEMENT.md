@@ -86,13 +86,13 @@ Ne pas forcer un fichier ignoré avec `git add -f` sans comprendre pourquoi il e
 
 ## Préparer une version du microsite
 
-`VERSION` suit le format `AAAA.MM.JJ.REVISION`, par exemple `2026.08.10.1`. Incrémenter la dernière composante pour chaque livraison du même jour et repartir à `1` le jour suivant. Cette version concerne le microsite et son service Go; elle est indépendante de la version de Palworld et des contrats de données.
+`VERSION` est la source canonique et suit SemVer sans préfixe `v`, par exemple `1.2.3` ou `1.3.0-rc.1`. Incrémenter la version selon la portée du changement : correctif compatible, fonctionnalité compatible ou rupture explicitement planifiée. Cette version concerne le microsite et son service Go; elle est indépendante de la version de Palworld et des contrats de données.
 
 Avant de fusionner une livraison:
 
 1. modifier `VERSION` dans la même pull request que le changement;
 2. exécuter `./scripts/valider-depot.ps1`;
-3. après fusion, créer le tag `microsite-v<version>` sur le commit de `main`;
+3. après fusion, créer le tag `v<version>` sur le commit de `main`;
 4. après déploiement, exécuter `./scripts/comparer-version.ps1 -Strict`.
 
 Le build injecte séparément la version produit, le commit Git complet et le canal. Ne remplacer aucun de ces champs par une valeur manuelle différente de la révision réellement déployée.

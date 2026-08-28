@@ -26,14 +26,23 @@ def valid_receipt() -> dict[str, object]:
     return {
         "schema": "suite.local-validation.v2",
         "contract": "suite-foundation-v2",
+        "contractRevision": "2.1.0",
         "profile": "seasonal-go-microsite",
         "application": "gaylemon",
-        "result": "success",
+        "version": "1.0.0",
+        "result": "passed",
         "mode": "full",
-        "commit": "a" * 40,
-        "branch": "feat/test",
-        "cleanAtStart": True,
-        "cleanAtEnd": True,
+        "startedAt": "2026-08-28T12:00:00+00:00",
+        "completedAt": "2026-08-28T12:01:00+00:00",
+        "git": {
+            "commit": "a" * 40,
+            "branch": "feat/test",
+            "upstream": "origin/feat/test",
+            "ahead": 0,
+            "behind": 0,
+            "cleanAtStart": True,
+            "cleanAtEnd": True,
+        },
         "routes": {"count": len(routes), "sha256": digest, "inventory": routes},
         "tools": {
             "go": "go1.27.0",
@@ -53,12 +62,16 @@ def valid_receipt() -> dict[str, object]:
             "cosign": "3.1.3",
             "bash": "5.2.37(1)-release",
         },
-        "checks": [{"name": "go-test", "result": "success"}],
-        "artifacts": ["gaylemon-local:2026.08.26.1"],
-        "sbom": ["release/gaylemon-2026.08.26.1.spdx.json"],
-        "scan": {"tool": "trivy", "result": "success"},
-        "signature": {"tool": "cosign", "verified": True},
-        "validatedAt": "2026-08-26T12:00:00+00:00",
+        "checks": [{"name": "go-test", "status": "passed"}],
+        "artifacts": {
+            "files": ["gaylemon-local:1.0.0"],
+            "sbom": ["release/gaylemon-1.0.0.spdx.json"],
+        },
+        "security": {
+            "sbom": {"status": "passed"},
+            "vulnerabilityScan": {"status": "passed", "tool": "trivy"},
+            "signature": {"status": "passed", "tool": "cosign"},
+        },
     }
 
 
@@ -74,7 +87,7 @@ class LocalValidationReceiptTests(unittest.TestCase):
 
     def test_rejects_missing_end_cleanliness(self) -> None:
         receipt = valid_receipt()
-        del receipt["cleanAtEnd"]
+        del receipt["git"]["cleanAtEnd"]
         with self.assertRaisesRegex(ValueError, "cleanAtEnd"):
             MODULE.validate_receipt(receipt)
 
