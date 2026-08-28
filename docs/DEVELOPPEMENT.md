@@ -38,7 +38,10 @@ La validation Full couvre notamment:
 - JSON d'exemple;
 - tests Python et navigateur accessibles;
 - exclusions Git;
-- configuration Compose, SBOM, scan de vulnérabilités et preuves de signature locales.
+- Gitleaks sur l’historique Git courant, Trivy FS sur l’archive exacte de `HEAD` et deux SBOM source Syft (SPDX et CycloneDX), avec versions verrouillées et empreintes liées au reçu;
+- configuration Compose, scan et SBOM OCI, puis preuves de signature locales.
+
+Le Full exige aussi une branche publiée et sans divergence avec son upstream. Le reçu ne peut donc pas remplacer une preuve Git canonique par des valeurs nulles ou auto-déclarées.
 
 ## Tester les collecteurs
 
