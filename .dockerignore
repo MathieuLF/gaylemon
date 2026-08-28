@@ -18,7 +18,6 @@ scripts
 server
 docs
 config
-docker
 *.key
 *.pem
 *.tar

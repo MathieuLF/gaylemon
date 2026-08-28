@@ -9,8 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$syftImage = 'anchore/syft:v1.50.0@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026'
-$trivyImage = 'aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+$syftImage = 'anchore/syft:v1.51.0@sha256:678bfa565b60f747aac0f8e964fe5588a24445b8d0a480e91f6efd70020dfbb0'
+$trivyImage = 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969'
 $cosignImage = 'ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8'
 $releasePredicateType = 'https://gaylemon.nethercore.dev/attestations/release-manifest/v1'
 $securityDirectory = Join-Path $root 'security'
@@ -57,6 +57,7 @@ function Read-CosignPassword([string]$KeyPath) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 }
 $commit = (& git -C $root rev-parse HEAD).Trim()
+$builtAt = (& git -C $root show -s --format=%cI HEAD).Trim()
 $validationReceiptPath = Join-Path $root 'release\local-validation.json'
 if (-not (Test-Path -LiteralPath $validationReceiptPath -PathType Leaf)) {
     throw 'Un reçu Full suite.local-validation.v2 est requis avant la release.'
@@ -74,7 +75,7 @@ $releaseNotes = Get-Content -Raw -LiteralPath (Join-Path $root 'portal\release-n
 if (-not @($releaseNotes.releases | Where-Object { $_.version -eq $Version })) { throw 'Les notes de version ne couvrent pas la version demandée.' }
 if (-not (Select-String -LiteralPath (Join-Path $root 'CHANGELOG.md') -SimpleMatch 'multi-saisons' -Quiet)) { throw 'Le journal des changements ne couvre pas le cycle multi-saisons.' }
 $tag = "$Image`:$Version"
-docker build --build-arg "GAYLEMON_VERSION=$Version" --build-arg "GAYLEMON_COMMIT=$commit" --build-arg GAYLEMON_CHANNEL=production --tag $tag $root
+docker build --build-arg "GAYLEMON_VERSION=$Version" --build-arg "GAYLEMON_COMMIT=$commit" --build-arg "GAYLEMON_BUILT_AT=$builtAt" --tag $tag $root
 if ($LASTEXITCODE -ne 0) { throw 'Construction OCI impossible.' }
 $output = Join-Path $root 'release'
 New-Item -ItemType Directory -Force -Path $output | Out-Null

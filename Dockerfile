@@ -36,11 +36,13 @@ COPY internal ./internal
 COPY portal ./portal
 COPY VERSION ./VERSION
 ARG GAYLEMON_VERSION
-ARG GAYLEMON_COMMIT=unknown
-ARG GAYLEMON_CHANNEL=development
+ARG GAYLEMON_COMMIT=0000000000000000000000000000000000000000
+ARG GAYLEMON_BUILT_AT=1970-01-01T00:00:00Z
 RUN release="${GAYLEMON_VERSION:-$(tr -d '\r\n' < VERSION)}" \
     && test -n "${release}" \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.channel=${GAYLEMON_CHANNEL}" -o /out/gaylemon-web ./cmd/gaylemon-web
+    && printf '%s' "${GAYLEMON_COMMIT}" | grep -Eq '^[0-9a-f]{40}$' \
+    && printf '%s' "${GAYLEMON_BUILT_AT}" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$' \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -ldflags="-s -w -X main.version=${release} -X main.commit=${GAYLEMON_COMMIT} -X main.builtAt=${GAYLEMON_BUILT_AT}" -o /out/gaylemon-web ./cmd/gaylemon-web
 
 FROM alpine:3.22
 ARG GAYLEMON_VERSION=0.0.0-dev

@@ -23,6 +23,8 @@
     "signed-oci",
     "sbom-spdx",
     "sbom-cyclonedx",
+    "gitleaks",
+    "trivy-fs",
     "trivy",
     "release-receipts",
     "operations-contract"
@@ -43,7 +45,11 @@
     "receiptSchema": "suite.local-validation.v2",
     "inventory": true,
     "quick": true,
-    "full": true
+    "full": true,
+    "fullSecurity": {
+      "policy": "config/full-security-policy-v1.json",
+      "requiredChecks": ["gitleaks", "trivy-filesystem", "sbom-spdx", "sbom-cyclonedx"]
+    }
   },
   "release": {
     "receiptSchema": "suite.release.v1",
