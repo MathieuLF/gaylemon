@@ -1,11 +1,13 @@
 {
   "schema": "suite.profile.v2",
   "contract": "suite-foundation-v2",
+  "contractRevision": "2.1.0",
   "application": "gaylemon",
   "displayName": "Gaylémon",
   "profile": "seasonal-go-microsite",
   "lifecycle": "active-season",
   "repository": "https://github.com/MathieuLF/gaylemon",
+  "version": {"schema": "suite.version.v1", "source": "VERSION", "publicLabel": "Version X.Y.Z"},
   "capabilities": [
     "fr-ca",
     "accessibility",
@@ -14,6 +16,8 @@
     "network-recovery-notice",
     "changelog",
     "information-page",
+    "version-contract",
+    "privacy-link",
     "season-lifecycle",
     "signed-agent",
     "signed-oci",
@@ -35,6 +39,7 @@
   },
   "validation": {
     "receiptSchema": "suite.local-validation.v2",
+    "inventory": true,
     "quick": true,
     "full": true
   },

@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+$startedAt = [DateTimeOffset]::UtcNow
 $gitleaksImage = 'ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f'
 $initialStatus = @(& git -C $root status --porcelain)
 if ($Mode -eq 'Full' -and $initialStatus.Count -gt 0 -and -not $AllowDirty) {
@@ -17,7 +18,7 @@ $checks = [Collections.Generic.List[object]]::new()
 function Invoke-Check([string]$Name, [scriptblock]$Action) {
     & $Action
     if ($LASTEXITCODE -ne 0) { throw "$Name a échoué." }
-    $checks.Add([ordered]@{ name = $Name; result = 'success' })
+    $checks.Add([ordered]@{ name = $Name; status = 'passed' })
 }
 function Get-VersionCapture([string]$Text, [string]$Pattern, [string]$Tool) {
     $match = [regex]::Match($Text, $Pattern, [Text.RegularExpressions.RegexOptions]::Multiline)
@@ -114,14 +115,22 @@ if ($Mode -eq 'Full') {
 $receipt = [ordered]@{
     schema = 'suite.local-validation.v2'
     contract = 'suite-foundation-v2'
+    contractRevision = '2.1.0'
     profile = 'seasonal-go-microsite'
     application = 'gaylemon'
-    result = 'success'
+    version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()
     mode = $Mode.ToLowerInvariant()
-    commit = (& git -C $root rev-parse HEAD).Trim()
-    branch = (& git -C $root branch --show-current).Trim()
-    cleanAtStart = ($initialStatus.Count -eq 0)
-    cleanAtEnd = ($finalStatus.Count -eq 0)
+    startedAt = $startedAt.ToString('o')
+    completedAt = [DateTimeOffset]::UtcNow.ToString('o')
+    git = [ordered]@{
+        commit = (& git -C $root rev-parse HEAD).Trim()
+        branch = (& git -C $root branch --show-current).Trim()
+        upstream = $null
+        ahead = $null
+        behind = $null
+        cleanAtStart = ($initialStatus.Count -eq 0)
+        cleanAtEnd = ($finalStatus.Count -eq 0)
+    }
     routes = [ordered]@{
         count = [int]$routeInventory.count
         sha256 = $routeHash
@@ -129,11 +138,13 @@ $receipt = [ordered]@{
     }
     tools = $toolVersions
     checks = $checks
-    artifacts = @($artifacts)
-    sbom = @($sbomArtifacts)
-	scan = if ($Mode -eq 'Full') { [ordered]@{ tool='trivy'; blocking=$true; result='success' } } else { $null }
-	signature = if ($Mode -eq 'Full') { [ordered]@{ tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.cosign-bundle.json"; agent="release/gaylemon-agent-$version-linux-amd64.cosign-bundle.json"; verified=$true } } else { $null }
-    validatedAt = [DateTimeOffset]::UtcNow.ToString('o')
+    artifacts = [ordered]@{ files = @($artifacts); sbom = @($sbomArtifacts) }
+    security = [ordered]@{
+        sbom = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; files=@($sbomArtifacts) } } else { [ordered]@{ status='not-applicable'; reason='Quick ne construit pas les artefacts OCI.' } }
+        vulnerabilityScan = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; tool='trivy'; blocking=$true } } else { [ordered]@{ status='not-applicable'; reason='Quick ne construit pas les artefacts OCI.' } }
+        signature = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.cosign-bundle.json"; agent="release/gaylemon-agent-$version-linux-amd64.cosign-bundle.json" } } else { [ordered]@{ status='not-applicable'; reason='Quick ne signe pas les artefacts locaux.' } }
+    }
+    result = 'passed'
 }
 $receiptPath = Join-Path $receiptDirectory 'local-validation.json'
 [IO.File]::WriteAllText($receiptPath, ($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))

@@ -101,7 +101,7 @@ $backgroundClientSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "inte
 $backgroundMaintenanceSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "internal\background\maintenance.go") -Raw -Encoding UTF8
 $webServiceSource = Get-Content -LiteralPath (Join-Path $ProjectRoot "cmd\gaylemon-web\main.go") -Raw -Encoding UTF8
 $releaseVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "VERSION") -Raw -Encoding UTF8).Trim()
-Write-Result ($releaseVersion -match '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*$') "Version canonique du microsite" "VERSION doit respecter AAAA.MM.JJ.REVISION."
+Write-Result ($releaseVersion -match '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') "Version canonique du microsite" "VERSION doit respecter SemVer sans préfixe v (X.Y.Z)."
 Write-Result (
     $dockerfileSource.Contains("ARG GO_VERSION=$requiredGoVersion") -and
     $dockerfileSource.Contains('test "$(go env GOVERSION)" = "go${GO_VERSION}"')

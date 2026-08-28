@@ -1,8 +1,16 @@
 # Journal des changements
 
-Ce fichier suit le format Keep a Changelog. Les versions publiées utilisent la date et la révision canonique de `VERSION`.
+Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVer et la valeur canonique de `VERSION`.
 
 ## [Non publié]
+
+## [1.0.0] - 2026-08-28
+
+### Modifié
+
+- La version du produit est désormais une valeur SemVer commune à toute la suite, sans préfixe `v` dans les interfaces ni les reçus.
+- Le reçu de validation locale suit le contrat vérifiable `suite.local-validation.v2` révision `2.1.0`.
+- L’image web publie maintenant ses métadonnées OCI et un contrôle de santé natif.
 
 ## [2026.08.26.2] - 2026-08-26
 
