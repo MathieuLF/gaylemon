@@ -11,7 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$versionPattern = "^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*$"
+$versionPattern = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 
 function Invoke-ProjectGit {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -39,7 +39,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 
 $localVersion = (Get-Content -LiteralPath (Join-Path $ProjectRoot "VERSION") -Raw -Encoding UTF8).Trim()
 if ($localVersion -notmatch $versionPattern) {
-    throw "VERSION doit respecter AAAA.MM.JJ.REVISION."
+    throw "VERSION doit respecter SemVer sans préfixe v (X.Y.Z)."
 }
 $localCommit = Invoke-ProjectGit -Arguments @("rev-parse", "HEAD")
 $localBranch = Invoke-ProjectGit -Arguments @("branch", "--show-current")
