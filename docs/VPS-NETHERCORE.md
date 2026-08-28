@@ -145,6 +145,12 @@ La base conserve :
 
 La file SQLite locale utilise WAL et `synchronous=FULL`. Une coupure de la VPS ou d'Internet ne bloque donc pas les collecteurs du jeu : les lots restent sur Ubuntu et repartent dans l'ordre.
 
+## Sauvegarde hors site
+
+La protection d’exploitation suit le contrat `restic-offsite-postgresql-spool-and-palworld-final`. Restic chiffre côté client et copie hors site la base PostgreSQL, la file durable de l’agent et les sauvegardes finales de saison. Cette couche est indépendante du déploiement applicatif et des copies temporaires créées pendant une livraison.
+
+La chaîne nocturne centralisée de Nethercore prend le verrou global, vérifie la fraîcheur des sources, crée le snapshot, exécute Restic puis écrit un reçu root-only. Une restauration indépendante doit être prouvée périodiquement; une simple présence dans un inventaire ne vaut pas restauration. Les identifiants de dépôt, mots de passe et clés restent dans le coffre d’exploitation, jamais dans Git ni dans les journaux.
+
 ## Commandes distantes
 
 Le tableau n'envoie jamais de shell arbitraire. L'agent accepte seulement les opérations prévues par `gaylemon-admin` : statut, journaux, pause/reprise, lancement d'un flux, horaire prédéfini, annonce, sauvegarde et redémarrage d'une unité auxiliaire autorisée.
@@ -157,7 +163,7 @@ Tant que la migration reste en observation, l'ancien microsite continue de fonct
 
 1. remettre le DNS du nouveau domaine sur la cible précédente si le service public est indisponible;
 2. arrêter les timers `gaylemon-publish-*` et l'agent sans toucher aux collecteurs Palworld;
-3. restaurer la sauvegarde PostgreSQL depuis DockPanel si les données sont en cause;
+3. restaurer le dernier snapshot PostgreSQL vérifié par Restic hors site si les données sont en cause;
 4. redéployer le dernier commit validé dans DockPanel.
 
-Les sauvegardes PostgreSQL DockPanel et `/var/lib/gaylemon-agent/spool.db` ne doivent pas être supprimés pendant un retour arrière ordinaire. Après une migration de base, conserver l'ancien conteneur arrêté et son volume jusqu'à la validation du nouveau service et de sa première sauvegarde DockPanel.
+Les snapshots Restic, `/var/lib/gaylemon-agent/spool.db` et les reçus de clôture ne doivent pas être supprimés pendant un retour arrière ordinaire. Après une migration de base, conserver l'ancien conteneur arrêté et son volume jusqu'à la validation du nouveau service, de sa première sauvegarde Restic et d'un contrôle de restauration.

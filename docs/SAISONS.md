@@ -36,3 +36,14 @@ La commande ne contient aucun chemin permettant de redémarrer `palworld.service
 - `GET /saisons/{slug}/data/{path}` : document public de l’archive.
 
 La racine `/` pointe vers la saison active. En son absence, elle sert la dernière archive. Les routes privées, les commandes et les sauvegardes ne sont jamais placées dans le cache hors ligne.
+
+## Validation locale
+
+La validation Quick vérifie les contrats purs du cycle de saison et les garde-fous de l’agent, dont l’interdiction de redémarrer `palworld.service`. La validation Full crée un PostgreSQL 16 isolé, applique les migrations et rejoue les scénarios multi-saisons : concurrence, compensation, archive, refus d’ingestion, réouverture, nouvelle séquence et journal append-only.
+
+```powershell
+.\scripts\upgrade-preflight.ps1 -Mode Quick
+.\scripts\upgrade-preflight.ps1 -Mode Full
+```
+
+Le reçu `suite.local-validation.v2` distingue explicitement la preuve PostgreSQL Full des contrôles purs Quick. La sauvegarde finale immuable et son reçu de saison sont ensuite couverts hors site par le contrat Restic d’exploitation; ce transfert ne fait jamais partie de la requête HTTP de clôture.

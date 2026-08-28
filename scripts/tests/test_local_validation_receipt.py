@@ -26,7 +26,7 @@ def valid_receipt() -> dict[str, object]:
     return {
         "schema": "suite.local-validation.v2",
         "contract": "suite-foundation-v2",
-        "contractRevision": "2.1.0",
+        "contractRevision": "2.2.0",
         "profile": "seasonal-go-microsite",
         "application": "gaylemon",
         "version": "1.0.0",
@@ -72,6 +72,11 @@ def valid_receipt() -> dict[str, object]:
             "vulnerabilityScan": {"status": "passed", "tool": "trivy"},
             "signature": {"status": "passed", "tool": "cosign"},
         },
+        "lifecycle": {
+            "palworldRestartForbidden": True,
+            "agentContracts": {"status": "passed"},
+            "multiSeasonDatabase": {"status": "passed"},
+        },
     }
 
 
@@ -101,6 +106,21 @@ class LocalValidationReceiptTests(unittest.TestCase):
         receipt = valid_receipt()
         del receipt["tools"]["cosign"]
         with self.assertRaisesRegex(ValueError, "outil Full manquant: cosign"):
+            MODULE.validate_receipt(receipt)
+
+    def test_rejects_full_without_multi_season_database_proof(self) -> None:
+        receipt = valid_receipt()
+        receipt["lifecycle"]["multiSeasonDatabase"] = {
+            "status": "not-applicable",
+            "reason": "absent",
+        }
+        with self.assertRaisesRegex(ValueError, "Full exige"):
+            MODULE.validate_receipt(receipt)
+
+    def test_rejects_missing_palworld_restart_invariant(self) -> None:
+        receipt = valid_receipt()
+        receipt["lifecycle"]["palworldRestartForbidden"] = False
+        with self.assertRaisesRegex(ValueError, "palworldRestartForbidden"):
             MODULE.validate_receipt(receipt)
 
 
