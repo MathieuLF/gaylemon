@@ -5,10 +5,20 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
+
+
+SECURITY_SPEC = importlib.util.spec_from_file_location(
+    "suite_security", Path(__file__).with_name("suite_security.py")
+)
+SUITE_SECURITY = importlib.util.module_from_spec(SECURITY_SPEC)
+assert SECURITY_SPEC.loader is not None
+SECURITY_SPEC.loader.exec_module(SUITE_SECURITY)
 
 
 REQUIRED_KEYS = {
@@ -59,7 +69,13 @@ def _canonical_routes(routes: list[dict[str, Any]]) -> bytes:
     return json.dumps(routes, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
-def validate_receipt(receipt: dict[str, Any]) -> None:
+def _git(repository: Path, *arguments: str) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(repository), *arguments], text=True, encoding="utf-8"
+    ).strip()
+
+
+def validate_receipt(receipt: dict[str, Any], repository: Path | None = None) -> None:
     errors: list[str] = []
     missing = sorted(REQUIRED_KEYS - receipt.keys())
     errors.extend(f"clé manquante: {key}" for key in missing)
@@ -94,6 +110,15 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
     for key in ("cleanAtStart", "cleanAtEnd"):
         if not isinstance(git.get(key), bool):
             errors.append(f"{key} doit être booléen")
+    if receipt.get("mode") == "full":
+        for key in ("branch", "upstream"):
+            if not isinstance(git.get(key), str) or not git[key].strip():
+                errors.append(f"git.{key} est requis en Full")
+        for key in ("ahead", "behind"):
+            if type(git.get(key)) is not int or git[key] < 0:
+                errors.append(f"git.{key} doit être un entier en Full")
+        if git.get("ahead") != 0 or git.get("behind") != 0:
+            errors.append("Full canonique exige ahead=0 et behind=0")
 
     route_summary = receipt.get("routes")
     if not isinstance(route_summary, dict):
@@ -135,10 +160,33 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
         for index, check in enumerate(checks):
             if not isinstance(check, dict) or not check.get("name") or check.get("status") not in {"passed", "failed", "not-applicable"}:
                 errors.append(f"checks[{index}] invalide")
+            elif check.get("status") != "passed":
+                errors.append(f"checks[{index}] n'est pas réussi")
     if not isinstance(receipt.get("artifacts"), dict):
         errors.append("artifacts doit être un objet")
     if not isinstance(receipt.get("security"), dict):
         errors.append("security doit être un objet")
+    if repository is not None:
+        repository = repository.resolve()
+        try:
+            if receipt.get("git", {}).get("commit") != _git(repository, "rev-parse", "HEAD"):
+                errors.append("git.commit ne correspond pas à HEAD")
+            if receipt.get("mode") == "full":
+                branch = _git(repository, "branch", "--show-current")
+                upstream = _git(repository, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+                divergence = _git(repository, "rev-list", "--left-right", "--count", f"HEAD...{upstream}").split()
+                expected = {
+                    "branch": branch,
+                    "upstream": upstream,
+                    "ahead": int(divergence[0]),
+                    "behind": int(divergence[1]),
+                }
+                for key, value in expected.items():
+                    if receipt.get("git", {}).get(key) != value:
+                        errors.append(f"git.{key} ne correspond pas à l'état canonique")
+        except (OSError, subprocess.CalledProcessError, ValueError, IndexError) as error:
+            errors.append(f"preuve Git canonique impossible: {error}")
+        SUITE_SECURITY.validate_full_security(repository, receipt, errors)
 
     lifecycle = receipt.get("lifecycle")
     if not isinstance(lifecycle, dict):
@@ -162,7 +210,7 @@ def load_and_validate(path: Path) -> None:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError("la racine du reçu doit être un objet")
-    validate_receipt(value)
+    validate_receipt(value, path.resolve().parents[1])
 
 
 def main() -> int:

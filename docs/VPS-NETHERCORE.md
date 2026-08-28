@@ -56,7 +56,7 @@ Elle vérifie CoSign, les attestations SPDX et CycloneDX, la sauvegarde, puis sy
 Le déploiement lit la version produit dans `VERSION` et injecte aussi le commit Git complet dans le binaire. Après livraison, la route publique suivante permet de vérifier exactement ce qui répond:
 
 ```bash
-curl --fail --silent https://gaylemon.nethercore.dev/version
+curl --fail --silent --header 'Accept: application/json' https://gaylemon.nethercore.dev/api/version
 ```
 
 Depuis le poste Windows, la comparaison complète se fait avec:
@@ -65,7 +65,7 @@ Depuis le poste Windows, la comparaison complète se fait avec:
 .\scripts\comparer-version.ps1 -Strict
 ```
 
-La commande réussit seulement si la version et le commit du dépôt local propre, de `origin/main` et de la VPS sont identiques. La route `/version` ne contient aucun secret et répond avec `Cache-Control: no-store`.
+La commande réussit seulement si la version et le commit du dépôt local propre, de `origin/main` et de la VPS sont identiques. La route `/api/version` répond en `application/json`, sans cache, et contient exactement `schema, application, version, commit, builtAt`. Le postflight compare ces valeurs au commit et à l'image déployés, puis confirme un vrai `404` sur une route sentinelle absente.
 
 Dans DockPanel, rattacher une base `gaylemon` au site `gaylemon.nethercore.dev` avec PostgreSQL 16. Son conteneur `dockpanel-db-gaylemon` reste sur le réseau privé `dockpanel-db`, est publié seulement sur `127.0.0.1:5435` et rejoint aussi le réseau Docker `gaylemon_private`. DockPanel génère le mot de passe du rôle propriétaire `gaylemon`; l'application le reçoit uniquement dans son URL de connexion :
 

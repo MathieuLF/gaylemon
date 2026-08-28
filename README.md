@@ -53,7 +53,7 @@ Routes utiles du microsite:
 
 ## Version du microsite
 
-La version canonique du microsite se trouve dans `VERSION` au format `AAAA.MM.JJ.REVISION`. Le pied de page affiche cette version; en production, il ajoute le commit Git court et le canal de livraison. La route publique `/version` fournit les mêmes métadonnées en JSON et reste servie sans cache.
+La version canonique du microsite se trouve dans `VERSION` au format SemVer. Le pied de page affiche cette version et le commit Git court. La route publique `/api/version` répond sans cache en `application/json` avec exactement `schema, application, version, commit, builtAt`; le build lie ces valeurs au commit et à sa date RFC 3339.
 
 Pour comparer le dépôt local, la branche `main` sur GitHub et la VPS:
 

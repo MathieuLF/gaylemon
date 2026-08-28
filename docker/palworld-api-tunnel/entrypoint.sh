@@ -37,15 +37,16 @@ if [ ! -d /ssh-src ]; then
   exit 66
 fi
 
-rm -rf /root/.ssh
-mkdir -p /root/.ssh
-cp -R /ssh-src/. /root/.ssh/
-chmod 700 /root/.ssh
-find /root/.ssh -type d -exec chmod 700 {} \;
-find /root/.ssh -type f -exec chmod 600 {} \;
-find /root/.ssh -type f -name "*.pub" -exec chmod 644 {} \;
-touch /root/.ssh/known_hosts
-chmod 600 /root/.ssh/known_hosts
+ssh_directory="${HOME}/.ssh"
+rm -rf "$ssh_directory"
+mkdir -p "$ssh_directory"
+cp -R /ssh-src/. "$ssh_directory"/
+chmod 700 "$ssh_directory"
+find "$ssh_directory" -type d -exec chmod 700 {} \;
+find "$ssh_directory" -type f -exec chmod 600 {} \;
+find "$ssh_directory" -type f -name "*.pub" -exec chmod 644 {} \;
+touch "$ssh_directory/known_hosts"
+chmod 600 "$ssh_directory/known_hosts"
 
 exec ssh \
   -N \

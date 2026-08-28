@@ -17,9 +17,9 @@ import (
 )
 
 var (
-	version = "dev"
-	commit  = "unknown"
-	channel = "development"
+	version = "0.0.0-dev"
+	commit  = "0000000000000000000000000000000000000000"
+	builtAt = "1970-01-01T00:00:00Z"
 )
 
 func main() {
@@ -72,10 +72,9 @@ func main() {
 	server := &http.Server{
 		Addr: cfg.ListenAddress,
 		Handler: webapp.NewServerWithRelease(cfg, repo, logger, webapp.ReleaseInfo{
-			Product: "gaylemon-microsite",
 			Version: version,
 			Commit:  commit,
-			Channel: channel,
+			BuiltAt: builtAt,
 		}).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       75 * time.Second,
@@ -84,7 +83,7 @@ func main() {
 		MaxHeaderBytes:    32 << 10,
 	}
 	go func() {
-		logger.Info("service web démarré", "address", cfg.ListenAddress, "version", version, "commit", commit, "channel", channel)
+		logger.Info("service web démarré", "address", cfg.ListenAddress, "version", version, "commit", commit, "builtAt", builtAt)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("service web arrêté", "error", err)
 			os.Exit(1)
