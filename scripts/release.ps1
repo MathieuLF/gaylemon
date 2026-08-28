@@ -12,6 +12,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $syftImage = 'anchore/syft:v1.50.0@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026'
 $trivyImage = 'aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
 $cosignImage = 'ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8'
+$securityDirectory = Join-Path $root 'security'
+$committedCosignPublicKey = Join-Path $securityDirectory 'cosign.pub'
 if (@(& git -C $root status --porcelain).Count -ne 0) { throw 'La publication exige un arbre Git propre.' }
 foreach ($command in 'docker','go') {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) { throw "Outil de release absent: $command" }
@@ -35,6 +37,14 @@ function New-GHCRDockerConfig {
 }
 foreach ($keyPath in $CosignKey,$CosignPublicKey) {
     if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) { throw "Clé CoSign absente: $keyPath" }
+}
+if (-not (Test-Path -LiteralPath $committedCosignPublicKey -PathType Leaf)) {
+    throw 'La clé publique versionnée security/cosign.pub est absente.'
+}
+$localPublicKeyHash = (Get-FileHash -LiteralPath $CosignPublicKey -Algorithm SHA256).Hash
+$committedPublicKeyHash = (Get-FileHash -LiteralPath $committedCosignPublicKey -Algorithm SHA256).Hash
+if ($localPublicKeyHash -ne $committedPublicKeyHash) {
+    throw 'La clé publique locale ne correspond pas à security/cosign.pub.'
 }
 function Read-CosignPassword([string]$KeyPath) {
     if (Test-Path Env:COSIGN_PASSWORD) { return [string]$env:COSIGN_PASSWORD }
@@ -111,6 +121,9 @@ try {
             Invoke-Checked { docker run --rm -e COSIGN_PASSWORD -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${keyDirectory}:/keys:ro" $cosignImage sign --yes --key "/keys/$keyName" $reference } 'Signature du digest GHCR impossible.'
             Invoke-Checked { docker run --rm -e COSIGN_PASSWORD -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out:ro" $cosignImage attest --yes --key "/keys/$keyName" --type spdxjson --predicate "/out/gaylemon-$Version.spdx.json" $reference } 'Attestation SPDX impossible.'
             Invoke-Checked { docker run --rm -e COSIGN_PASSWORD -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out:ro" $cosignImage attest --yes --key "/keys/$keyName" --type cyclonedx --predicate "/out/gaylemon-$Version.cdx.json" $reference } 'Attestation CycloneDX impossible.'
+            Invoke-Checked { docker run --rm -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${securityDirectory}:/trust:ro" $cosignImage verify --key /trust/cosign.pub $reference *> $null } 'Vérification de la signature GHCR impossible.'
+            Invoke-Checked { docker run --rm -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${securityDirectory}:/trust:ro" $cosignImage verify-attestation --key /trust/cosign.pub --type spdxjson $reference *> $null } 'Vérification de l’attestation SPDX impossible.'
+            Invoke-Checked { docker run --rm -e DOCKER_CONFIG=/docker-config -v "${dockerConfigDirectory}:/docker-config:ro" -v "${securityDirectory}:/trust:ro" $cosignImage verify-attestation --key /trust/cosign.pub --type cyclonedx $reference *> $null } 'Vérification de l’attestation CycloneDX impossible.'
         }
         finally {
             if ($dockerConfigDirectory -and (Test-Path -LiteralPath $dockerConfigDirectory)) { Remove-Item -LiteralPath $dockerConfigDirectory -Recurse -Force }
