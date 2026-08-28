@@ -13,24 +13,32 @@ Le script prépare les dossiers ignorés et copie des exemples JSON si les donn�
 ## Valider
 
 ```powershell
-.\scripts\valider-depot.ps1
+.\scripts\upgrade-preflight.ps1 -Mode Inventory
+.\scripts\verify-local.ps1 -Mode Quick
 ```
 
-Pour une passe plus rapide:
+Avant de fusionner une livraison, exécuter Full depuis un commit propre:
 
 ```powershell
-.\scripts\valider-depot.ps1 -SansDocker -SansTestsPython -SansBash
+.\scripts\verify-local.ps1 -Mode Full
 ```
 
-La validation complète couvre surtout:
+Le même point d’entrée est aussi disponible par le prévol:
+
+```powershell
+.\scripts\upgrade-preflight.ps1 -Mode Full
+```
+
+La validation Full couvre notamment:
 
 - version Go 1.27.0, tests et analyse statique Go;
-- migrations et cycle du worker PostgreSQL avec une base PostgreSQL 16 en intégration continue;
+- migrations, cycle du worker et scénarios multi-saisons avec un PostgreSQL 16 local isolé;
+- invariants de l’agent et interdiction de redémarrer `palworld.service`;
 - syntaxe PowerShell, Bash et JavaScript;
 - JSON d'exemple;
-- tests Python;
+- tests Python et navigateur accessibles;
 - exclusions Git;
-- configuration Compose.
+- configuration Compose, SBOM, scan de vulnérabilités et preuves de signature locales.
 
 ## Tester les collecteurs
 

@@ -38,6 +38,7 @@ try {
     Invoke-Check 'go-test' { go test ./... }
     Invoke-Check 'go-vet' { go vet ./... }
     Invoke-Check 'validation-receipt-contracts' { python -m unittest discover -s scripts/tests -p 'test_*.py' }
+    Invoke-Check 'season-agent-contracts' { python -m unittest discover -s server/tests -p 'test_security_controls.py' }
     Invoke-Check 'portal-contracts' { node --test portal/tests/portal-v6-static.test.mjs }
     if ($Mode -eq 'Full') {
 		foreach ($requiredTool in 'govulncheck','docker','python','bash','tar') {
@@ -69,9 +70,10 @@ try {
 		finally {
 			if (Test-Path -LiteralPath $gitleaksSnapshot) { Remove-Item -LiteralPath $gitleaksSnapshot -Recurse -Force }
 		}
-		Invoke-Check 'repository-contracts' { & (Join-Path $PSScriptRoot 'valider-depot.ps1') -SansDocker }
+        Invoke-Check 'repository-contracts' { & (Join-Path $PSScriptRoot 'valider-depot.ps1') -SansDocker }
+        Invoke-Check 'server-contracts' { python -m unittest discover -s server/tests -p 'test_*.py' }
+        Invoke-Check 'postgresql-multi-season' { & (Join-Path $PSScriptRoot 'test-postgres-seasons.ps1') }
         $version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()
-        Invoke-Check 'release-chain' { & (Join-Path $PSScriptRoot 'release.ps1') -Version $version -Image 'gaylemon-local' -CosignKey $CosignKey -CosignPublicKey $CosignPublicKey }
     }
     Invoke-Check 'git-diff-check' { git -C $root diff --check }
 }
@@ -115,7 +117,7 @@ if ($Mode -eq 'Full') {
 $receipt = [ordered]@{
     schema = 'suite.local-validation.v2'
     contract = 'suite-foundation-v2'
-    contractRevision = '2.1.0'
+    contractRevision = '2.2.0'
     profile = 'seasonal-go-microsite'
     application = 'gaylemon'
     version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()
@@ -144,10 +146,19 @@ $receipt = [ordered]@{
         vulnerabilityScan = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; tool='trivy'; blocking=$true } } else { [ordered]@{ status='not-applicable'; reason='Quick ne construit pas les artefacts OCI.' } }
         signature = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; tool='cosign'; imageDescriptor="release/gaylemon-$version-local-image.json.cosign-bundle.json"; agent="release/gaylemon-agent-$version-linux-amd64.cosign-bundle.json" } } else { [ordered]@{ status='not-applicable'; reason='Quick ne signe pas les artefacts locaux.' } }
     }
+    lifecycle = [ordered]@{
+        palworldRestartForbidden = $true
+        agentContracts = [ordered]@{ status='passed'; check='season-agent-contracts' }
+        multiSeasonDatabase = if ($Mode -eq 'Full') { [ordered]@{ status='passed'; check='postgresql-multi-season' } } else { [ordered]@{ status='not-applicable'; reason='Quick couvre les contrats purs; Full exécute les migrations et la concurrence PostgreSQL.' } }
+    }
     result = 'passed'
 }
 $receiptPath = Join-Path $receiptDirectory 'local-validation.json'
 [IO.File]::WriteAllText($receiptPath, ($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 & python (Join-Path $PSScriptRoot 'check_local_validation_receipt.py') $receiptPath
 if ($LASTEXITCODE -ne 0) { throw 'Le reçu de validation locale ne respecte pas suite.local-validation.v2.' }
+if ($Mode -eq 'Full') {
+    & (Join-Path $PSScriptRoot 'release.ps1') -Version $version -Image 'gaylemon-local' -CosignKey $CosignKey -CosignPublicKey $CosignPublicKey
+    if ($LASTEXITCODE -ne 0) { throw "La chaîne de release locale n'a pas produit son reçu canonique." }
+}
 Write-Host "Validation locale $Mode réussie."

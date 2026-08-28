@@ -28,6 +28,7 @@ REQUIRED_KEYS = {
     "checks",
     "artifacts",
     "security",
+    "lifecycle",
 }
 FULL_TOOLS = {
     "go",
@@ -68,7 +69,7 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
         "contract": "suite-foundation-v2",
         "application": "gaylemon",
         "profile": "seasonal-go-microsite",
-        "contractRevision": "2.1.0",
+        "contractRevision": "2.2.0",
         "result": "passed",
     }
     for key, value in expected.items():
@@ -138,6 +139,20 @@ def validate_receipt(receipt: dict[str, Any]) -> None:
         errors.append("artifacts doit être un objet")
     if not isinstance(receipt.get("security"), dict):
         errors.append("security doit être un objet")
+
+    lifecycle = receipt.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        errors.append("lifecycle doit être un objet")
+    else:
+        if lifecycle.get("palworldRestartForbidden") is not True:
+            errors.append("lifecycle.palworldRestartForbidden doit être vrai")
+        for key in ("agentContracts", "multiSeasonDatabase"):
+            check = lifecycle.get(key)
+            if not isinstance(check, dict) or check.get("status") not in {"passed", "not-applicable"}:
+                errors.append(f"lifecycle.{key} est invalide")
+        if receipt.get("mode") == "full" and isinstance(lifecycle.get("multiSeasonDatabase"), dict):
+            if lifecycle["multiSeasonDatabase"].get("status") != "passed":
+                errors.append("Full exige la validation PostgreSQL multi-saisons")
 
     if errors:
         raise ValueError("\n".join(errors))
