@@ -66,6 +66,7 @@ try {
         $version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()
     }
     Invoke-Check 'git-diff-check' { git -C $root diff --check }
+    Invoke-Check 'git-diff-base-check' { git -C $root diff --check origin/main...HEAD }
 }
 finally { Remove-Item Env:GOFLAGS -ErrorAction SilentlyContinue }
 
