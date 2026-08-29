@@ -12,8 +12,8 @@ from typing import Any
 
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-REQUIRED_PREDICATES = {
-    "https://gaylemon.nethercore.dev/attestations/release-manifest/v1",
+EXPECTED_RELEASE_PREDICATE = "https://gaylemon.nethercore.dev/attestations/release-manifest/v1"
+STATIC_REQUIRED_PREDICATES = {
     "https://spdx.dev/Document",
     "cyclonedx",
 }
@@ -33,6 +33,14 @@ def load(path: Path) -> dict[str, Any]:
 def validate(repository: Path, receipt_path: Path) -> dict[str, Any]:
     repository = repository.resolve()
     receipt = load(receipt_path)
+    profile = load(repository / "config" / "suite-profile-v2.json")
+    release = profile.get("release")
+    release_predicate = release.get("releasePredicate") if isinstance(release, dict) else None
+    if not isinstance(release_predicate, str) or not release_predicate.strip():
+        raise ValueError("profil local: release.releasePredicate requis pour signed-oci")
+    if release_predicate != EXPECTED_RELEASE_PREDICATE:
+        raise ValueError("profil local: release.releasePredicate diffère du registre central")
+    required_predicates = STATIC_REQUIRED_PREDICATES | {release_predicate}
     binding = {
         "application": receipt.get("application"),
         "version": receipt.get("version"),
@@ -85,7 +93,7 @@ def validate(repository: Path, receipt_path: Path) -> dict[str, Any]:
         if not isinstance(predicate, str) or not predicate:
             raise ValueError(f"{label}.predicateType: requis")
         predicates.add(predicate)
-    missing = REQUIRED_PREDICATES - predicates
+    missing = required_predicates - predicates
     if missing:
         raise ValueError(f"predicates attestés absents: {sorted(missing)}")
     return {"application": binding["application"], "predicates": sorted(predicates), "result": "passed"}
