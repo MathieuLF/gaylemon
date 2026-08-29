@@ -23,11 +23,12 @@ body:
       label: Composant principal
       options:
         - Microsite
-        - Console Windows
-        - Collecteurs Ubuntu
-        - Sauvegardes
+        - Service Go
+        - Agent signé
+        - Projections publiques
+        - Saisons et archives
         - Documentation
-        - Infrastructure
+        - Validation
   - type: textarea
     id: risques
     attributes:

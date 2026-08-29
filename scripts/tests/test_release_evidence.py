@@ -21,7 +21,17 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.repository = Path(self.temporary.name)
+        (self.repository / "config").mkdir()
         (self.repository / "release").mkdir()
+        self.release_predicate = "urn:gaylemon:attestation:release-manifest:v1"
+        (self.repository / "config" / "suite-profile-v2.json").write_text(
+            json.dumps({
+                "capabilities": ["signed-oci", "sbom-spdx", "sbom-cyclonedx"],
+                "update": {"source": "digest"},
+                "release": {"releasePredicate": self.release_predicate},
+            }),
+            encoding="utf-8",
+        )
         self.binding = {
             "application": "gaylemon",
             "version": "1.2.3",
@@ -55,30 +65,60 @@ class ReleaseEvidenceTests(unittest.TestCase):
         return path
 
     def test_accepts_deep_roundtrip_with_three_bound_attestations(self) -> None:
-        path = self.receipt(sorted(MODULE.REQUIRED_PREDICATES))
+        expected = MODULE.STATIC_REQUIRED_PREDICATES | {self.release_predicate}
+        path = self.receipt(sorted(expected))
         result = MODULE.validate(self.repository, path)
-        self.assertEqual(sorted(MODULE.REQUIRED_PREDICATES), result["predicates"])
+        self.assertEqual(sorted(expected), result["predicates"])
         roundtrip = json.loads(path.read_text(encoding="utf-8"))
         self.assertIsInstance(roundtrip["attestations"], list)
         self.assertTrue(all(isinstance(item, dict) for item in roundtrip["attestations"]))
 
     def test_rejects_missing_spdx_predicate(self) -> None:
-        predicates = MODULE.REQUIRED_PREDICATES - {"https://spdx.dev/Document"}
+        predicates = (MODULE.STATIC_REQUIRED_PREDICATES | {self.release_predicate}) - {"https://spdx.dev/Document"}
         with self.assertRaisesRegex(ValueError, "spdx.dev"):
             MODULE.validate(self.repository, self.receipt(sorted(predicates)))
 
     def test_rejects_wrong_spdx_predicate_type(self) -> None:
-        predicates = (MODULE.REQUIRED_PREDICATES - {"https://spdx.dev/Document"}) | {"release-manifest"}
+        predicates = ((MODULE.STATIC_REQUIRED_PREDICATES | {self.release_predicate}) - {"https://spdx.dev/Document"}) | {"release-manifest"}
         with self.assertRaisesRegex(ValueError, "spdx.dev"):
             MODULE.validate(self.repository, self.receipt(sorted(predicates)))
 
     def test_rejects_stringified_attestation_descriptor(self) -> None:
-        path = self.receipt(sorted(MODULE.REQUIRED_PREDICATES))
+        path = self.receipt(sorted(MODULE.STATIC_REQUIRED_PREDICATES | {self.release_predicate}))
         receipt = json.loads(path.read_text(encoding="utf-8"))
         receipt["attestations"][1] = "@{path=release/proof.json; sha256=deadbeef}"
         path.write_text(json.dumps(receipt), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "descripteur"):
             MODULE.validate(self.repository, path)
+
+    def test_rejects_missing_local_release_predicate(self) -> None:
+        profile_path = self.repository / "config" / "suite-profile-v2.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        del profile["release"]["releasePredicate"]
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "release.releasePredicate requis"):
+            MODULE.validate(
+                self.repository,
+                self.receipt(sorted(MODULE.STATIC_REQUIRED_PREDICATES | {self.release_predicate})),
+            )
+
+    def test_rejects_attestation_that_does_not_match_local_release_predicate(self) -> None:
+        predicates = MODULE.STATIC_REQUIRED_PREDICATES | {
+            "urn:gaylemon:attestation:wrong:v1"
+        }
+        with self.assertRaisesRegex(ValueError, self.release_predicate):
+            MODULE.validate(self.repository, self.receipt(sorted(predicates)))
+
+    def test_rejects_local_release_predicate_mismatch(self) -> None:
+        profile_path = self.repository / "config" / "suite-profile-v2.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile["release"]["releasePredicate"] = "urn:gaylemon:attestation:wrong:v1"
+        profile_path.write_text(json.dumps(profile), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "diffère du registre central"):
+            MODULE.validate(
+                self.repository,
+                self.receipt(sorted(MODULE.STATIC_REQUIRED_PREDICATES | {self.release_predicate})),
+            )
 
 
 if __name__ == "__main__":

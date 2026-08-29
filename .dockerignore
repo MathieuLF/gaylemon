@@ -15,7 +15,6 @@ portal/assets/game
 portal/joueur
 portal/tests
 scripts
-server
 docs
 config
 *.key

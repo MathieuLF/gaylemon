@@ -1,1 +1,0 @@
-gaylemon ALL=(root) NOPASSWD: /usr/bin/systemctl start palworld-stats.service

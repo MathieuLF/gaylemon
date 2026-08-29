@@ -928,7 +928,7 @@ function currentDocumentDescription() {
     return "Résumé quotidien des grandes lignes du serveur Gaylémon: captures, productions, fabrications, niveaux, découvertes et faits marquants par joueur.";
   }
   if (isGitHubRoute()) {
-    return "Structure technique de Gaylémon: Gaylemon Ops, scripts Windows, services Ubuntu, projections JSON publiques, validation et limites de publication.";
+    return "Architecture publique de Gaylémon: service Go, agent signé, projections filtrées, saisons et limites de publication.";
   }
   if (!selectedPlayer) {
     return "État du serveur, classements des joueurs, statistiques, progression, carte de Palpagos, bases et collections de Pals.";

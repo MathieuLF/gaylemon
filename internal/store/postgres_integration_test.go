@@ -267,7 +267,7 @@ func TestSeasonArchivePreservesProjectionsAndIsolatesNextSequences(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.AckCommand(ctx, "season-agent", command.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","immutableBackup":"/srv/storage/steam/servers/palworld/backups/seasons/saison-2026/final-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.zst","backupSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receipt":"/var/lib/gaylemon-agent/season-receipts/saison-2026-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json","receiptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","queueDepth":0,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+	if err := repository.AckCommand(ctx, "season-agent", command.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","immutableBackup":"urn:gaylemon:season-archive:saison-2026:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","backupSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receipt":"urn:gaylemon:season-receipt:saison-2026:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receiptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","queueDepth":0,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	archived, found, err := repository.ResolveSeason(ctx, active.Slug)
@@ -293,7 +293,7 @@ func TestSeasonArchivePreservesProjectionsAndIsolatesNextSequences(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.AckCommand(ctx, "season-agent", command.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","immutableBackup":"/srv/storage/steam/servers/palworld/backups/seasons/saison-2026/final-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.zst","backupSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receipt":"/var/lib/gaylemon-agent/season-receipts/saison-2026-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json","receiptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","queueDepth":0,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
+	if err := repository.AckCommand(ctx, "season-agent", command.ID, model.CommandAck{Status: "completed", Details: json.RawMessage(`{"seasonId":"season-2026","slug":"saison-2026","immutableBackup":"urn:gaylemon:season-archive:saison-2026:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","backupSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receipt":"urn:gaylemon:season-receipt:saison-2026:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","receiptSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","queueDepth":0,"palworldPid":"4242","palworldRestarts":"0"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	suffix := time.Now().UTC().Format("20060102-150405000000000")

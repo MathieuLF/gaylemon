@@ -6,17 +6,17 @@
 
 -
 
-## Risques d'exploitation
+## Risques produit
 
-<!-- SSH, systemd, sauvegardes, données publiques, compatibilité des contrats. -->
+<!-- Données publiques, compatibilité des contrats, accessibilité, cache et reprise. -->
 
 ## Validation
 
 - [ ] `.\scripts\valider-depot.ps1`
 - [ ] aucun secret ou fichier d'exploitation ajouté
-- [ ] aucun redémarrage de production implicite
+- [ ] aucun détail d’instance ou runbook privé ajouté
 - [ ] documentation et exemples actualisés
 
-## Déploiement
+## Compatibilité
 
-<!-- Indiquer les étapes manuelles. Écrire "Aucun" si non applicable. -->
+<!-- Indiquer les contrats publics ou migrations touchés. -->

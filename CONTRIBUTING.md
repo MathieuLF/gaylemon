@@ -1,45 +1,22 @@
 # Contribuer
 
-Les contributions sont bienvenues si elles gardent le serveur stable et les données privées.
+Les contributions sont bienvenues si elles préservent la confidentialité des joueurs, la cohérence des saisons et la stabilité du portail.
 
-## Avant de coder
+## Règles
 
-- Ouvrir une issue pour un changement de contrat JSON, de déploiement ou d'architecture.
-- Travailler sur une branche courte.
-- Utiliser seulement des données fictives.
-- Ne jamais joindre de sauvegarde réelle, `.env`, clé SSH, jeton ou export public réel non anonymisé.
+- utiliser uniquement des données fictives;
+- ne jamais ajouter de domaine, d’hôte, de chemin ou de runbook propre à une instance;
+- garder les mutations, leur audit et leur activation atomiques;
+- mettre à jour les exemples et tests lors d’un changement de contrat;
+- conserver l’identité visuelle et l’accessibilité du portail;
+- versionner CSS et JavaScript par leur contenu, sans cache immuable sur un nom stable.
 
-## Préparer le dépôt
-
-```powershell
-.\scripts\initialiser-projet.ps1
-.\scripts\valider-depot.ps1
-```
-
-L'initialisation ne doit pas écraser une config locale.
-
-## Règles pratiques
-
-- Garder la console compatible Windows PowerShell 5.1.
-- Garder les scripts Ubuntu compatibles Bash.
-- Tester les collecteurs Python quand ils changent.
-- Mettre à jour les exemples JSON avec les contrats publics.
-- Vérifier les routes `/`, `/terminal` et `/github` quand le microsite, les échos ou les métriques changent.
-- Ajouter tout nouveau fichier Ubuntu actif dans `server/deployment-manifest.json`.
-- Ne pas ajouter cloudflared ou un service de monitoring externe au Compose.
-- Ne pas introduire de redémarrage implicite, surtout pour `palworld.service`.
-
-## Avant une demande de fusion
+## Validation
 
 ```powershell
-.\scripts\valider-depot.ps1
+.\scripts\upgrade-preflight.ps1 -Mode Inventory
+.\scripts\verify-local.ps1 -Mode Quick
 git diff --check
-git status --short --ignored
 ```
 
-Dans la description, indiquer:
-
-- ce qui change;
-- les risques d'exploitation;
-- les validations réellement faites;
-- les actions manuelles à prévoir.
+La description d’une proposition doit préciser les contrats modifiés, les validations exécutées et les risques produit, sans inclure de détail d’exploitation privé.

@@ -12,7 +12,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $syftImage = 'anchore/syft:v1.51.0@sha256:678bfa565b60f747aac0f8e964fe5588a24445b8d0a480e91f6efd70020dfbb0'
 $trivyImage = 'aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969'
 $cosignImage = 'ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8'
-$releasePredicateType = 'https://gaylemon.nethercore.dev/attestations/release-manifest/v1'
+$releasePredicateType = 'urn:gaylemon:attestation:release-manifest:v1'
 $securityDirectory = Join-Path $root 'security'
 $committedCosignPublicKey = Join-Path $securityDirectory 'cosign.pub'
 if (@(& git -C $root status --porcelain).Count -ne 0) { throw 'La publication exige un arbre Git propre.' }
@@ -64,7 +64,7 @@ if (-not (Test-Path -LiteralPath $validationReceiptPath -PathType Leaf)) {
 }
 $validationReceipt = Get-Content -Raw -LiteralPath $validationReceiptPath | ConvertFrom-Json
 if ($validationReceipt.schema -ne 'suite.local-validation.v2' -or
-    $validationReceipt.contractRevision -ne '2.2.0' -or $validationReceipt.application -ne 'gaylemon' -or
+    $validationReceipt.contractRevision -ne '2.3.0' -or $validationReceipt.application -ne 'gaylemon' -or
     $validationReceipt.mode -ne 'full' -or $validationReceipt.result -ne 'passed' -or
     -not $validationReceipt.git.cleanAtStart -or -not $validationReceipt.git.cleanAtEnd -or
     $validationReceipt.git.commit -ne $commit -or $validationReceipt.version -ne $Version) {
@@ -187,7 +187,7 @@ try {
         $releaseManifest = [ordered]@{
             schema = 'suite.release.v1'
             contract = 'suite-foundation-v2'
-            contractRevision = '2.2.0'
+            contractRevision = '2.3.0'
             application = 'gaylemon'
             version = $Version
             commit = $commit
@@ -250,7 +250,7 @@ function New-Evidence([string]$Path) {
     [ordered]@{ path = "release/$([IO.Path]::GetFileName($Path))"; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
 $receipt = [ordered]@{
-    schema='suite.release.v1'; contract='suite-foundation-v2'; contractRevision='2.2.0'; application='gaylemon'; version=$Version; commit=$commit
+    schema='suite.release.v1'; contract='suite-foundation-v2'; contractRevision='2.3.0'; application='gaylemon'; version=$Version; commit=$commit
     source=[ordered]@{kind='digest';value="local:$artifactName@$artifactDigest"}
     artifact=(New-Evidence $artifact); artifactDigest=$artifactDigest
     routes=[ordered]@{count=[int]$validationReceipt.routes.count;sha256=[string]$validationReceipt.routes.sha256}
@@ -264,8 +264,8 @@ $receipt = [ordered]@{
         (New-Evidence $cycloneAttestationEvidencePath)
     )
     operations=[ordered]@{
-        update='scripts/deployer-ubuntu.ps1';backup='docs/PLAN-ENRICHISSEMENT-SAUVEGARDES.md';restore='docs/OPERATIONS.md'
-        health='scripts/verify-microsite-recovery.ps1';rollback='docs/DEPLOIEMENT.md'
+        update='private-operations-authority';backup='private-operations-authority';restore='private-operations-authority'
+        health='private-operations-authority';rollback='private-operations-authority'
     }
     result='passed'
 }
