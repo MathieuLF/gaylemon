@@ -42,7 +42,7 @@ class FullSecurityReceiptTests(unittest.TestCase):
         spdx = write(sbom / "source.spdx.json", {"spdxVersion": "SPDX-2.3"})
         cyclone = write(sbom / "source.cyclonedx.json", {"bomFormat": "CycloneDX"})
         controls = {
-            "gitleaks": {"result": "passed", "scope": "git-history:HEAD", "verifier": {"name": "gitleaks", "command": "gitleaks git .", "exitCode": 0}, "report": gitleaks},
+            "gitleaks": {"result": "passed", "scope": "git-history:HEAD", "verifier": {"name": "gitleaks", "command": "gitleaks git . --log-opts=HEAD", "exitCode": 0}, "report": gitleaks},
             "trivyFilesystem": {"result": "passed", "scope": "git-archive:HEAD", "scanners": ["vuln", "misconfig", "secret"], "severity": ["HIGH", "CRITICAL"], "verifier": {"name": "trivy", "command": "trivy fs git-archive:HEAD", "exitCode": 0}, "report": trivy},
             "sbom": {"result": "passed", "scope": "dir:git-archive:HEAD", "verifier": {"name": "syft", "command": "syft scan dir:git-archive:HEAD", "exitCode": 0}, "spdx": spdx, "cycloneDx": cyclone},
         }
@@ -84,6 +84,10 @@ class FullSecurityReceiptTests(unittest.TestCase):
     def test_rejects_self_declared_tool_version(self) -> None:
         self.receipt["tools"]["trivy"] = "999.0.0"
         self.assertTrue(any("version de sécurité verrouillée" in error for error in self.validate()))
+
+    def test_rejects_unbounded_gitleaks_history(self) -> None:
+        self.receipt["security"]["controls"]["gitleaks"]["verifier"]["command"] = "gitleaks git ."
+        self.assertTrue(any("vérificateur Gitleaks invalide" in error for error in self.validate()))
 
 
 if __name__ == "__main__":
