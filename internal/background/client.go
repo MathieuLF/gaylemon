@@ -44,7 +44,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) error
 }
 
 // NewClient configures the database-backed background work handled by the web
-// service. A single worker keeps maintenance bounded on the production VPS.
+// service. A single worker keeps maintenance bounded in every deployment.
 func NewClient(pool *pgxpool.Pool, maintainer Maintainer, logger *slog.Logger) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	if err := river.AddWorkerSafely(workers, &databaseMaintenanceWorker{

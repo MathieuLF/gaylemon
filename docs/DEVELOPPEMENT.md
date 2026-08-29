@@ -1,109 +1,34 @@
 # Développement
 
-## Préparer un clone
+## Préparer le projet
 
 ```powershell
-git clone https://github.com/MathieuLF/Gaylemon.git Gaylemon
-Set-Location .\Gaylemon
-.\scripts\initialiser-projet.ps1
+git clone https://github.com/MathieuLF/gaylemon.git
+Set-Location .\gaylemon
+Copy-Item .env.example .env
+npm ci
 ```
 
-Le script prépare les dossiers ignorés et copie des exemples JSON si les données réelles sont absentes. Il ne contacte pas Ubuntu.
+Les exemples sous `portal/data` sont fictifs. Les données réelles, secrets, domaines, chemins et fichiers d’exploitation restent hors du dépôt.
 
 ## Valider
 
 ```powershell
 .\scripts\upgrade-preflight.ps1 -Mode Inventory
 .\scripts\verify-local.ps1 -Mode Quick
-```
-
-Avant de fusionner une livraison, exécuter Full depuis un commit propre:
-
-```powershell
 .\scripts\verify-local.ps1 -Mode Full
 ```
 
-Le même point d’entrée est aussi disponible par le prévol:
+Quick exécute les tests Go, le contrat du portail, la frontière publique et le reçu local. Full ajoute PostgreSQL 16 isolé, navigateur/Axe, race, deadcode, vulnérabilités, SBOM et image signée.
+
+## Exécuter le service web
 
 ```powershell
-.\scripts\upgrade-preflight.ps1 -Mode Full
+go run ./cmd/gaylemon-web
 ```
 
-La validation Full couvre notamment:
+Le service lit `GAYLEMON_PORTAL_ROOT`, calcule les noms hachés de CSS et JavaScript, puis sert `/assets-manifest.json`. Une modification de ces fichiers doit changer leur chemin public sans exiger de vider le cache du navigateur.
 
-- version Go 1.27.0, tests et analyse statique Go;
-- migrations, cycle du worker et scénarios multi-saisons avec un PostgreSQL 16 local isolé;
-- invariants de l’agent et interdiction de redémarrer `palworld.service`;
-- syntaxe PowerShell, Bash et JavaScript;
-- JSON d'exemple;
-- tests Python et navigateur accessibles;
-- exclusions Git;
-- Gitleaks sur l’historique Git courant, Trivy FS sur l’archive exacte de `HEAD` et deux SBOM source Syft (SPDX et CycloneDX), avec versions verrouillées et empreintes liées au reçu;
-- configuration Compose, scan et SBOM OCI, puis preuves de signature locales.
+## Changer un contrat public
 
-Le Full exige aussi une branche publiée et sans divergence avec son upstream. Le reçu ne peut donc pas remplacer une preuve Git canonique par des valeurs nulles ou auto-déclarées.
-
-## Tester les collecteurs
-
-```powershell
-python -m unittest discover -s .\server\tests -p "test_*.py" -v
-```
-
-Les fixtures doivent rester fictives. Pas de sauvegarde réelle, pas d'identifiant joueur réel.
-
-## Ouvrir le microsite
-
-```powershell
-docker compose up -d microsite
-```
-
-Le conteneur monte `portal/` en lecture seule. Les exemples suffisent pour travailler sur l'interface sans serveur Palworld.
-
-Routes locales utiles:
-
-- `http://127.0.0.1:8787/`: tableau de bord;
-- `http://127.0.0.1:8787/terminal`: terminal plein écran des échos;
-- `http://127.0.0.1:8787/resume`: résumé quotidien des joueurs;
-- `http://127.0.0.1:8787/classements`: palmarès dédié;
-- `http://127.0.0.1:8787/carte`: carte dédiée de Palpagos;
-- `http://127.0.0.1:8787/github`: page technique publique.
-
-## Changer un contrat JSON
-
-Quand un champ public change:
-
-1. adapter le producteur Ubuntu;
-2. adapter la synchronisation Windows;
-3. adapter le microsite;
-4. mettre à jour l'exemple `*.example.json` ou le contrat `players/{slug}.json` correspondant;
-5. ajouter ou corriger les tests;
-6. documenter les champs sensibles.
-
-Augmenter la version du contrat quand la compatibilité est rompue.
-
-Pour les échos v6, modifier ensemble la projection canonique, le manifeste, la tête, les fragments journaliers, les résumés et leurs exemples. `/terminal` reste un journal filtrable par curseur sans paramètre de journée; `/resume` lit le résumé précalculé de la journée sélectionnée. Les fabrications, productions et pêches peuvent rester compilées en fenêtres publiques de 5 minutes, avec les quantités cumulées dans `details.items` et les catégories d'origine dans `details.categories`. Une journée inchangée doit conserver son fragment immuable, une génération partielle ne doit jamais devenir active et les observations privées ne doivent pas être supprimées lors d'une correction publique. Les contrats v5 restent testés tant que la période de compatibilité n'est pas terminée. Voir [Échos publics v6](EVENEMENTS-PUBLICS-V6.md).
-
-Pour les fiches joueurs, vérifier que l'export JSON reste déclenché seulement par le bouton d'en-tête de la fiche et qu'il ne contient que les données publiques déjà prévues: profil complet, activité, progression, inventaire, Pals en équipe, Pals en Palbox, bases, constructions, stocks agrégés et métadonnées de snapshot.
-
-## Avant un commit
-
-```powershell
-.\scripts\valider-depot.ps1
-git diff --check
-git status --short --ignored
-```
-
-Ne pas forcer un fichier ignoré avec `git add -f` sans comprendre pourquoi il est ignoré.
-
-## Préparer une version du microsite
-
-`VERSION` est la source canonique et suit SemVer sans préfixe `v`, par exemple `1.2.3` ou `1.3.0-rc.1`. Incrémenter la version selon la portée du changement : correctif compatible, fonctionnalité compatible ou rupture explicitement planifiée. Cette version concerne le microsite et son service Go; elle est indépendante de la version de Palworld et des contrats de données.
-
-Avant de fusionner une livraison:
-
-1. modifier `VERSION` dans la même pull request que le changement;
-2. exécuter `./scripts/valider-depot.ps1`;
-3. après fusion, créer le tag `v<version>` sur le commit de `main`;
-4. après déploiement, exécuter `./scripts/comparer-version.ps1 -Strict`.
-
-Le build injecte séparément la version produit, le commit Git complet et le canal. Ne remplacer aucun de ces champs par une valeur manuelle différente de la révision réellement déployée.
+Adapter ensemble le modèle Go, la projection, l’exemple JSON, le portail, les tests et la documentation. Une génération partielle ne doit jamais devenir active. Les champs inconnus restent absents ou `null`; aucune relation ne doit être inventée.

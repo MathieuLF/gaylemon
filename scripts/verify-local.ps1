@@ -38,7 +38,7 @@ try {
     Invoke-Check 'go-test' { go test ./... }
     Invoke-Check 'go-vet' { go vet ./... }
     Invoke-Check 'validation-receipt-contracts' { python -m unittest discover -s scripts/tests -p 'test_*.py' }
-    Invoke-Check 'season-agent-contracts' { python -m unittest discover -s server/tests -p 'test_security_controls.py' }
+    Invoke-Check 'season-agent-contracts' { go test ./internal/agent ./internal/auth }
     Invoke-Check 'portal-contracts' { node --test portal/tests/portal-v6-static.test.mjs }
     if ($Mode -eq 'Full') {
 		foreach ($requiredTool in 'govulncheck','docker','python','bash','tar') {
@@ -61,7 +61,7 @@ try {
             if ($LASTEXITCODE -eq 0) { $script:fullSecurity = $securityJson | ConvertFrom-Json }
         }
         Invoke-Check 'repository-contracts' { & (Join-Path $PSScriptRoot 'valider-depot.ps1') -SansDocker }
-        Invoke-Check 'server-contracts' { python -m unittest discover -s server/tests -p 'test_*.py' }
+        Invoke-Check 'public-repository-contracts' { & (Join-Path $PSScriptRoot 'valider-depot.ps1') -SansDocker -SansGo }
         Invoke-Check 'postgresql-multi-season' { & (Join-Path $PSScriptRoot 'test-postgres-seasons.ps1') }
         $version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()
     }
@@ -147,7 +147,7 @@ if ($Mode -eq 'Full') {
 $receipt = [ordered]@{
     schema = 'suite.local-validation.v2'
     contract = 'suite-foundation-v2'
-    contractRevision = '2.2.0'
+    contractRevision = '2.3.0'
     profile = 'seasonal-go-microsite'
     application = 'gaylemon'
     version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()

@@ -85,7 +85,7 @@ def validate_receipt(receipt: dict[str, Any], repository: Path | None = None) ->
         "contract": "suite-foundation-v2",
         "application": "gaylemon",
         "profile": "seasonal-go-microsite",
-        "contractRevision": "2.2.0",
+        "contractRevision": "2.3.0",
         "result": "passed",
     }
     for key, value in expected.items():

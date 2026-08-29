@@ -23,12 +23,7 @@ $directories = @(
     "portal\data\public-events-v6",
     "portal\data\players",
     "portal\joueur",
-    "runtime\backups",
-    "runtime\deploy",
-    "runtime\logs",
-    "runtime\recovery",
-    "runtime\validation",
-    "vendor"
+    "runtime\validation"
 )
 
 foreach ($relativePath in $directories) {
@@ -51,12 +46,8 @@ if (-not $SansDonneesExemple) {
     }
 }
 
-. (Join-Path $PSScriptRoot "lib\Gaylemon.Config.ps1")
-$config = Get-GaylemonConfig -ProjectRoot $ProjectRoot
-
 Write-Host ""
 Write-Host "Initialisation terminee." -ForegroundColor Cyan
-Write-Host "Configuration: $($config.EnvPath)"
+Write-Host "Configuration locale: $envLocal"
 Write-Host "Validation: .\scripts\valider-depot.ps1"
-Write-Host "Diagnostic: .\scripts\diagnostiquer-integrations.ps1"
-Write-Host "Console: .\Gaylemon Ops Console.ps1"
+Write-Host "Démarrage local: go run ./cmd/web"
