@@ -145,7 +145,7 @@ def validate_full_security(repository: Path, receipt: dict[str, Any], errors: li
         expected = policy_tools["gitleaks"]
         if gitleaks.get("result") != "passed" or gitleaks.get("scope") != expected.get("scope"):
             errors.append("contrôle Gitleaks non réussi ou portée différente")
-        if gitleaks.get("verifier") != {"name": "gitleaks", "command": "gitleaks git .", "exitCode": 0}:
+        if gitleaks.get("verifier") != {"name": "gitleaks", "command": "gitleaks git . --log-opts=HEAD", "exitCode": 0}:
             errors.append("vérificateur Gitleaks invalide")
         path = artifact(repository, gitleaks.get("report"), "security.gitleaks.report", declared, errors)
         if path:
