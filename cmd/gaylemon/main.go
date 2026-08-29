@@ -227,7 +227,7 @@ func runAgent(logger *slog.Logger) error {
 func queueStatus() error {
 	path := os.Getenv("GAYLEMON_AGENT_SPOOL")
 	if path == "" {
-		path = "/var/lib/gaylemon-agent/spool.db"
+		path = "runtime/agent-spool.db"
 	}
 	spool, err := agent.OpenSpool(path)
 	if err != nil {

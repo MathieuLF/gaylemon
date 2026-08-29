@@ -26,7 +26,7 @@ def valid_receipt() -> dict[str, object]:
     return {
         "schema": "suite.local-validation.v2",
         "contract": "suite-foundation-v2",
-        "contractRevision": "2.2.0",
+        "contractRevision": "2.3.0",
         "profile": "seasonal-go-microsite",
         "application": "gaylemon",
         "version": "1.0.0",

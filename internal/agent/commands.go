@@ -32,7 +32,7 @@ func (e CommandExecutor) Execute(ctx context.Context, command model.Command) mod
 	executable := e.Helper
 	processArguments := arguments
 	if e.UseSudo {
-		executable = "/usr/bin/sudo"
+		executable = "sudo"
 		processArguments = append([]string{"-n", e.Helper}, arguments...)
 	}
 	process := exec.CommandContext(commandContext, executable, processArguments...)

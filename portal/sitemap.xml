@@ -1,32 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://gaylemon.nethercore.dev/</loc>
+    <loc>__GAYLEMON_PUBLIC_BASE_URL__/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://gaylemon.nethercore.dev/terminal</loc>
+    <loc>__GAYLEMON_PUBLIC_BASE_URL__/terminal</loc>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://gaylemon.nethercore.dev/resume</loc>
+    <loc>__GAYLEMON_PUBLIC_BASE_URL__/resume</loc>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://gaylemon.nethercore.dev/classements</loc>
+    <loc>__GAYLEMON_PUBLIC_BASE_URL__/classements</loc>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://gaylemon.nethercore.dev/carte</loc>
+    <loc>__GAYLEMON_PUBLIC_BASE_URL__/carte</loc>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://gaylemon.nethercore.dev/github</loc>
+    <loc>__GAYLEMON_PUBLIC_BASE_URL__/github</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

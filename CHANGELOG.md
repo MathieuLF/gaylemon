@@ -4,13 +4,15 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 ## [Non publié]
 
+## [1.0.1] - 2026-08-29
+
 ### Modifié
 
-- Le profil Gaylémon suit la révision 2.2.0 du socle commun, avec contrat d’exploitation et reçu de release `suite.release.v1`.
-- Les sauvegardes d’exploitation utilisent désormais un vocabulaire Restic hors site indépendant du fournisseur et du déployeur.
-- La validation Full rejoue les migrations et scénarios multi-saisons sur PostgreSQL 16 isolé; Quick vérifie systématiquement les invariants de l’agent et l’interdiction de redémarrer Palworld.
-- Le Full lie désormais Gitleaks, Trivy FS et deux SBOM source au commit et à l’arbre Git exacts, et refuse une preuve upstream incomplète ou divergente.
-- Le tunnel SSH local s’exécute désormais avec un utilisateur dédié non privilégié.
+- Le profil Gaylémon suit la révision 2.3.0 du socle commun.
+- CSS et JavaScript sont servis sous des noms liés à leur contenu, avec manifeste public et conservation de la release précédente.
+- Le dépôt public ne contient plus de domaine, topologie, chemin, adaptateur ou runbook propre à une instance.
+- La validation bloque désormais toute réintroduction de ces détails dans la branche active.
+- Le prédicat de release utilise un URN produit indépendant de la destination d’exécution.
 
 ## [1.0.0] - 2026-08-28
 
@@ -38,3 +40,7 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 ### Modifié
 
 - Validation Go en mode `-mod=readonly`; les dépendances externes ne sont plus chargées depuis un répertoire `vendor` local.
+
+[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/MathieuLF/gaylemon/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/MathieuLF/gaylemon/releases/tag/v1.0.0

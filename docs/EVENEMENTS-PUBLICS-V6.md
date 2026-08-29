@@ -64,7 +64,8 @@ Avant toute publication ou modification du contrat:
 
 ```powershell
 .\scripts\test-public-events-v6.ps1
-python -m unittest discover -s .\server\tests -p "test_*.py" -v
+go test ./internal/projection ./internal/web
+node --test portal/tests/portal-v6-static.test.mjs
 .\scripts\valider-depot.ps1
 ```
 

@@ -932,9 +932,9 @@ func validateSeasonArchiveProof(details json.RawMessage, seasonID, slug string) 
 	if proof.SeasonID != seasonID || proof.Slug != slug || proof.QueueDepth != 0 {
 		return errors.New("preuves de clôture incohérentes")
 	}
-	backupPath := "/srv/storage/steam/servers/palworld/backups/seasons/" + slug + "/final-" + proof.BackupSHA256 + ".tar.zst"
-	receiptPath := "/var/lib/gaylemon-agent/season-receipts/" + slug + "-" + proof.BackupSHA256 + ".json"
-	if !hexDigestPattern.MatchString(proof.BackupSHA256) || proof.ImmutableBackup != backupPath || proof.Receipt != receiptPath ||
+	backupReference := fmt.Sprintf("urn:gaylemon:season-archive:%s:%s", slug, proof.BackupSHA256)
+	receiptReference := fmt.Sprintf("urn:gaylemon:season-receipt:%s:%s", slug, proof.BackupSHA256)
+	if !hexDigestPattern.MatchString(proof.BackupSHA256) || proof.ImmutableBackup != backupReference || proof.Receipt != receiptReference ||
 		!hexDigestPattern.MatchString(proof.ReceiptSHA256) ||
 		!processIDPattern.MatchString(proof.PalworldPID) || !counterPattern.MatchString(proof.PalworldRestarts) {
 		return errors.New("preuves de clôture incomplètes")

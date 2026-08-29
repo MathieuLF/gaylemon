@@ -56,7 +56,7 @@ func WebFromEnv() (Web, error) {
 		PortalRoot:          root,
 		AssetRoot:           assets,
 		PublicBaseURL:       baseURL,
-		LegacyHosts:         csvEnv("GAYLEMON_LEGACY_HOSTS", "gaylemon.mathieu.pro,www.gaylemon.nethercore.dev"),
+		LegacyHosts:         csvEnv("GAYLEMON_LEGACY_HOSTS", ""),
 		AgentPublicKeys:     keys,
 		ResponsePrivateKey:  responseKey,
 		SignatureMaxSkew:    durationEnv("GAYLEMON_SIGNATURE_MAX_SKEW", 5*time.Minute),

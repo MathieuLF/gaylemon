@@ -2,156 +2,70 @@
 
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-2f855a.svg)](LICENSE)
 
-Gaylémon regroupe les outils autour d'un serveur Palworld privé: console d'exploitation, scripts Ubuntu, collecteurs, projections publiques, terminal des échos et microsite.
+Gaylémon est un microsite saisonnier pour raconter une aventure Palworld à partir de projections publiques filtrées. Il présente l’état courant, les joueurs, les échos, les classements, la carte et les archives de saisons sans publier les sauvegardes brutes ni les identifiants techniques.
 
-Le principe est simple: Palworld reste stable, les sauvegardes sont lues en lecture seule, et le site ne reçoit que des données filtrées. Les secrets, les sauvegardes réelles et les données privées ne vont pas dans Git.
+Le dépôt public contient le produit réutilisable. Les domaines, hôtes, chemins d’installation, secrets, sauvegardes, reçus et procédures d’exploitation d’une instance réelle sont volontairement conservés hors de ce dépôt.
 
-## Ce que contient le dépôt
+## Composants
 
-- `cmd/` et `internal/`: service web Go, agent sortant, API signée et accès PostgreSQL 16.
-- `db/`: migrations PostgreSQL, historique, rétention et archives multi-saisons.
-- `server/`: scripts Ubuntu, unités `systemd`, collecteurs et tests.
-- `scripts/`: console et outils Windows.
-- `portal/`: microsite statique, routes `/`, `/terminal`, `/resume`, `/classements`, `/carte`, `/informations`, archives `/saisons/{slug}` et exemples JSON.
-- `docker/`: Nginx local pour le microsite et image du tunnel API Palworld.
-- `docs/`: guides courts, contrats de données et notes d'exploitation.
-- `dependencies/`: verrous des dépendances externes, sans cloner leur code.
+- `cmd/gaylemon-web` et `internal/web` : service HTTP Go et portail public;
+- `cmd/gaylemon` et `internal/agent` : agent sortant signé avec file durable;
+- `internal/collector` et `internal/projection` : lecture de sources déjà filtrées et création des documents publics;
+- `db/migrations` : PostgreSQL 16, rétention et cycle multi-saisons;
+- `portal` : pages, styles, scripts, PWA et exemples JSON fictifs;
+- `scripts` : validation locale, inventaire, sécurité et release;
+- `docs` : contrats publics, développement et cycle des saisons.
 
-cloudflared, SteamCMD et Palworld ne sont pas possédés par ce dépôt. Gaylémon peut s'y brancher, mais ne doit pas en prendre le contrôle.
+## Développement local
 
-## Démarrer en local
-
-```powershell
-.\scripts\initialiser-projet.ps1
-.\scripts\valider-depot.ps1
-```
-
-L'initialisation prépare les dossiers ignorés et copie des exemples JSON si aucune donnée réelle n'existe. Elle ne contacte pas Ubuntu, Docker ou Cloudflare.
-
-Pour ouvrir la console:
+Prérequis : Go 1.27, Node.js et PostgreSQL 16.
 
 ```powershell
-.\Gaylemon Ops Console.ps1
+Copy-Item .env.example .env
+go test ./...
+npm ci
+npm test
+go run ./cmd/gaylemon-web
 ```
 
-Pour servir le microsite:
+Les valeurs de `.env.example` sont fictives. Le service doit recevoir ses secrets et ses chemins réels par un mécanisme privé propre à l’environnement d’exécution.
+
+## Validation commune
 
 ```powershell
-docker compose up -d microsite
+.\scripts\upgrade-preflight.ps1 -Mode Inventory
+.\scripts\verify-local.ps1 -Mode Quick
+.\scripts\verify-local.ps1 -Mode Full
 ```
 
-Par défaut, Nginx écoute seulement sur `127.0.0.1`.
+Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seasonal-go-microsite`. `VERSION` est la source SemVer. Quick couvre les contrats Go, les migrations, le portail et la frontière publique; Full ajoute PostgreSQL isolé, navigateur/Axe, race, vulnérabilités, deux SBOM, image OCI et preuves de signature.
 
-Routes utiles du microsite:
+## Cache et continuité
 
-- `http://127.0.0.1:8787/`: tableau de bord public;
-- `http://127.0.0.1:8787/terminal`: terminal plein écran des échos;
-- `http://127.0.0.1:8787/resume`: résumé quotidien des joueurs;
-- `http://127.0.0.1:8787/classements`: palmarès dédié;
-- `http://127.0.0.1:8787/carte`: carte dédiée de Palpagos;
-- `http://127.0.0.1:8787/github`: page technique publique du dépôt.
+Le service calcule une empreinte SHA-256 de `assets/app.js` et `assets/styles.css`, publie `/assets-manifest.json`, réécrit les pages vers leurs noms liés au contenu et réserve `immutable` à ces noms. HTML, manifeste PWA, service worker, version et manifeste d’actifs sont revalidés. Le service worker respecte l’identité exacte des requêtes et conserve la release d’actifs précédente pour permettre un retour arrière.
 
-## Version du microsite
+## Frontière publique
 
-La version canonique du microsite se trouve dans `VERSION` au format SemVer. Le pied de page affiche cette version et le commit Git court. La route publique `/api/version` répond sans cache en `application/json` avec exactement `schema, application, version, commit, builtAt`; le build lie ces valeurs au commit et à sa date RFC 3339.
+Ne jamais versionner :
 
-Pour comparer le dépôt local, la branche `main` sur GitHub et la VPS:
+- domaine, identifiant d’hôte ou chemin d’une instance réelle;
+- runbook, adaptateur de déploiement ou configuration d’infrastructure;
+- clé, jeton, certificat, mot de passe ou fichier d’environnement réel;
+- sauvegarde, base locale, journal, PID ou reçu d’exploitation;
+- export contenant des identifiants privés de joueur.
 
-```powershell
-.\scripts\comparer-version.ps1
-```
-
-Ajouter `-Strict` pour obtenir un code de sortie non nul dès qu’un écart est détecté, ou `-Json` pour une sortie exploitable par un autre outil.
-
-Pour exposer localement l'API REST Palworld aux annonces Discord et aux sondes d'exploitation via Docker Desktop:
-
-```powershell
-.\scripts\palworld-api-tunnel.ps1 start
-.\scripts\palworld-api-tunnel.ps1 status
-```
-
-Le port reste lié à `127.0.0.1`. Le bot lit les JSON publics par défaut et utilise l'exemple [bot.env.example](config/exemples/bot.env.example), hors Git une fois rempli; les variables REST restent vides sauf si une commande d'annonce en jeu est activée.
-Si Docker Desktop ne peut pas joindre le LAN à cause d'un subnet Docker concurrent, le même script peut démarrer un tunnel SSH Windows local:
-
-```powershell
-.\scripts\palworld-api-tunnel.ps1 start -Mode windows-ssh
-```
-
-## Commandes utiles
-
-```powershell
-# Validation locale
-.\scripts\valider-depot.ps1
-
-# Comparaison local, GitHub et VPS
-.\scripts\comparer-version.ps1
-
-# Diagnostic en lecture seule
-.\scripts\diagnostiquer-integrations.ps1
-
-# Audit des fichiers Ubuntu actifs
-.\scripts\auditer-source-ubuntu.ps1
-
-# Aperçu d'une livraison Ubuntu
-.\scripts\deployer-ubuntu.ps1
-
-# Mise en scène sous /tmp sur Ubuntu
-.\scripts\deployer-ubuntu.ps1 -Stage
-
-# Installation explicite, avec sauvegarde
-.\scripts\deployer-ubuntu.ps1 -Install
-```
-
-`-Install` ne redémarre aucun service par défaut. Le redémarrage de `palworld.service` demande une option et une confirmation explicites.
-
-## Données privées
-
-Ne jamais versionner:
-
-- `.env`, clés SSH, jetons et mots de passe;
-- sauvegardes Palworld, bases SQLite, journaux et PID;
-- données réelles sous `portal/data/`;
-- ressources extraites du jeu sous `portal/assets/game/`;
-- archives et rapports sous `runtime/`;
-- clones complets sous `vendor/`.
-
-Les exemples `*.example.json` sont fictifs et servent au développement local.
-
-Les ressources Palworld ne sont pas versionnées dans ce dépôt. L’image de production récupère uniquement les icônes et cartes nécessaires depuis la révision PalworldSaveTools verrouillée dans `dependencies/palworld-save-tools.lock.json`, puis les sert sous `/assets/game/`.
-
-Les exports publics réels restent non versionnés. Le site lit notamment:
-
-- `public-metrics.json` pour l'état live, les joueurs connectés et `onlineSinceAt`;
-- `public-stats.json` pour les sessions et agrégats joueurs;
-- `public-save-index.json`, `public-save-snapshot.json`, `public-save-bases.json`, `public-save-diagnostics.json` et `players/{slug}.json` pour les fiches, Pals, bases et exports JSON d'analyse; ces fichiers partagent une génération et l'index devient actif en dernier;
-- l'API paginée `/api/public/events/v1`, alimentée par `gaylemon_public.events`, pour le Terminal;
-- `public-events-recent.json` comme petit repli de continuité lorsque PostgreSQL est momentanément indisponible;
-- `public-uptime.json`, `public-uptime-history.json` et `public-availability.json` pour la disponibilité calculée depuis l'API REST Palworld.
-
-Le service Go sert les pages, l'API PostgreSQL et les petits documents de repli. Les JSON mutables sont servis en `no-store`.
-
-Le flux des échos est traité comme une donnée chaude: projection canonique près de SQLite, transport compressé, ingestion relationnelle différentielle dans PostgreSQL, pagination et recherche indexées. L'export complet sert uniquement de véhicule transactionnel et n'est pas conservé dans la base; seul le petit repli récent reste servi.
+Le script `scripts/valider-depot.ps1` bloque ces surfaces dans la branche active. Les détails d’installation et d’exploitation appartiennent à une autorité privée distincte.
 
 ## Documentation
 
 - [Sommaire](docs/README.md)
-- [Sécurité](SECURITY.md)
-- [Support](SUPPORT.md)
-- [Architecture](docs/ARCHITECTURE.md)
+- [Architecture publique](docs/ARCHITECTURE.md)
 - [Saisons et archives](docs/SAISONS.md)
-- [Échos publics v6](docs/EVENEMENTS-PUBLICS-V6.md)
-- [Sécurité d'exploitation](docs/SECURITE-EXPLOITATION.md)
-- [Configuration locale](docs/CONFIGURATION-LOCALE.md)
 - [Développement](docs/DEVELOPPEMENT.md)
-- [Déploiement](docs/DEPLOIEMENT.md)
-- [Publication sur la VPS Nethercore](docs/VPS-NETHERCORE.md)
-- [Opérations](docs/OPERATIONS.md)
-- [Bot Discord](docs/BOT-DISCORD.md)
-- [Publication GitHub](docs/PUBLIC-REPOSITORY.md)
-- [Démarche GitHub du microsite](https://gaylemon.nethercore.dev/github)
+- [Échos publics v6](docs/EVENEMENTS-PUBLICS-V6.md)
+- [Confidentialité et sécurité](SECURITY.md)
+- [Avis tiers](THIRD_PARTY_NOTICES.md)
 
 ## Licence
 
-Le code Gaylémon est sous licence MIT. Palworld, ses ressources et ses marques appartiennent à leurs ayants droit. PalworldSaveTools reste une dépendance séparée avec ses propres licences.
-
-Voir aussi [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Le code Gaylémon est sous licence MIT. Palworld et ses ressources appartiennent à leurs ayants droit respectifs.

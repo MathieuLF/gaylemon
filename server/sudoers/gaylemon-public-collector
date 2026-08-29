@@ -1,1 +1,0 @@
-gaylemon ALL=(root) NOPASSWD: /usr/bin/cat /srv/storage/steam/servers/palworld/stats/stats.json

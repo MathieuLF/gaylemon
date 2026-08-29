@@ -1,65 +1,16 @@
 # Sécurité
 
-Gaylémon touche à un serveur Palworld réel. Merci de signaler les problèmes en privé.
+Merci de signaler les vulnérabilités par le mécanisme privé de GitHub, sans ouvrir d’issue publique contenant une donnée sensible.
 
-## Versions suivies
+## Frontières essentielles
 
-Tant qu'il n'y a pas de version stable, seule la branche par défaut reçoit les correctifs.
+- Les requêtes de l’agent sont signées Ed25519, bornées dans le temps et protégées contre le rejeu.
+- Les documents activés sont des projections publiques filtrées; une sauvegarde brute n’est jamais servie.
+- Les routes d’exploitation exigent une session autorisée et ne sont pas mises en cache.
+- Le service worker exclut les routes d’agent, d’ingestion et d’exploitation.
+- Les actifs immuables portent une empreinte de contenu; les autres surfaces sont revalidées.
+- Les secrets, domaines, chemins, runbooks et configurations d’instance restent hors du dépôt public.
 
-## Signaler un problème
+## Signalement
 
-Ne pas ouvrir d'issue publique avec un secret, une vulnérabilité exploitable ou une donnée joueur.
-
-Utiliser **Security advisories > Report a vulnerability** sur GitHub. Si l'option n'est pas disponible, contacter le propriétaire du dépôt par un canal privé.
-
-Inclure si possible:
-
-- la révision concernée;
-- le composant touché;
-- les étapes minimales de reproduction;
-- l'impact;
-- une piste de correction.
-
-## Modèle de sécurité
-
-Le dépôt décrit seulement les fichiers non secrets. Les sauvegardes réelles, secrets, bases SQLite, journaux et fichiers locaux restent hors Git.
-
-Les installations Ubuntu passent par `server/deployment-manifest.json`. Le manifeste résolu et chacune de ses sources portent une empreinte, puis le moteur root-owned copie la zone de stage dans une zone privée avant validation. Le script refuse les destinations hors allowlist, sauvegarde les fichiers remplacés et ne redémarre aucun service par défaut. L'installation demande toujours une élévation `sudo` interactive.
-
-Les accès `sudo` non interactifs autorisés pour l'exploitation sont volontairement limités à des commandes précises:
-
-```text
-/usr/local/sbin/gaylemon-admin
-/srv/storage/steam/bin/palworld-api.sh GET /info
-/srv/storage/steam/bin/palworld-api.sh GET /players
-/srv/storage/steam/bin/palworld-api.sh GET /metrics
-/srv/storage/steam/bin/palworld-api.sh GET /settings
-/srv/storage/steam/bin/palworld-api.sh GET /game-data
-```
-
-Le moteur de déploiement privilégié reste sous `/usr/local/libexec/gaylemon/gaylemon-deploy`, appartient à `root:root` et n'exécute jamais le Python de la zone modifiable sous `/tmp`. Le wrapper exige l'empreinte du manifeste. La règle API lit seulement les endpoints allowlistés et `gaylemon-admin` refuse les mises à jour ou redémarrages de Palworld. Aucun de ces chemins ne doit donner un accès `sudo` général.
-
-## Vecteurs sensibles
-
-- SSH et scripts distants;
-- règles `sudoers`;
-- wrapper `/usr/local/sbin/gaylemon-deploy-install`;
-- API REST Palworld;
-- projections publiques des sauvegardes;
-- exports `public-metrics.json`, `players/{slug}.json` et `public-events-page-*.json`;
-- déploiement et mise à jour;
-- configuration Nginx.
-
-Les changements touchant ces zones doivent être revus avec les risques d'exploitation en tête: redémarrage implicite, élargissement d'une permission, publication d'un identifiant privé, exposition d'un endpoint ou relâchement d'un filtre public.
-
-Cloudflare, Palworld et PalworldSaveTools restent des projets ou services externes. Les failles qui les concernent doivent aussi être signalées chez eux.
-
-## Secret publié par erreur
-
-Révoquer le secret tout de suite, en créer un nouveau, puis nettoyer l'historique Git si le dépôt n'a pas encore été publié. Supprimer la valeur du dernier commit ne suffit pas.
-
-## Documentation utile
-
-- [Sécurité d'exploitation](docs/SECURITE-EXPLOITATION.md)
-- [Déploiement](docs/DEPLOIEMENT.md)
-- [Source de vérité](docs/SOURCE-DE-VERITE.md)
+Inclure la révision, le composant, une reproduction minimale et l’impact. Ne joindre ni clé, ni sauvegarde, ni export réel. Révoquer immédiatement tout secret exposé; supprimer seulement sa dernière occurrence ne nettoie pas l’historique Git.

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,11 @@ type Server struct {
 	oauth        *oauth2.Config
 	mux          *http.ServeMux
 	eventQueries chan struct{}
+	assetPaths   map[string]string
+	assetFiles   map[string]string
+	assetHashes  map[string]string
+	assetRelease string
+	assetError   error
 }
 
 type ReleaseInfo struct {
@@ -84,6 +90,7 @@ func NewServerWithRelease(cfg config.Web, repo store.Repository, logger *slog.Lo
 		mux:          http.NewServeMux(),
 		eventQueries: make(chan struct{}, 2),
 	}
+	s.assetError = s.loadPortalAssetManifest()
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" {
 		s.oauth = &oauth2.Config{
 			ClientID:     cfg.GitHubClientID,
@@ -142,6 +149,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health/ready", s.handleReady)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /version", s.handleVersion)
+	s.mux.HandleFunc("GET /assets-manifest.json", s.handleAssetManifest)
 	s.mux.HandleFunc("POST /api/ingest/v1/batches", s.handleIngest)
 	s.mux.HandleFunc("POST /api/agent/v1/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/agent/v1/commands", s.handlePendingCommands)
@@ -186,6 +194,54 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, s.release)
+}
+
+func (s *Server) loadPortalAssetManifest() error {
+	s.assetPaths = make(map[string]string, 2)
+	s.assetFiles = make(map[string]string, 2)
+	s.assetHashes = make(map[string]string, 2)
+	combined := sha256.New()
+	for _, name := range []string{"assets/app.js", "assets/styles.css"} {
+		content, err := os.ReadFile(filepath.Join(s.config.PortalRoot, filepath.FromSlash(name)))
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(content)
+		digest := hex.EncodeToString(sum[:])
+		extension := filepath.Ext(name)
+		base := strings.TrimSuffix(name, extension)
+		versioned := base + "." + digest[:12] + extension
+		s.assetPaths[name] = "/" + filepath.ToSlash(versioned)
+		s.assetFiles[versioned] = name
+		s.assetHashes[name] = digest
+		_, _ = combined.Write([]byte(name))
+		_, _ = combined.Write(content)
+	}
+	s.assetRelease = hex.EncodeToString(combined.Sum(nil))[:16]
+	return nil
+}
+
+func (s *Server) handleAssetManifest(w http.ResponseWriter, _ *http.Request) {
+	if s.assetError != nil {
+		writeError(w, http.StatusServiceUnavailable, "assets-unavailable")
+		return
+	}
+	type assetEntry struct {
+		Source string `json:"source"`
+		Path   string `json:"path"`
+		SHA256 string `json:"sha256"`
+	}
+	names := make([]string, 0, len(s.assetPaths))
+	for name := range s.assetPaths {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	entries := make([]assetEntry, 0, len(names))
+	for _, name := range names {
+		entries = append(entries, assetEntry{Source: name, Path: s.assetPaths[name], SHA256: s.assetHashes[name]})
+	}
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	writeJSON(w, http.StatusOK, map[string]any{"schema": "suite.asset-manifest.v1", "release": s.assetRelease, "assets": entries})
 }
 
 func (s *Server) verifiedBody(w http.ResponseWriter, r *http.Request, limit int64) (verifiedPayload, bool) {
@@ -536,7 +592,7 @@ func (s *Server) handleGameAsset(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
 	http.ServeFile(w, r, target)
 }
 
@@ -559,6 +615,10 @@ var portalRoutes = map[string]string{
 }
 
 func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
+	if s.assetError != nil {
+		http.Error(w, "Actifs publics indisponibles.", http.StatusServiceUnavailable)
+		return
+	}
 	canonical := map[string]string{"/Terminal": "/terminal", "/Resume": "/resume", "/Classements": "/classements", "/Carte": "/carte", "/Github": "/github"}
 	if target, ok := canonical[strings.TrimSuffix(r.URL.Path, "/")]; ok {
 		if strings.HasSuffix(r.URL.Path, "/") {
@@ -568,8 +628,7 @@ func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if fileName, ok := portalRoutes[r.URL.Path]; ok {
-		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-		http.ServeFile(w, r, filepath.Join(s.config.PortalRoot, fileName))
+		s.servePortalHTML(w, filepath.Join(s.config.PortalRoot, fileName))
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/saisons/") {
@@ -582,16 +641,14 @@ func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
 					pagePath += strings.Join(parts[1:], "/")
 				}
 				if fileName, ok := portalRoutes[pagePath]; ok {
-					w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-					http.ServeFile(w, r, filepath.Join(s.config.PortalRoot, fileName))
+					s.servePortalHTML(w, filepath.Join(s.config.PortalRoot, fileName))
 					return
 				}
 				staticPath := strings.TrimPrefix(pagePath, "/")
 				if strings.HasPrefix(staticPath, "assets/") || staticPath == "site.webmanifest" || staticPath == "sw.js" || staticPath == "offline.html" || staticPath == "release-notes.json" {
 					target := filepath.Join(s.config.PortalRoot, filepath.FromSlash(staticPath))
 					if strings.HasPrefix(target, s.config.PortalRoot+string(os.PathSeparator)) {
-						w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
-						http.ServeFile(w, r, target)
+						s.servePortalStatic(w, r, target, staticPath, false)
 						return
 					}
 				}
@@ -608,15 +665,80 @@ func (s *Server) handlePortal(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/assets/") || r.URL.Path == "/site.webmanifest" {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else {
-		w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
+	if original, ok := s.assetFiles[filepath.ToSlash(relative)]; ok {
+		target = filepath.Join(s.config.PortalRoot, filepath.FromSlash(original))
+		s.servePortalStatic(w, r, target, original, true)
+		return
 	}
+	if filepath.ToSlash(relative) == "sw.js" {
+		s.servePortalWorker(w, target)
+		return
+	}
+	if filepath.ToSlash(relative) == "robots.txt" || filepath.ToSlash(relative) == "sitemap.xml" {
+		s.servePortalTextTemplate(w, target)
+		return
+	}
+	s.servePortalStatic(w, r, target, filepath.ToSlash(relative), false)
+}
+
+func (s *Server) servePortalHTML(w http.ResponseWriter, target string) {
+	content, err := os.ReadFile(target)
+	if err != nil {
+		http.Error(w, "Page introuvable.", http.StatusNotFound)
+		return
+	}
+	content = []byte(strings.NewReplacer(
+		"/assets/styles.css", s.assetPaths["assets/styles.css"],
+		"/assets/app.js", s.assetPaths["assets/app.js"],
+		"__GAYLEMON_PUBLIC_BASE_URL__", strings.TrimRight(s.config.PublicBaseURL, "/"),
+	).Replace(string(content)))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	_, _ = w.Write(content)
+}
+
+func (s *Server) servePortalWorker(w http.ResponseWriter, target string) {
+	content, err := os.ReadFile(target)
+	if err != nil {
+		http.Error(w, "Service worker introuvable.", http.StatusNotFound)
+		return
+	}
+	content = []byte(strings.NewReplacer(
+		"__GAYLEMON_ASSET_RELEASE__", s.assetRelease,
+		"__GAYLEMON_STYLES__", s.assetPaths["assets/styles.css"],
+		"__GAYLEMON_APP__", s.assetPaths["assets/app.js"],
+	).Replace(string(content)))
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	_, _ = w.Write(content)
+}
+
+func (s *Server) servePortalTextTemplate(w http.ResponseWriter, target string) {
+	content, err := os.ReadFile(target)
+	if err != nil {
+		http.Error(w, "Ressource introuvable.", http.StatusNotFound)
+		return
+	}
+	content = []byte(strings.ReplaceAll(string(content), "__GAYLEMON_PUBLIC_BASE_URL__", strings.TrimRight(s.config.PublicBaseURL, "/")))
+	if mediaType := mime.TypeByExtension(filepath.Ext(target)); mediaType != "" {
+		w.Header().Set("Content-Type", mediaType)
+	}
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	_, _ = w.Write(content)
+}
+
+func (s *Server) servePortalStatic(w http.ResponseWriter, r *http.Request, target, relative string, hashed bool) {
 	if extension := filepath.Ext(target); extension != "" {
 		if mediaType := mime.TypeByExtension(extension); mediaType != "" {
 			w.Header().Set("Content-Type", mediaType)
 		}
+	}
+	if hashed {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else if relative == "site.webmanifest" || relative == "release-notes.json" || strings.HasPrefix(relative, "assets/") {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=3600, must-revalidate")
 	}
 	http.ServeFile(w, r, target)
 }

@@ -87,7 +87,7 @@ def normalize_reports(
     spdx = load(spdx_path)
     if spdx.get("spdxVersion") != "SPDX-2.3":
         raise ValueError("Syft n'a pas produit SPDX 2.3")
-    spdx["documentNamespace"] = f"https://nethercore.dev/sbom/{application}/{commit}/spdx"
+    spdx["documentNamespace"] = f"https://github.com/MathieuLF/gaylemon/sbom/{application}/{commit}/spdx"
     if isinstance(spdx.get("creationInfo"), dict):
         spdx["creationInfo"]["created"] = source_time
     canonical_write(spdx_path, spdx)
