@@ -162,7 +162,7 @@ def main() -> int:
         }
         run(
             [
-                "gitleaks", "git", ".", "--no-banner", "--no-color", "--redact",
+                "gitleaks", "git", ".", "--log-opts=HEAD", "--no-banner", "--no-color", "--redact",
                 "--report-format", "json", "--report-path", str(temporary_paths["gitleaks"]),
             ],
             repository,
@@ -200,7 +200,7 @@ def main() -> int:
         "gitleaks": {
             "result": "passed",
             "scope": tools["gitleaks"]["scope"],
-            "verifier": {"name": "gitleaks", "command": "gitleaks git .", "exitCode": 0},
+            "verifier": {"name": "gitleaks", "command": "gitleaks git . --log-opts=HEAD", "exitCode": 0},
             "report": descriptor(final_paths["gitleaks"], repository),
         },
         "trivyFilesystem": {
