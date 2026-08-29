@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "1.0.1",
+      "title": "Frontière publique et cache durable",
+      "summary": "Les actifs changent de nom avec leur contenu, la release précédente reste disponible et le dépôt public ne révèle plus les détails d’une instance réelle."
+    },
+    {
       "version": "1.0.0",
       "title": "Fondation durable",
       "summary": "Gaylémon adopte le contrat commun de la suite, une version SemVer unique et des validations reproductibles, tout en conservant son cycle de saisons et son identité Palworld."

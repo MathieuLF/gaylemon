@@ -563,7 +563,6 @@ test("les événements compilés rendent leur tranche sans répétition", async 
 
 test("la fraîcheur traduit les états publics sans effacer la dernière donnée utile", async () => {
   const app = await portalFile("assets/app.js");
-  const uptimeExporter = await readFile(new URL("../../scripts/export-palworld-uptime.ps1", import.meta.url), "utf8");
   const state = extractFunction(app, "sourceHealthState");
   const statsRenderer = app.slice(app.indexOf("function renderStats"), app.indexOf("function playerInitials"));
   const uptimeLoader = app.slice(app.indexOf("async function loadUptime"), app.indexOf("async function readUptimePayload"));
@@ -586,8 +585,6 @@ test("la fraîcheur traduit les états publics sans effacer la dernière donnée
   assert.match(app, /registerDataUpdate\(\s*"bases"/);
   assert.match(app, /"base indexée", "bases indexées"/);
   assert.match(app, /data\/public-availability\.json/);
-  assert.match(uptimeExporter, /public-events-sync-state\.json/);
-  assert.match(uptimeExporter, /-FreshnessPath \$eventSyncStatePath/);
 });
 
 test("le terminal v6 ne limite pas les filtres à la tête courte", async () => {
@@ -701,50 +698,6 @@ test("les snapshots publics refusent les mélanges de générations", async () =
   assert.match(app, /payload\?\.revision \|\| payload\?\.generationId \|\| payload\?\.updatedAt/);
 });
 
-test("la voie PowerShell conserve les mêmes états game-data que le collecteur principal", async () => {
-  const script = await readFile(new URL("../../scripts/update-palworld-stats.ps1", import.meta.url), "utf8");
-  const exportScript = await readFile(new URL("../../scripts/export-public-microsite-data.ps1", import.meta.url), "utf8");
-  const collector = await readFile(new URL("../../server/bin/palworld-stats-collect.py", import.meta.url), "utf8");
-
-  assert.match(script, /function Test-GameDataUnsupportedError/);
-  assert.match(script, /HTTP \(\?:400\|501\)/);
-  assert.match(script, /gameDataStatus = "unsupported"/);
-  assert.match(script, /gameDataStatus = "documented-but-unavailable"/);
-  assert.match(script, /gameDataStatus = "transient-error"/);
-  assert.match(exportScript, /\$sourceStatus = \$gameDataStatus/);
-  assert.match(collector, /set_source_semantic_status\(stats, "game-data", "documented-but-unavailable"/);
-  assert.match(collector, /set_source_semantic_status\(stats, "game-data", "unsupported"/);
-});
-
-test("le digest quotidien v6 extrait les Pals même quand les détails sont vides", async () => {
-  const script = await readFile(new URL("../../scripts/sync-palworld-events.ps1", import.meta.url), "utf8");
-
-  assert.match(script, /function Get-V6PalRowsFromEvent/);
-  assert.match(script, /premi\[eè\]re\\s\+fois/);
-  assert.match(script, /dans\\s\+son\\s\+Paldex/);
-  assert.match(script, /Add-V6PalFind -Target \$palFinds/);
-  assert.match(script, /Add-V6PalFind -Target \$player\["palFinds"\]/);
-});
-
-test("la synchronisation v6 demande un backfill autonome quand le complet est derrière la tête", async () => {
-  const script = await readFile(new URL("../../scripts/sync-palworld-events.ps1", import.meta.url), "utf8");
-
-  assert.match(script, /public-reprojection\.request/);
-  assert.match(script, /palworld-events-recovery\.json/);
-  assert.match(script, /function Request-RemotePublicEventBackfill/);
-  assert.match(script, /function Read-RemoteRecoveryReport/);
-  assert.match(script, /remoteCanonicalExportStatus -eq "reprojection-required"/);
-  assert.match(script, /\$RequestRemoteBackfill -or \$remoteProjectionRequiresReprojection/);
-  assert.match(script, /function Test-HotProjectionWindowCoversRevision/);
-  assert.match(script, /full-export-behind-head/);
-  assert.match(script, /recentCompletenessProjectionRevision -gt \$probeProjectionRevision/);
-  assert.match(script, /hotWindowCoversFullProbeGap/);
-  assert.match(script, /Queue chaude v6 synchronisée/);
-  assert.match(script, /remoteBackfillRequested/);
-  assert.match(script, /Get-V6DayFacets/);
-  assert.match(script, /facets = \$dayFacets/);
-});
-
 test("la fraîcheur reste nominale sur les pages sans bloc de disponibilité", async () => {
   const app = await portalFile("assets/app.js");
 
@@ -785,28 +738,27 @@ test("l'accueil distingue le contrôle du flux du dernier écho", async () => {
   assert.doesNotMatch(renderer, /mis à jour/);
 });
 
-test("toutes les pages chargent les ressources versionnées de la tranche", async () => {
+test("toutes les pages confient le versionnement des actifs au service Go", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html", "informations.html", "confidentialite.html"];
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.match(html, /styles\.css\?v=20260822\.4/);
-    assert.match(html, /app\.js\?v=20260822\.4/);
+    assert.match(html, /\/assets\/styles\.css/);
+    assert.match(html, /\/assets\/app\.js/);
+    assert.doesNotMatch(html, /(?:styles\.css|app\.js)\?v=/);
     assert.match(html, /data-microsite-version/);
   }
 });
 
-test("toutes les pages utilisent uniquement le suivi Umami configuré", async () => {
+test("les pages publiques ne révèlent aucun service de suivi ou domaine d’exploitation", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
-  const umamiTag = '<script defer src="https://analytics.nethercore.dev/recorder.js" data-website-id="0e5e87e9-f4c3-4261-9ce0-5e347de30f87"></script>';
 
   for (const page of pages) {
     const html = await portalFile(page);
-    assert.equal(html.split(umamiTag).length - 1, 1);
-    assert.doesNotMatch(html, /googletagmanager|google analytics|G-3G8E2NE95B|\bgtag\s*\(/i);
+    assert.doesNotMatch(html, /data-website-id|<script[^>]+src=["'][^"']*analytics/i);
   }
 
   const app = await portalFile("assets/app.js");
-  assert.doesNotMatch(app, /window\.gtag|data-google-analytics|googletagmanager|G-3G8E2NE95B/i);
+  assert.doesNotMatch(app, /window\.gtag|data-google-analytics|data-website-id/i);
 });
 
 test("la version du microsite est rendue comme du texte non interprété", async () => {
@@ -835,6 +787,10 @@ test("le socle hors ligne, la palette et les archives restent publics mais born�
   assert.match(worker, /request\.mode === "navigate"/);
   assert.match(worker, /url\.pathname\.startsWith\("\/ops"\)/);
   assert.match(worker, /url\.origin !== self\.location\.origin/);
+  assert.match(worker, /__GAYLEMON_ASSET_RELEASE__/);
+  assert.match(worker, /slice\(0, 2\)/);
+  assert.match(worker, /caches\.match\(request\)/);
+  assert.doesNotMatch(worker, /ignoreSearch/);
   assert.match(information, /Gaylémon suit l’aventure, sans diriger le jeu/);
   assert.match(information, /href="\/confidentialite"/);
   assert.match(privacy, /<html lang="fr-CA">/);

@@ -1,28 +1,7 @@
 # Support
 
-Gaylémon est lié à une instance Palworld privée. Les demandes doivent éviter les secrets et les données réelles.
+Utiliser les modèles d’issues pour un bogue reproductible ou une amélioration du produit, avec uniquement des données fictives.
 
-## Bogues et améliorations
+Ne jamais joindre de sauvegarde, fichier d’environnement, clé, jeton, domaine privé, chemin d’installation, identifiant de joueur ou export réel non anonymisé. Une vulnérabilité doit être transmise par le signalement privé décrit dans [SECURITY.md](SECURITY.md).
 
-Utiliser les modèles d'issues GitHub pour:
-
-- un bogue reproductible avec données fictives;
-- une amélioration du microsite, de la console, des collecteurs ou de la documentation.
-
-Ne pas joindre de sauvegarde réelle, `.env`, clé SSH, jeton, adresse privée, identifiant joueur ou export public réel non anonymisé.
-
-## Sécurité
-
-Ne pas ouvrir d'issue publique pour une vulnérabilité, une fuite de secret ou une donnée joueur exposée.
-
-Utiliser le signalement privé décrit dans [SECURITY.md](SECURITY.md).
-
-## Exploitation de l'instance réelle
-
-Les actions de production passent par les scripts documentés:
-
-- [Opérations](docs/OPERATIONS.md)
-- [Déploiement](docs/DEPLOIEMENT.md)
-- [Sécurité d'exploitation](docs/SECURITE-EXPLOITATION.md)
-
-Un redémarrage de `palworld.service` doit toujours être demandé explicitement.
+Les demandes propres à l’exploitation d’une instance sont traitées dans la documentation privée correspondante et non dans les issues publiques.

@@ -34,7 +34,7 @@ func ConfigFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	spool := env("GAYLEMON_AGENT_SPOOL", "/var/lib/gaylemon-agent/spool.db")
+	spool := env("GAYLEMON_AGENT_SPOOL", "runtime/agent-spool.db")
 	if absolute, err := filepath.Abs(spool); err == nil {
 		spool = absolute
 	}
@@ -44,8 +44,8 @@ func ConfigFromEnv() (Config, error) {
 		PrivateKey:        key,
 		ResponsePublicKey: responseKey,
 		SpoolPath:         spool,
-		CommandHelper:     env("GAYLEMON_COMMAND_HELPER", "/usr/local/sbin/gaylemon-admin"),
-		CommandSudo:       boolEnv("GAYLEMON_COMMAND_SUDO", true),
+		CommandHelper:     env("GAYLEMON_COMMAND_HELPER", ""),
+		CommandSudo:       boolEnv("GAYLEMON_COMMAND_SUDO", false),
 		HTTPTimeout:       durationEnv("GAYLEMON_AGENT_HTTP_TIMEOUT", 60*time.Second),
 		PollInterval:      durationEnv("GAYLEMON_AGENT_POLL_INTERVAL", 15*time.Second),
 		Profile:           env("GAYLEMON_AGENT_PROFILE", "ubuntu-palworld"),

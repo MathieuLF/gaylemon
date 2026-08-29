@@ -12,7 +12,7 @@ from typing import Any
 
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-EXPECTED_RELEASE_PREDICATE = "https://gaylemon.nethercore.dev/attestations/release-manifest/v1"
+EXPECTED_RELEASE_PREDICATE = "urn:gaylemon:attestation:release-manifest:v1"
 STATIC_REQUIRED_PREDICATES = {
     "https://spdx.dev/Document",
     "cyclonedx",

@@ -17,7 +17,7 @@ if ($profile.schema -ne 'suite.profile.v2' -or $profile.contract -ne 'suite-foun
 }
 
 $requiredCapabilities = @(
-    'fr-ca', 'accessibility', 'command-palette', 'safe-offline', 'changelog',
+    'fr-ca', 'accessibility', 'command-palette', 'safe-offline', 'cache-safe-assets', 'changelog',
     'information-page', 'version-contract', 'privacy-link', 'season-lifecycle',
     'signed-agent', 'signed-oci', 'sbom-spdx', 'sbom-cyclonedx', 'trivy',
     'release-receipts', 'operations-contract'
@@ -33,12 +33,12 @@ foreach ($dependency in 'go','postgresql') {
 }
 
 $version = (Get-Content -Raw -LiteralPath (Join-Path $root 'VERSION')).Trim()
-if ($profile.contractRevision -ne '2.2.0' -or $profile.version.source -ne 'VERSION' -or
+if ($profile.contractRevision -ne '2.3.0' -or $profile.version.source -ne 'VERSION' -or
     $version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
-    throw 'Le contrat et la version Gaylémon doivent respecter la révision 2.2.0 et SemVer.'
+    throw 'Le contrat et la version Gaylémon doivent respecter la révision 2.3.0 et SemVer.'
 }
-if ($profile.update.backup -ne 'restic-offsite-postgresql-spool-and-palworld-final') {
-    throw 'Le profil Gaylémon doit utiliser le contrat Restic hors site prévu.'
+if ($profile.update.engine -ne 'private-operations-authority' -or $profile.update.backup -ne 'private-operations-authority') {
+    throw 'Le profil public Gaylémon doit déléguer mise à jour et sauvegarde à une autorité privée.'
 }
 if ($profile.release.receiptSchema -ne 'suite.release.v1' -or $profile.release.requiresImmutableSource -ne $true) {
     throw 'Le profil Gaylémon doit exiger un reçu suite.release.v1 et une source immuable.'
@@ -46,7 +46,7 @@ if ($profile.release.receiptSchema -ne 'suite.release.v1' -or $profile.release.r
 
 $requiredPaths = @(
     'CHANGELOG.md', 'VERSION', 'portal/release-notes.json', 'portal/informations.html',
-    'portal/confidentialite.html', 'portal/offline.html', 'security/cosign.pub',
+    'portal/confidentialite.html', 'portal/offline.html', 'portal/sw.js', 'security/cosign.pub',
     'scripts/inventory-routes.ps1', 'scripts/verify-local.ps1', 'scripts/release.ps1',
     'scripts/test-postgres-seasons.ps1', 'docs/SAISONS.md'
 )
@@ -65,7 +65,7 @@ if ($ContractPath) {
     $centralMissingCapabilities = @($centralRequiredCapabilities | Where-Object { $_ -notin @($profile.capabilities) })
     $centralMissingDependencies = @($centralRequiredDependencies | Where-Object { -not $profile.dependencies.PSObject.Properties.Name.Contains($_) })
     if ($entry.Count -ne 1 -or $entry[0].profile -ne $profile.profile -or
-        $entry[0].backup -ne $profile.update.backup -or
+        $entry[0].repository_visibility -ne 'public' -or
         $contract.contract_revision -ne $profile.contractRevision -or
         $centralMissingCapabilities.Count -gt 0 -or $centralMissingDependencies.Count -gt 0) {
         throw 'Le profil local diverge du contrat central.'

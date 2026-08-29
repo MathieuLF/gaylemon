@@ -58,10 +58,11 @@ jobs:
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
           npm run test:browser
-      - name: Tests des collecteurs actuels
-        run: python -m unittest discover -s server/tests -p 'test_*.py'
-      - name: Validation Bash
-        run: find server -type f \( -name '*.sh' -o -path 'server/sbin/*' \) -print0 | xargs -0 -r bash -n
+      - name: Contrats Python publics
+        run: python -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: Frontière du dépôt public
+        shell: pwsh
+        run: ./scripts/valider-depot.ps1 -SansDocker -SansGo
       - name: Image de production
         run: docker build --tag gaylemon-web:validation .
       - name: Lecture du portail dans l'image

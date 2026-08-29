@@ -95,6 +95,84 @@ func TestArchivedSeasonReturnsLockedAfterSignedIngest(t *testing.T) {
 	}
 }
 
+func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
+	portalRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(portalRoot, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"assets/app.js":     "console.log('gaylemon');\n",
+		"assets/styles.css": "body{color:#123}\n",
+		"index.html":        `<!doctype html><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js"></script>`,
+		"robots.txt":        "Sitemap: __GAYLEMON_PUBLIC_BASE_URL__/sitemap.xml\n",
+		"sitemap.xml":       "<loc>__GAYLEMON_PUBLIC_BASE_URL__/</loc>\n",
+		"sw.js":             `const release="__GAYLEMON_ASSET_RELEASE__";const shell=["__GAYLEMON_STYLES__","__GAYLEMON_APP__"];`,
+	} {
+		target := filepath.Join(portalRoot, filepath.FromSlash(name))
+		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := NewServer(config.Web{PublicBaseURL: "https://example.test", PortalRoot: portalRoot}, &fakeRepository{}, slog.Default())
+
+	manifestResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(manifestResponse, httptest.NewRequest(http.MethodGet, "/assets-manifest.json", nil))
+	if manifestResponse.Code != http.StatusOK || !strings.Contains(manifestResponse.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("manifeste inattendu: status=%d cache=%q body=%s", manifestResponse.Code, manifestResponse.Header().Get("Cache-Control"), manifestResponse.Body.String())
+	}
+	var manifest struct {
+		Schema  string `json:"schema"`
+		Release string `json:"release"`
+		Assets  []struct {
+			Source string `json:"source"`
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(manifestResponse.Body.Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Schema != "suite.asset-manifest.v1" || len(manifest.Release) != 16 || len(manifest.Assets) != 2 {
+		t.Fatalf("manifeste incomplet: %+v", manifest)
+	}
+
+	indexResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(indexResponse, httptest.NewRequest(http.MethodGet, "/", nil))
+	for _, asset := range manifest.Assets {
+		if len(asset.SHA256) != 64 || asset.Path == "/"+asset.Source || !strings.Contains(indexResponse.Body.String(), asset.Path) {
+			t.Fatalf("actif non lié au contenu: %+v body=%s", asset, indexResponse.Body.String())
+		}
+		hashedResponse := httptest.NewRecorder()
+		server.Handler().ServeHTTP(hashedResponse, httptest.NewRequest(http.MethodGet, asset.Path, nil))
+		if hashedResponse.Code != http.StatusOK || !strings.Contains(hashedResponse.Header().Get("Cache-Control"), "immutable") {
+			t.Fatalf("cache haché invalide pour %s: %d %q", asset.Path, hashedResponse.Code, hashedResponse.Header().Get("Cache-Control"))
+		}
+	}
+	unversionedResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(unversionedResponse, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
+	if strings.Contains(unversionedResponse.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("actif non haché immuable: %q", unversionedResponse.Header().Get("Cache-Control"))
+	}
+	workerResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(workerResponse, httptest.NewRequest(http.MethodGet, "/sw.js", nil))
+	if strings.Contains(workerResponse.Body.String(), "__GAYLEMON_") || strings.Contains(workerResponse.Body.String(), "ignoreSearch") {
+		t.Fatalf("service worker non résolu ou identité relâchée: %s", workerResponse.Body.String())
+	}
+	if !strings.Contains(workerResponse.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("service worker mis en cache: %q", workerResponse.Header().Get("Cache-Control"))
+	}
+	for _, path := range []string{"/robots.txt", "/sitemap.xml"} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "https://example.test/") || strings.Contains(response.Body.String(), "__GAYLEMON_") {
+			t.Fatalf("ressource publique non résolue %s: status=%d body=%s", path, response.Code, response.Body.String())
+		}
+		if !strings.Contains(response.Header().Get("Cache-Control"), "no-store") {
+			t.Fatalf("ressource publique mise en cache %s: %q", path, response.Header().Get("Cache-Control"))
+		}
+	}
+}
+
 func TestPublicSeasonStateIsExposed(t *testing.T) {
 	server := NewServer(config.Web{PublicBaseURL: "https://example.test"}, &fakeRepository{}, slog.Default())
 	for _, route := range []string{"/api/public/seasons/v1", "/api/public/site-state/v1"} {
@@ -104,7 +182,7 @@ func TestPublicSeasonStateIsExposed(t *testing.T) {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "saison-2026") {
 			t.Fatalf("route %s: status=%d body=%s", route, response.Code, response.Body.String())
 		}
-		if strings.Contains(response.Body.String(), "manifest") || strings.Contains(response.Body.String(), "/srv/storage") || strings.Contains(response.Body.String(), "season-2026") {
+		if strings.Contains(response.Body.String(), "manifest") || strings.Contains(response.Body.String(), "immutableBackup") || strings.Contains(response.Body.String(), "season-2026") {
 			t.Fatalf("route %s expose des détails opérationnels: %s", route, response.Body.String())
 		}
 	}
@@ -183,7 +261,7 @@ func (f *fakeRepository) Dashboard(context.Context) (model.DashboardSnapshot, er
 	return model.DashboardSnapshot{}, nil
 }
 func (f *fakeRepository) ResolveSeason(context.Context, string) (model.Season, bool, error) {
-	return model.Season{ID: "season-2026", Slug: "saison-2026", Title: "Saison 2026", State: model.SeasonActive, Manifest: json.RawMessage(`{"immutableBackup":"/srv/storage/private.tar.zst"}`)}, true, nil
+	return model.Season{ID: "season-2026", Slug: "saison-2026", Title: "Saison 2026", State: model.SeasonActive, Manifest: json.RawMessage(`{"immutableBackup":"urn:private:test"}`)}, true, nil
 }
 func (f *fakeRepository) ListSeasons(context.Context) ([]model.Season, error) {
 	season, _, _ := f.ResolveSeason(context.Background(), "")
@@ -209,8 +287,8 @@ func testServer(t *testing.T, repository *fakeRepository) (http.Handler, ed25519
 		t.Fatal(err)
 	}
 	cfg := config.Web{
-		PublicBaseURL:       "https://gaylemon.nethercore.dev",
-		LegacyHosts:         []string{"gaylemon.mathieu.pro", "www.gaylemon.nethercore.dev"},
+		PublicBaseURL:       "https://gaylemon.example",
+		LegacyHosts:         []string{"legacy.gaylemon.example", "www.gaylemon.example"},
 		AgentPublicKeys:     map[string]ed25519.PublicKey{"test-agent": publicKey},
 		SignatureMaxSkew:    5 * time.Minute,
 		GitHubAllowedUserID: 753560,
@@ -219,13 +297,13 @@ func testServer(t *testing.T, repository *fakeRepository) (http.Handler, ed25519
 }
 
 func TestLegacyHostsRedirectPreservesPathAndQuery(t *testing.T) {
-	for _, host := range []string{"gaylemon.mathieu.pro", "www.gaylemon.nethercore.dev"} {
+	for _, host := range []string{"legacy.gaylemon.example", "www.gaylemon.example"} {
 		t.Run(host, func(t *testing.T) {
 			handler, _ := testServer(t, &fakeRepository{})
 			request := httptest.NewRequest(http.MethodGet, "https://"+host+"/resume?jour=2026-08-08", nil)
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, request)
-			if recorder.Code != http.StatusMovedPermanently || recorder.Header().Get("Location") != "https://gaylemon.nethercore.dev/resume?jour=2026-08-08" {
+			if recorder.Code != http.StatusMovedPermanently || recorder.Header().Get("Location") != "https://gaylemon.example/resume?jour=2026-08-08" {
 				t.Fatalf("redirection inattendue: status=%d location=%s", recorder.Code, recorder.Header().Get("Location"))
 			}
 		})
@@ -239,7 +317,7 @@ func TestVersionRoutePublishesOnlyReleaseMetadataWithoutCaching(t *testing.T) {
 		Commit:  "a815220a66fa16ffc9f55f71b6782993988c2fd9",
 		BuiltAt: "2026-08-10T12:30:00Z",
 	})
-	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.nethercore.dev/api/version", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.example/api/version", nil)
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 
@@ -304,13 +382,13 @@ func TestOpsCookiesSupportOAuthRedirect(t *testing.T) {
 func TestOAuthLoginUsesAClientCookieWithoutDatabaseWrite(t *testing.T) {
 	repository := &fakeRepository{}
 	cfg := config.Web{
-		PublicBaseURL:      "https://gaylemon.nethercore.dev",
+		PublicBaseURL:      "https://gaylemon.example",
 		CookieSecure:       true,
 		GitHubClientID:     "client-id",
 		GitHubClientSecret: "client-secret-with-enough-entropy",
 	}
 	handler := NewServer(cfg, repository, slog.New(slog.NewTextHandler(testWriter{t}, nil))).Handler()
-	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.nethercore.dev/ops/auth/login?return=/ops", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://gaylemon.example/ops/auth/login?return=/ops", nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 
@@ -391,7 +469,7 @@ func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
 			t.Fatal(err)
 		}
 		text := string(source)
-		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "app.js?v=20260822.4") || !strings.Contains(text, "styles.css?v=20260822.4") {
+		if !strings.Contains(text, "data-microsite-version") || !strings.Contains(text, "/assets/app.js") || !strings.Contains(text, "/assets/styles.css") || strings.Contains(text, "app.js?") || strings.Contains(text, "styles.css?") {
 			t.Fatalf("version publique absente ou assets incohérents dans %s", page)
 		}
 	}
@@ -417,7 +495,7 @@ func TestSignedIngestAndReplayProtection(t *testing.T) {
 	payload, _ := json.Marshal(model.BatchPayload{Documents: []model.Document{{Path: "data/public-stats.json", Content: json.RawMessage(`{"ok":true}`), CachePolicy: model.CacheRevalidate}}})
 	batch := model.Batch{ID: "batch-1", AgentID: "test-agent", Stream: "stats", SchemaVersion: 1, Sequence: 1, CapturedAt: time.Now().UTC(), Payload: payload}
 	body, _ := json.Marshal(batch)
-	request := httptest.NewRequest(http.MethodPost, "https://gaylemon.nethercore.dev/api/ingest/v1/batches", strings.NewReader(string(body)))
+	request := httptest.NewRequest(http.MethodPost, "https://gaylemon.example/api/ingest/v1/batches", strings.NewReader(string(body)))
 	if err := auth.SignRequest(request, body, "test-agent", privateKey, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +504,7 @@ func TestSignedIngestAndReplayProtection(t *testing.T) {
 	if recorder.Code != http.StatusAccepted || repository.batch.ID != batch.ID {
 		t.Fatalf("publication refusée: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
-	replay := httptest.NewRequest(http.MethodPost, "https://gaylemon.nethercore.dev/api/ingest/v1/batches", strings.NewReader(string(body)))
+	replay := httptest.NewRequest(http.MethodPost, "https://gaylemon.example/api/ingest/v1/batches", strings.NewReader(string(body)))
 	replay.Header = request.Header.Clone()
 	replayRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(replayRecorder, replay)
@@ -450,7 +528,7 @@ func TestSignedGzipIngestTracksWireBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	wireBody := compressed.Bytes()
-	request := httptest.NewRequest(http.MethodPost, "https://gaylemon.nethercore.dev/api/ingest/v1/batches", bytes.NewReader(wireBody))
+	request := httptest.NewRequest(http.MethodPost, "https://gaylemon.example/api/ingest/v1/batches", bytes.NewReader(wireBody))
 	request.Header.Set("Content-Encoding", "gzip")
 	if err := auth.SignRequest(request, wireBody, "test-agent", privateKey, time.Now().UTC()); err != nil {
 		t.Fatal(err)

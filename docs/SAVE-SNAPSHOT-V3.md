@@ -1,146 +1,24 @@
 # Snapshot public v3
 
-`server/bin/palworld-save-snapshot.py` lit une copie terminée des sauvegardes Palworld et publie les données utiles au microsite. Il ne modifie jamais les saves et ne redémarre pas `palworld.service`.
+Le snapshot public est une projection filtrée d’une copie cohérente des données du jeu. Le dépôt ne contient ni le collecteur propre à une instance, ni les sauvegardes sources, ni leurs chemins.
 
-## Fichiers produits
+## Contrats
 
-Sur Ubuntu:
+- `public-save-index.json` : index léger et génération active;
+- `public-save-snapshot.json` : projection publique complète;
+- `public-save-bases.json` : bases et ressources agrégées;
+- `public-save-diagnostics.json` : fraîcheur et état de la projection;
+- `players/{slug}.json` : fiche publique chargée à la demande.
 
-```text
-/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json
-/home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json
-```
-
-Sur le microsite:
-
-```text
-portal/data/public-save-index.json
-portal/data/public-save-snapshot.json
-portal/data/public-save-bases.json
-portal/data/public-save-diagnostics.json
-portal/data/players/{slug}.json
-portal/joueur/{slug}.html
-```
-
-Tous ces artefacts portent le même `generationId`. Le diagnostic peut conserver
-une observation technique antérieure, mais sa publication reste rattachée au
-même snapshot public que l'index, les bases et les fiches joueurs.
-
-## Exécution
-
-`palworld-save-snapshot.timer` vérifie les sauvegardes toutes les 30 minutes,
-avec `OnUnitInactiveSec` pour éviter qu'une nouvelle échéance soit ajoutée
-pendant une analyse. Un échec de décodage peut être transitoire lorsque
-Palworld termine une sauvegarde: le service attend alors 150 secondes et fait
-une seconde tentative, puis s'arrête en conservant la dernière génération
-valide si cette reprise échoue aussi.
-
-Le snapshot et le collecteur d'événements partagent un verrou d'exploitation.
-Ils ne sollicitent donc jamais simultanément les sauvegardes et les projections
-lourdes. L'agent sortant publie ensuite les projections validées vers la VPS;
-aucune synchronisation entrante ni aucun redémarrage de Palworld n'est requis.
-
-La publication prépare et valide la génération entière dans un répertoire
-temporaire. Les artefacts sont remplacés avec reprise temporisée, les fiches et
-pages joueurs sont publiées comme un lot, puis `public-save-index.json` devient
-actif en dernier. Un verrou empêche deux synchronisations de se chevaucher. En
-cas d'échec, la génération précédente est restaurée intégralement. Le portail
-refuse un snapshot, des bases, un diagnostic ou une fiche dont le
-`generationId` diffère de celui de l'index actif.
-
-Avant le transfert, la synchronisation Windows prend brièvement le verrou
-partagé du producteur Ubuntu et copie les seules projections publiques dans un
-répertoire privé temporaire. Le verrou est libéré dès la copie terminée; le
-téléchargement plus long se fait ensuite depuis ce lot immuable. Une nouvelle
-génération peut donc être produite pendant le transfert sans mélanger snapshot,
-bases et diagnostic. Le lot distant temporaire est supprimé après lecture.
-
-Le service utilise:
-
-- priorité CPU basse;
-- I/O idle;
-- verrou exclusif interne et verrou partagé entre collecteurs lourds;
-- limite mémoire;
-- écriture atomique.
-
-Une génération déjà analysée avec la même révision du parseur est ignorée.
-
-## Données publiques
-
-Le contrat v3 expose:
-
-- résumé du monde, joueurs, guildes et bases;
-- progression Paldex, boss, exploration, quêtes, technologies et reliques;
-- Pals possédés avec statistiques utiles, passifs, attaques et aptitudes;
-- inventaires personnels allowlistés;
-- données de personnage parsées quand PalworldSaveTools les fournit dans une forme publiable;
-- bases, travailleurs, structures agrégées et ressources publiques;
-- diagnostics légers sur la fraîcheur et le poids des données.
-
-Les valeurs inconnues restent `null`. Un `0` signifie une vraie mesure à zéro.
-
-## Fiches et export JSON
-
-Le tableau de bord charge `public-save-index.json` au départ, puis `players/{slug}.json` seulement quand une fiche joueur est ouverte.
-
-Chaque fiche peut exporter un JSON d'analyse localement depuis le bouton `Exporter JSON` de son en-tête. Aucun bouton ou bandeau d'export n'est affiché dans les raccourcis du bas de la fiche. Cet export utilise uniquement les données publiques en vigueur:
-
-- profil public complet chargé depuis `players/{slug}.json`;
-- activité publique issue des statistiques;
-- personnage, progression, Paldex, boss, quêtes, technologies, reliques et exploration;
-- Pals en équipe, Pals en Palbox et autres Pals publics;
-- inventaire public complet par section;
-- bases reliées au joueur ou à sa guilde;
-- constructions, travailleurs, recherches de base et stockage agrégé;
-- métadonnées de version, génération, provenance et horodatage des sources.
-
-Le fichier exporté utilise un schéma déterministe avec clés d'objets triées, sommaire lisible, blocs `data` complets, relations `bases` et `stock`, puis un guide d'analyse pour faciliter une lecture automatisée.
-
-L'export ne contient pas de GUID, Steam ID, conteneur privé, chemin système ou détail exact de coffre. Il ne remplace pas les contrats publics; il les regroupe dans un fichier pratique pour analyse.
-
-La visualisation 3D ou portrait fidèle du personnage n'est pas encore un contrat garanti. Les champs de style, coupe, yeux, sexe ou apparence peuvent être conservés si le parseur les expose de façon stable et non sensible, mais le microsite doit rester capable d'afficher la fiche sans rendu visuel complet.
+Tous les documents portent le même `generationId`. L’index devient actif en dernier. Le portail refuse un document dont la génération diffère et conserve la dernière génération complète.
 
 ## Confidentialité
 
-Deux projections filtrent les données:
-
-1. Python sur Ubuntu;
-2. PowerShell dans `scripts/sync-palworld-save-snapshot.ps1`.
-
-Le public ne reçoit pas:
-
-- GUID, UID, Steam ID ou identifiants de conteneur;
-- mots de passe, tokens, chemins système;
-- coordonnées Unreal brutes;
-- contenu exact des coffres privés.
-
-Les marqueurs de carte utilisent seulement une position publique arrondie ou transformée.
+La projection exclut identifiants techniques, coordonnées brutes, chemins, secrets et détails de stockage privés. Les valeurs inconnues restent `null`; zéro demeure une vraie mesure à zéro.
 
 ## Validation
 
 ```powershell
-python -m py_compile .\server\bin\palworld-save-snapshot.py
-python -m unittest discover -s .\server\tests -v
-node --check .\portal\assets\app.js
+go test ./internal/collector ./internal/projection
 node --test .\portal\tests\portal-v6-static.test.mjs
-pwsh -NoProfile -File .\scripts\test-public-save-snapshot-sync.ps1
-```
-
-Syntaxe PowerShell:
-
-```powershell
-$errors = $null
-[void][System.Management.Automation.Language.Parser]::ParseFile(
-    (Resolve-Path '.\scripts\sync-palworld-save-snapshot.ps1'),
-    [ref]$null,
-    [ref]$errors
-)
-$errors
-```
-
-Vérification Ubuntu:
-
-```powershell
-ssh gaylemon "systemctl status palworld-save-snapshot.service --no-pager"
-ssh gaylemon "journalctl -u palworld-save-snapshot.service -n 50 --no-pager"
 ```

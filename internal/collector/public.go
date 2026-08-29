@@ -36,18 +36,18 @@ type PublicConfig struct {
 
 func PublicConfigFromEnv() PublicConfig {
 	return PublicConfig{
-		StatsPath:        env("GAYLEMON_STATS_PATH", "/srv/storage/steam/servers/palworld/stats/stats.json"),
-		APIHelper:        env("GAYLEMON_PALWORLD_API_HELPER", "/srv/storage/steam/bin/palworld-api.sh"),
-		UseSudo:          boolEnv("GAYLEMON_PALWORLD_API_SUDO", true),
-		StatsSudo:        boolEnv("GAYLEMON_STATS_SUDO", true),
-		EventsPath:       env("GAYLEMON_EVENTS_PATH", "/home/gaylemon/Gaylemon/runtime/public-events.json"),
-		EventsRecovery:   env("GAYLEMON_EVENTS_RECOVERY_PATH", "/home/gaylemon/Gaylemon/runtime/events/palworld-events-recovery.json"),
-		RecentEventsPath: env("GAYLEMON_RECENT_EVENTS_PATH", "/home/gaylemon/Gaylemon/runtime/public-events-recent.json"),
-		SnapshotPath:     env("GAYLEMON_SNAPSHOT_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-snapshot.json"),
-		BasesPath:        env("GAYLEMON_BASES_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-bases.json"),
-		DiagnosticsPath:  env("GAYLEMON_DIAGNOSTICS_PATH", "/home/gaylemon/Gaylemon/runtime/public-save-diagnostics.json"),
-		CatalogManifest:  env("GAYLEMON_CATALOG_MANIFEST_PATH", "/home/gaylemon/Gaylemon/runtime/public-catalogs-manifest.json"),
-		CatalogsRoot:     env("GAYLEMON_CATALOGS_ROOT", "/home/gaylemon/Gaylemon/runtime/public-catalogs"),
+		StatsPath:        env("GAYLEMON_STATS_PATH", "runtime/input/stats.json"),
+		APIHelper:        env("GAYLEMON_PALWORLD_API_HELPER", ""),
+		UseSudo:          boolEnv("GAYLEMON_PALWORLD_API_SUDO", false),
+		StatsSudo:        boolEnv("GAYLEMON_STATS_SUDO", false),
+		EventsPath:       env("GAYLEMON_EVENTS_PATH", "runtime/input/public-events.json"),
+		EventsRecovery:   env("GAYLEMON_EVENTS_RECOVERY_PATH", "runtime/input/events-recovery.json"),
+		RecentEventsPath: env("GAYLEMON_RECENT_EVENTS_PATH", "runtime/input/public-events-recent.json"),
+		SnapshotPath:     env("GAYLEMON_SNAPSHOT_PATH", "runtime/input/public-save-snapshot.json"),
+		BasesPath:        env("GAYLEMON_BASES_PATH", "runtime/input/public-save-bases.json"),
+		DiagnosticsPath:  env("GAYLEMON_DIAGNOSTICS_PATH", "runtime/input/public-save-diagnostics.json"),
+		CatalogManifest:  env("GAYLEMON_CATALOG_MANIFEST_PATH", "runtime/input/public-catalogs-manifest.json"),
+		CatalogsRoot:     env("GAYLEMON_CATALOGS_ROOT", "runtime/input/public-catalogs"),
 	}
 }
 
@@ -293,7 +293,7 @@ func collectPublicEvents(_ context.Context, config PublicConfig, started time.Ti
 
 func readStats(ctx context.Context, config PublicConfig) ([]byte, error) {
 	if config.StatsSudo {
-		output, err := exec.CommandContext(ctx, "/usr/bin/sudo", "-n", "/usr/bin/cat", config.StatsPath).Output()
+		output, err := exec.CommandContext(ctx, "sudo", "-n", "cat", config.StatsPath).Output()
 		return output, commandError(err)
 	}
 	return os.ReadFile(config.StatsPath)
@@ -307,7 +307,7 @@ func collectMetricsAPI(ctx context.Context, config PublicConfig) (map[string]any
 		executable := config.APIHelper
 		if config.UseSudo {
 			arguments = append([]string{"-n", config.APIHelper}, arguments...)
-			executable = "/usr/bin/sudo"
+			executable = "sudo"
 		}
 		output, err := exec.CommandContext(ctx, executable, arguments...).Output()
 		if err != nil {

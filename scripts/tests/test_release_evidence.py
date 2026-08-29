@@ -23,7 +23,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
         self.repository = Path(self.temporary.name)
         (self.repository / "config").mkdir()
         (self.repository / "release").mkdir()
-        self.release_predicate = "https://gaylemon.nethercore.dev/attestations/release-manifest/v1"
+        self.release_predicate = "urn:gaylemon:attestation:release-manifest:v1"
         (self.repository / "config" / "suite-profile-v2.json").write_text(
             json.dumps({
                 "capabilities": ["signed-oci", "sbom-spdx", "sbom-cyclonedx"],
@@ -104,7 +104,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
     def test_rejects_attestation_that_does_not_match_local_release_predicate(self) -> None:
         predicates = MODULE.STATIC_REQUIRED_PREDICATES | {
-            "https://gaylemon.nethercore.dev/attestations/wrong/v1"
+            "urn:gaylemon:attestation:wrong:v1"
         }
         with self.assertRaisesRegex(ValueError, self.release_predicate):
             MODULE.validate(self.repository, self.receipt(sorted(predicates)))
@@ -112,7 +112,7 @@ class ReleaseEvidenceTests(unittest.TestCase):
     def test_rejects_local_release_predicate_mismatch(self) -> None:
         profile_path = self.repository / "config" / "suite-profile-v2.json"
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
-        profile["release"]["releasePredicate"] = "https://gaylemon.nethercore.dev/attestations/wrong/v1"
+        profile["release"]["releasePredicate"] = "urn:gaylemon:attestation:wrong:v1"
         profile_path.write_text(json.dumps(profile), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "diffère du registre central"):
             MODULE.validate(
