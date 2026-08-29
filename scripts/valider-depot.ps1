@@ -144,6 +144,12 @@ Write-Result (
     $releaseSource.Contains("'https://gaylemon.nethercore.dev/attestations/release-manifest/v1'") -and
     $releaseSource.Contains('--type $releasePredicateType --predicate') -and
     $releaseSource.Contains('verify-attestation --key /trust/cosign.pub --type $releasePredicateType') -and
+    $releaseSource.Contains('attest-blob --yes --use-signing-config=false') -and
+    $releaseSource.Contains('verify-blob-attestation') -and
+    $releaseSource.Contains("predicateType='https://spdx.dev/Document'") -and
+    $releaseSource.Contains("predicateType='cyclonedx'") -and
+    $releaseSource.Contains("ConvertTo-Json -Depth 20") -and
+    $releaseSource.Contains("validate-release-evidence.py") -and
     $versionComparatorSource.Contains('Invoke-RestMethod -Uri $versionUri') -and
     $versionComparatorSource.Contains('gitHubMatchesProduction')
 ) "Provenance de version local-GitHub-VPS" "Le build, le déploiement et le comparateur doivent utiliser VERSION et le commit Git exacts."

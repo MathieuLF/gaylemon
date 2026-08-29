@@ -157,6 +157,26 @@ try {
         docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
             verify-blob --key "/trust/$publicKeyName" --bundle "/out/$localAttestationBundleName" "/out/$localAttestationName"
     } "Vérification de l'attestation locale impossible."
+    $localSpdxAttestationBundle = Join-Path $output "gaylemon-$Version-spdx-attestation.cosign-bundle.json"
+    $localCycloneAttestationBundle = Join-Path $output "gaylemon-$Version-cyclonedx-attestation.cosign-bundle.json"
+    $localSpdxAttestationBundleName = Split-Path -Leaf $localSpdxAttestationBundle
+    $localCycloneAttestationBundleName = Split-Path -Leaf $localCycloneAttestationBundle
+    Invoke-Checked {
+        docker run --rm -e COSIGN_PASSWORD -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out" $cosignImage `
+            attest-blob --yes --use-signing-config=false --key "/keys/$keyName" --predicate "/out/gaylemon-$Version.spdx.json" --type spdxjson --bundle "/out/$localSpdxAttestationBundleName" "/out/$artifactName"
+    } 'Attestation SPDX locale impossible.'
+    Invoke-Checked {
+        docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
+            verify-blob-attestation --key "/trust/$publicKeyName" --bundle "/out/$localSpdxAttestationBundleName" --type spdxjson "/out/$artifactName"
+    } 'Vérification de l’attestation SPDX locale impossible.'
+    Invoke-Checked {
+        docker run --rm -e COSIGN_PASSWORD -v "${keyDirectory}:/keys:ro" -v "${outputMount}:/out" $cosignImage `
+            attest-blob --yes --use-signing-config=false --key "/keys/$keyName" --predicate "/out/gaylemon-$Version.cdx.json" --type cyclonedx --bundle "/out/$localCycloneAttestationBundleName" "/out/$artifactName"
+    } 'Attestation CycloneDX locale impossible.'
+    Invoke-Checked {
+        docker run --rm -v "${publicKeyDirectory}:/trust:ro" -v "${outputMount}:/out" $cosignImage `
+            verify-blob-attestation --key "/trust/$publicKeyName" --bundle "/out/$localCycloneAttestationBundleName" --type cyclonedx "/out/$artifactName"
+    } 'Vérification de l’attestation CycloneDX locale impossible.'
     if ($Publish) {
         docker push $tag
         if ($LASTEXITCODE -ne 0) { throw 'Publication GHCR impossible.' }
@@ -204,6 +224,8 @@ $trivyPath = Join-Path $output "gaylemon-$Version-trivy.json"
 $scanEvidencePath = Join-Path $output "gaylemon-$Version-scan-evidence.json"
 $signatureEvidencePath = Join-Path $output "gaylemon-$Version-signature-evidence.json"
 $attestationEvidencePath = Join-Path $output "gaylemon-$Version-attestation-evidence.json"
+$spdxAttestationEvidencePath = Join-Path $output "gaylemon-$Version-attestation-spdx-evidence.json"
+$cycloneAttestationEvidencePath = Join-Path $output "gaylemon-$Version-attestation-cyclonedx-evidence.json"
 [IO.File]::WriteAllText($scanEvidencePath, (([ordered]@{
     schema='suite.security-evidence.v1'; control='scan'; application='gaylemon'; version=$Version; commit=$commit
     artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Trivy';command='trivy image --exit-code 1 --severity HIGH,CRITICAL --format json';exitCode=0}
@@ -215,6 +237,14 @@ $attestationEvidencePath = Join-Path $output "gaylemon-$Version-attestation-evid
 [IO.File]::WriteAllText($attestationEvidencePath, (([ordered]@{
     schema='suite.attestation-evidence.v1'; predicateType=$releasePredicateType; application='gaylemon'; version=$Version; commit=$commit
     artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Cosign';command='cosign verify-blob --key security/cosign.pub --bundle local-attestation.cosign-bundle.json local-attestation.json';exitCode=0}
+} | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($spdxAttestationEvidencePath, (([ordered]@{
+    schema='suite.attestation-evidence.v1'; predicateType='https://spdx.dev/Document'; application='gaylemon'; version=$Version; commit=$commit
+    artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Cosign';command="cosign verify-blob-attestation --type spdxjson --bundle gaylemon-$Version-spdx-attestation.cosign-bundle.json";exitCode=0}
+} | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($cycloneAttestationEvidencePath, (([ordered]@{
+    schema='suite.attestation-evidence.v1'; predicateType='cyclonedx'; application='gaylemon'; version=$Version; commit=$commit
+    artifactDigest=$artifactDigest; result='passed'; verifier=[ordered]@{name='Cosign';command="cosign verify-blob-attestation --type cyclonedx --bundle gaylemon-$Version-cyclonedx-attestation.cosign-bundle.json";exitCode=0}
 } | ConvertTo-Json -Depth 5) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
 function New-Evidence([string]$Path) {
     [ordered]@{ path = "release/$([IO.Path]::GetFileName($Path))"; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -228,12 +258,19 @@ $receipt = [ordered]@{
     sbom=[ordered]@{spdx=(New-Evidence $spdxPath);cycloneDx=(New-Evidence $cyclonePath)}
     scan=[ordered]@{status='passed';evidence=(New-Evidence $scanEvidencePath)}
     signature=[ordered]@{status='passed';evidence=(New-Evidence $signatureEvidencePath)}
-    attestations=@((New-Evidence $attestationEvidencePath))
+    attestations=@(
+        (New-Evidence $attestationEvidencePath)
+        (New-Evidence $spdxAttestationEvidencePath)
+        (New-Evidence $cycloneAttestationEvidencePath)
+    )
     operations=[ordered]@{
         update='scripts/deployer-ubuntu.ps1';backup='docs/PLAN-ENRICHISSEMENT-SAUVEGARDES.md';restore='docs/OPERATIONS.md'
         health='scripts/verify-microsite-recovery.ps1';rollback='docs/DEPLOIEMENT.md'
     }
     result='passed'
 }
-[IO.File]::WriteAllText((Join-Path $output 'release.json'), (($receipt | ConvertTo-Json -Depth 8) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+$releaseReceiptPath = Join-Path $output 'release.json'
+[IO.File]::WriteAllText($releaseReceiptPath, (($receipt | ConvertTo-Json -Depth 20) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+& python -B (Join-Path $PSScriptRoot 'validate-release-evidence.py') --repository $root --receipt $releaseReceiptPath
+if ($LASTEXITCODE -ne 0) { throw 'Le reçu release ne conserve pas les attestations liées exactes.' }
 Write-Host "Release préparée: $tag"
