@@ -53,7 +53,8 @@
   },
   "release": {
     "receiptSchema": "suite.release.v1",
-    "requiresImmutableSource": true
+    "requiresImmutableSource": true,
+    "releasePredicate": "https://gaylemon.nethercore.dev/attestations/release-manifest/v1"
   },
   "exceptions": [
     "Une clôture de saison est une action opérateur distincte"
