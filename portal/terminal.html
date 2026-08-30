@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="fr-CA" class="terminal-shell">
+<html lang="fr-CA">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Terminal des échos | Gaylémon Palworld</title>
     <meta name="description" content="Explore le terminal complet des échos Gaylémon Palworld: constructions, productions, captures, recherches, bases et aventures des joueurs.">
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
-    <meta name="theme-color" content="#071219">
-    <meta name="color-scheme" content="dark light">
+    <meta name="theme-color" content="#176d70">
+    <meta name="color-scheme" content="light">
     <link rel="canonical" href="__GAYLEMON_PUBLIC_BASE_URL__/terminal">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="fr_CA">
@@ -68,48 +68,57 @@
       </div>
     </header>
 
-    <main>
-      <section class="panel events-panel disclosure" id="evenements" aria-labelledby="events-title">
-        <header class="terminal-page-heading panel__header">
+    <main class="dedicated-main terminal-main">
+      <section class="page-hero page-hero--terminal terminal-page-heading" aria-labelledby="events-title">
+        <div>
+          <p class="eyebrow">Journal de Palpagos</p>
+          <h1 id="events-title">Terminal des échos</h1>
+          <p class="lede page-hero__lede">Explore l’histoire complète du serveur : aventures, constructions, productions et découvertes de la communauté.</p>
+        </div>
+        <a class="dashboard-return-link terminal-return" href="/" aria-label="Retour au tableau de bord">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 7.4 5.8 12l4.6 4.6 1.4-1.4L9.6 13H18v-2H9.6l2.2-2.2-1.4-1.4Z"/></svg>
+          <span>Tableau de bord</span>
+        </a>
+      </section>
+
+      <section class="panel events-panel terminal-journal-panel disclosure" id="evenements" aria-labelledby="events-journal-title">
+        <header class="terminal-journal-heading panel__header">
           <div>
-            <p class="eyebrow">Journal de Palpagos</p>
-            <h1 id="events-title">Terminal des échos</h1>
+            <p class="eyebrow">Chroniques publiques</p>
+            <h2 id="events-journal-title">Journal des échos</h2>
+            <p>Parcours les moments partagés sur Palpagos, du plus récent au plus ancien.</p>
           </div>
-          <a class="dashboard-return-link terminal-return" href="/" aria-label="Retour au tableau de bord">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.4 7.4 5.8 12l4.6 4.6 1.4-1.4L9.6 13H18v-2H9.6l2.2-2.2-1.4-1.4Z"/></svg>
-            <span>Tableau de bord</span>
-          </a>
+          <nav class="event-pagination event-pagination--top" id="event-pagination" aria-label="Navigation chronologique des échos" hidden></nav>
         </header>
         <div class="events-disclosure__content disclosure__content">
+          <details class="event-controls" id="event-controls">
+            <summary>
+              <span>Recherche et filtres</span>
+              <b aria-hidden="true"></b>
+            </summary>
+            <div class="event-toolbar">
+              <label class="event-search">
+                <span>Rechercher dans l'historique</span>
+                <span class="event-search__field">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
+                  <input id="event-search" type="search" placeholder="Joueur, Pal, production..." autocomplete="off">
+                </span>
+              </label>
+              <label>
+                <span>Type</span>
+                <select id="event-type-filter"><option value="all">Tous les événements</option></select>
+              </label>
+              <label>
+                <span>Aventurier</span>
+                <select id="event-player-filter"><option value="all">Tous les aventuriers</option></select>
+              </label>
+            </div>
+          </details>
           <div class="event-console" aria-label="Historique public des événements Palworld">
             <div class="event-console__topbar">
               <span class="event-console__lights" aria-hidden="true"><i></i><i></i><i></i></span>
               <strong>palpagos://journal/public</strong>
-              <nav class="event-pagination event-pagination--top" id="event-pagination" aria-label="Navigation chronologique des échos" hidden></nav>
             </div>
-            <details class="event-controls" id="event-controls">
-              <summary>
-                <span>Recherche et filtres</span>
-                <b aria-hidden="true"></b>
-              </summary>
-              <div class="event-toolbar">
-                <label class="event-search">
-                  <span>Rechercher dans l'historique</span>
-                  <span class="event-search__field">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20 19-4.2-4.2a7 7 0 1 0-1.4 1.4L18.6 20 20 19ZM5 10.5a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0Z"/></svg>
-                    <input id="event-search" type="search" placeholder="Joueur, Pal, production..." autocomplete="off">
-                  </span>
-                </label>
-                <label>
-                  <span>Type</span>
-                  <select id="event-type-filter"><option value="all">Tous les événements</option></select>
-                </label>
-                <label>
-                  <span>Aventurier</span>
-                  <select id="event-player-filter"><option value="all">Tous les aventuriers</option></select>
-                </label>
-              </div>
-            </details>
             <div class="event-console__summary">
               <span id="event-result-count" aria-live="polite">Préparation de l'historique...</span>
               <time id="event-sync-status">Synchronisation en attente</time>
