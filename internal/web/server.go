@@ -149,6 +149,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health/ready", s.handleReady)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /version", s.handleVersion)
+	s.mux.HandleFunc("GET /asset-manifest.json", s.handleAssetManifest)
 	s.mux.HandleFunc("GET /assets-manifest.json", s.handleAssetManifest)
 	s.mux.HandleFunc("POST /api/ingest/v1/batches", s.handleIngest)
 	s.mux.HandleFunc("POST /api/agent/v1/heartbeat", s.handleHeartbeat)
@@ -241,7 +242,7 @@ func (s *Server) handleAssetManifest(w http.ResponseWriter, _ *http.Request) {
 		entries = append(entries, assetEntry{Source: name, Path: s.assetPaths[name], SHA256: s.assetHashes[name]})
 	}
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	writeJSON(w, http.StatusOK, map[string]any{"schema": "suite.asset-manifest.v1", "release": s.assetRelease, "assets": entries})
+	writeJSON(w, http.StatusOK, map[string]any{"schema": "suite.asset-manifest.v1", "application": "gaylemon", "release": s.assetRelease, "assets": entries})
 }
 
 func (s *Server) verifiedBody(w http.ResponseWriter, r *http.Request, limit int64) (verifiedPayload, bool) {

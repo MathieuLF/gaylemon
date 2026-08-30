@@ -116,14 +116,15 @@ func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
 	server := NewServer(config.Web{PublicBaseURL: "https://example.test", PortalRoot: portalRoot}, &fakeRepository{}, slog.Default())
 
 	manifestResponse := httptest.NewRecorder()
-	server.Handler().ServeHTTP(manifestResponse, httptest.NewRequest(http.MethodGet, "/assets-manifest.json", nil))
+	server.Handler().ServeHTTP(manifestResponse, httptest.NewRequest(http.MethodGet, "/asset-manifest.json", nil))
 	if manifestResponse.Code != http.StatusOK || !strings.Contains(manifestResponse.Header().Get("Cache-Control"), "no-store") {
 		t.Fatalf("manifeste inattendu: status=%d cache=%q body=%s", manifestResponse.Code, manifestResponse.Header().Get("Cache-Control"), manifestResponse.Body.String())
 	}
 	var manifest struct {
-		Schema  string `json:"schema"`
-		Release string `json:"release"`
-		Assets  []struct {
+		Schema      string `json:"schema"`
+		Application string `json:"application"`
+		Release     string `json:"release"`
+		Assets      []struct {
 			Source string `json:"source"`
 			Path   string `json:"path"`
 			SHA256 string `json:"sha256"`
@@ -132,7 +133,7 @@ func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
 	if err := json.Unmarshal(manifestResponse.Body.Bytes(), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != "suite.asset-manifest.v1" || len(manifest.Release) != 16 || len(manifest.Assets) != 2 {
+	if manifest.Schema != "suite.asset-manifest.v1" || manifest.Application != "gaylemon" || len(manifest.Release) != 16 || len(manifest.Assets) != 2 {
 		t.Fatalf("manifeste incomplet: %+v", manifest)
 	}
 

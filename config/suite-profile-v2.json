@@ -7,7 +7,13 @@
   "profile": "seasonal-go-microsite",
   "lifecycle": "active-season",
   "repository": "https://github.com/MathieuLF/gaylemon",
-  "version": {"schema": "suite.version.v1", "source": "VERSION", "publicLabel": "Version X.Y.Z"},
+  "version": {
+    "schema": "suite.version.v1",
+    "source": "VERSION",
+    "publicLabel": "Version X.Y.Z",
+    "route": "/api/version",
+    "evidence": ["internal/web/server.go"]
+  },
   "capabilities": [
     "fr-ca",
     "accessibility",
@@ -57,7 +63,22 @@
     "requiresImmutableSource": true,
     "releasePredicate": "urn:gaylemon:attestation:release-manifest:v1"
   },
+  "assets": {
+    "schema": "suite.asset-manifest.v1",
+    "manifestRoute": "/asset-manifest.json",
+    "manifestSource": "internal/web/server.go",
+    "contentHashedCssAndJavaScript": true,
+    "immutableOnlyWhenHashed": true,
+    "revalidated": ["html", "service-worker", "version", "asset-manifest"],
+    "serviceWorkerRoute": "/sw.js",
+    "serviceWorkerSource": "portal/sw.js",
+    "exactServiceWorkerIdentity": true,
+    "ignoreSearch": false,
+    "retainedReleases": 2,
+    "evidence": ["internal/web/server.go", "portal/sw.js", "internal/web/server_test.go"]
+  },
   "exceptions": [
     "Une clôture de saison est une action opérateur distincte"
-  ]
+  ],
+  "contractExceptions": []
 }

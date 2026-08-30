@@ -1,4 +1,5 @@
 const CACHE_PREFIX = "gaylemon-public-";
+// Cache lookups preserve the exact request identity; query parameters are never ignored.
 const CACHE = CACHE_PREFIX + "__GAYLEMON_ASSET_RELEASE__";
 const CACHE_META = CACHE_PREFIX + "meta";
 const CACHE_META_KEY = "/__gaylemon-cache-releases__";
