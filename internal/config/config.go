@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ type Web struct {
 	PortalRoot          string
 	AssetRoot           string
 	PublicBaseURL       string
+	AnalyticsBaseURL    string
 	LegacyHosts         []string
 	AgentPublicKeys     map[string]ed25519.PublicKey
 	ResponsePrivateKey  ed25519.PrivateKey
@@ -56,6 +58,7 @@ func WebFromEnv() (Web, error) {
 		PortalRoot:          root,
 		AssetRoot:           assets,
 		PublicBaseURL:       baseURL,
+		AnalyticsBaseURL:    strings.TrimRight(os.Getenv("GAYLEMON_ANALYTICS_BASE_URL"), "/"),
 		LegacyHosts:         csvEnv("GAYLEMON_LEGACY_HOSTS", ""),
 		AgentPublicKeys:     keys,
 		ResponsePrivateKey:  responseKey,
@@ -87,6 +90,12 @@ func (c Web) Validate() error {
 	}
 	if c.CookieSecure && len(c.ResponsePrivateKey) != ed25519.PrivateKeySize {
 		return errors.New("GAYLEMON_RESPONSE_PRIVATE_KEY est requis en production")
+	}
+	if c.AnalyticsBaseURL != "" {
+		analyticsURL, err := url.Parse(c.AnalyticsBaseURL)
+		if err != nil || analyticsURL.Scheme != "https" || analyticsURL.Host == "" || analyticsURL.User != nil || analyticsURL.Path != "" || analyticsURL.RawQuery != "" || analyticsURL.Fragment != "" {
+			return errors.New("GAYLEMON_ANALYTICS_BASE_URL doit être une origine HTTPS sans chemin")
+		}
 	}
 	return nil
 }
