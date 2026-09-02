@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"log/slog"
 	"mime"
@@ -688,11 +689,16 @@ func (s *Server) servePortalHTML(w http.ResponseWriter, target string) {
 		http.Error(w, "Page introuvable.", http.StatusNotFound)
 		return
 	}
-	content = []byte(strings.NewReplacer(
+	page := strings.NewReplacer(
 		"/assets/styles.css", s.assetPaths["assets/styles.css"],
 		"/assets/app.js", s.assetPaths["assets/app.js"],
 		"__GAYLEMON_PUBLIC_BASE_URL__", strings.TrimRight(s.config.PublicBaseURL, "/"),
-	).Replace(string(content)))
+	).Replace(string(content))
+	if s.config.AnalyticsBaseURL != "" {
+		meta := `<meta name="gaylemon-analytics-base-url" content="` + html.EscapeString(s.config.AnalyticsBaseURL) + `">`
+		page = strings.Replace(page, "</head>", "    "+meta+"\n  </head>", 1)
+	}
+	content = []byte(page)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	_, _ = w.Write(content)
@@ -760,7 +766,11 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: https://analytics.nethercore.dev; script-src 'self' https://analytics.nethercore.dev; connect-src 'self' https://analytics.nethercore.dev")
+		csp := "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; script-src 'self'; connect-src 'self'"
+		if s.config.AnalyticsBaseURL != "" {
+			csp = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: " + s.config.AnalyticsBaseURL + "; script-src 'self' " + s.config.AnalyticsBaseURL + "; connect-src 'self' " + s.config.AnalyticsBaseURL
+		}
+		w.Header().Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)
 	})
 }

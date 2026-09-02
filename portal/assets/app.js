@@ -8781,8 +8781,9 @@ expeditionProfile.addEventListener("toggle", (event) => {
 }, true);
 
 (() => {
-  const domain = "gaylemon.nethercore.dev";
-  if (window.location.hostname !== domain || window.location.pathname === "/offline.html") return;
+  const analyticsBaseURL = document.querySelector('meta[name="gaylemon-analytics-base-url"]')?.content.replace(/\/+$/, "");
+  if (!analyticsBaseURL || window.location.pathname === "/offline.html") return;
+  const domain = window.location.hostname;
   const fixed = new Set(["index.html", "informations.html", "confidentialite.html", "statut.html", "serveurs.html", "palworld.html", "minecraft.html", "vault-hunters.html", "terminal", "resume", "classements", "carte", "github", "joueurs", "player", "players", "journal"]);
   const pathname = window.location.pathname.replace(/\/{2,}/g, "/");
   const parts = pathname.split("/").filter(Boolean);
@@ -8793,8 +8794,8 @@ expeditionProfile.addEventListener("toggle", (event) => {
   window.goatcounter = { no_onload: true, no_events: true, referrer: "" };
   const script = document.createElement("script");
   script.async = true;
-  script.src = "https://analytics.nethercore.dev/count.v5.js";
-  script.dataset.goatcounter = "https://analytics.nethercore.dev/count";
+  script.src = `${analyticsBaseURL}/count.v5.js`;
+  script.dataset.goatcounter = `${analyticsBaseURL}/count`;
   script.crossOrigin = "anonymous";
   script.integrity = "sha384-atnOLvQb9t+jTSipvd75X2yginT4PjVbqDdlJAmxMm+wYElFmeR6EmLP5bYeoRVQ";
   script.addEventListener("load", () => {

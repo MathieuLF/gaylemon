@@ -103,7 +103,7 @@ func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
 	for name, content := range map[string]string{
 		"assets/app.js":     "console.log('gaylemon');\n",
 		"assets/styles.css": "body{color:#123}\n",
-		"index.html":        `<!doctype html><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js"></script>`,
+		"index.html":        `<!doctype html><html><head><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js"></script></head><body></body></html>`,
 		"robots.txt":        "Sitemap: __GAYLEMON_PUBLIC_BASE_URL__/sitemap.xml\n",
 		"sitemap.xml":       "<loc>__GAYLEMON_PUBLIC_BASE_URL__/</loc>\n",
 		"sw.js":             `const release="__GAYLEMON_ASSET_RELEASE__";const shell=["__GAYLEMON_STYLES__","__GAYLEMON_APP__"];`,
@@ -113,7 +113,7 @@ func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	server := NewServer(config.Web{PublicBaseURL: "https://example.test", PortalRoot: portalRoot}, &fakeRepository{}, slog.Default())
+	server := NewServer(config.Web{PublicBaseURL: "https://example.test", AnalyticsBaseURL: "https://analytics.example", PortalRoot: portalRoot}, &fakeRepository{}, slog.Default())
 
 	manifestResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(manifestResponse, httptest.NewRequest(http.MethodGet, "/asset-manifest.json", nil))
@@ -139,6 +139,12 @@ func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
 
 	indexResponse := httptest.NewRecorder()
 	server.Handler().ServeHTTP(indexResponse, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(indexResponse.Body.String(), `name="gaylemon-analytics-base-url" content="https://analytics.example"`) {
+		t.Fatalf("configuration analytics absente du HTML: %s", indexResponse.Body.String())
+	}
+	if !strings.Contains(indexResponse.Header().Get("Content-Security-Policy"), "https://analytics.example") {
+		t.Fatalf("origine analytics absente de la CSP: %q", indexResponse.Header().Get("Content-Security-Policy"))
+	}
 	for _, asset := range manifest.Assets {
 		if len(asset.SHA256) != 64 || asset.Path == "/"+asset.Source || !strings.Contains(indexResponse.Body.String(), asset.Path) {
 			t.Fatalf("actif non lié au contenu: %+v body=%s", asset, indexResponse.Body.String())

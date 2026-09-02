@@ -759,7 +759,8 @@ test("le suivi GoatCounter reste centralisé dans le JavaScript et exclut le mod
 
   const app = await portalFile("assets/app.js");
   assert.doesNotMatch(app, /window\.gtag|data-google-analytics|data-website-id/i);
-  assert.match(app, /analytics\.nethercore\.dev\/count\.v5\.js/);
+  assert.match(app, /gaylemon-analytics-base-url/);
+  assert.match(app, /`\$\{analyticsBaseURL\}\/count\.v5\.js`/);
   assert.match(app, /sha384-atnOLvQb9t\+jTSipvd75X2yginT4PjVbqDdlJAmxMm\+wYElFmeR6EmLP5bYeoRVQ/);
   assert.match(app, /\/offline\.html/);
   assert.match(app, /\["pushState", "replaceState"\]/);
