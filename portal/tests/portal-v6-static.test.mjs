@@ -749,7 +749,7 @@ test("toutes les pages confient le versionnement des actifs au service Go", asyn
   }
 });
 
-test("les pages publiques ne révèlent aucun service de suivi ou domaine d’exploitation", async () => {
+test("le suivi GoatCounter reste centralisé dans le JavaScript et exclut le mode hors ligne", async () => {
   const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html"];
 
   for (const page of pages) {
@@ -759,6 +759,11 @@ test("les pages publiques ne révèlent aucun service de suivi ou domaine d’ex
 
   const app = await portalFile("assets/app.js");
   assert.doesNotMatch(app, /window\.gtag|data-google-analytics|data-website-id/i);
+  assert.match(app, /analytics\.nethercore\.dev\/count\.v5\.js/);
+  assert.match(app, /sha384-atnOLvQb9t\+jTSipvd75X2yginT4PjVbqDdlJAmxMm\+wYElFmeR6EmLP5bYeoRVQ/);
+  assert.match(app, /\/offline\.html/);
+  assert.match(app, /\["pushState", "replaceState"\]/);
+  assert.match(app, /addEventListener\("popstate", countCurrent\)/);
 });
 
 test("la version du microsite est rendue comme du texte non interprété", async () => {
