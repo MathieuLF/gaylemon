@@ -4,6 +4,13 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 ## [Non publié]
 
+## [1.0.2] - 2026-09-02
+
+### Modifié
+
+- La mesure d’audience publique utilise désormais GoatCounter auto-hébergé, avec des chemins préfixés par domaine et sans requêtes, fragments, référents, titres ni identifiants bruts.
+- Les anciens marqueurs Umami, Google Analytics, Matomo et équivalents sont explicitement exclus du site publié.
+
 ## [1.0.1] - 2026-08-29
 
 ### Modifié
@@ -41,6 +48,7 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 - Validation Go en mode `-mod=readonly`; les dépendances externes ne sont plus chargées depuis un répertoire `vendor` local.
 
-[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.1...HEAD
+[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/MathieuLF/gaylemon/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/MathieuLF/gaylemon/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/MathieuLF/gaylemon/releases/tag/v1.0.0

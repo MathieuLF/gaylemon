@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "1.0.2",
+      "title": "Audience auto-hébergée",
+      "summary": "Le site public adopte une mesure GoatCounter minimale, sans identifiants bruts ni paramètres d’URL, et retire les anciens traceurs."
+    },
+    {
       "version": "1.0.1",
       "title": "Frontière publique et cache durable",
       "summary": "Les actifs changent de nom avec leur contenu, la release précédente reste disponible et le dépôt public ne révèle plus les détails d’une instance réelle."
