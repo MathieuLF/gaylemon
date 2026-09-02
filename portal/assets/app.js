@@ -8779,6 +8779,52 @@ expeditionProfile.addEventListener("change", (event) => {
 expeditionProfile.addEventListener("toggle", (event) => {
   if (event.target.matches(".discovery-details") && event.target.open) renderPlayerTechnologies();
 }, true);
+
+(() => {
+  const analyticsBaseURL = document.querySelector('meta[name="gaylemon-analytics-base-url"]')?.content.replace(/\/+$/, "");
+  if (!analyticsBaseURL || window.location.pathname === "/offline.html") return;
+  const domain = window.location.hostname;
+  const fixed = new Set(["index.html", "informations.html", "confidentialite.html", "statut.html", "serveurs.html", "palworld.html", "minecraft.html", "vault-hunters.html", "terminal", "resume", "classements", "carte", "github", "joueurs", "player", "players", "journal"]);
+  const pathname = window.location.pathname.replace(/\/{2,}/g, "/");
+  const parts = pathname.split("/").filter(Boolean);
+  const route = parts.length === 0 ? "/" : `/${parts.map((part) => fixed.has(part.toLowerCase()) ? part.toLowerCase() : ":value").join("/")}`;
+  const analyticsPath = `${domain}${route}`;
+  let lastPath = analyticsPath;
+  let pendingPath = analyticsPath;
+  window.goatcounter = { no_onload: true, no_events: true, referrer: "" };
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `${analyticsBaseURL}/count.v5.js`;
+  script.dataset.goatcounter = `${analyticsBaseURL}/count`;
+  script.crossOrigin = "anonymous";
+  script.integrity = "sha384-atnOLvQb9t+jTSipvd75X2yginT4PjVbqDdlJAmxMm+wYElFmeR6EmLP5bYeoRVQ";
+  script.addEventListener("load", () => {
+    if (pendingPath && typeof window.goatcounter?.count === "function") window.goatcounter.count({ path: pendingPath, title: pendingPath, referrer: "" });
+    pendingPath = null;
+  }, { once: true });
+  document.head.appendChild(script);
+
+  const countCurrent = () => {
+    const currentPathname = window.location.pathname.replace(/\/{2,}/g, "/");
+    if (currentPathname === "/offline.html") return;
+    const currentParts = currentPathname.split("/").filter(Boolean);
+    const currentRoute = currentParts.length === 0 ? "/" : `/${currentParts.map((part) => fixed.has(part.toLowerCase()) ? part.toLowerCase() : ":value").join("/")}`;
+    const currentPath = `${domain}${currentRoute}`;
+    if (currentPath === lastPath) return;
+    lastPath = currentPath;
+    if (typeof window.goatcounter?.count === "function") window.goatcounter.count({ path: currentPath, title: currentPath, referrer: "" });
+    else pendingPath = currentPath;
+  };
+  for (const method of ["pushState", "replaceState"]) {
+    const original = history[method].bind(history);
+    history[method] = (...args) => {
+      const result = original(...args);
+      countCurrent();
+      return result;
+    };
+  }
+  window.addEventListener("popstate", countCurrent);
+})();
 expeditionPaldex.addEventListener("input", (event) => {
   if (event.target.matches("[data-paldex-search]")) {
     paldexCurrentPage = 1;
