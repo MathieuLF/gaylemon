@@ -4,6 +4,19 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 ## [Non publié]
 
+## [1.0.3] - 2026-09-02
+
+### Corrigé
+
+- Les couleurs propres aux fiches des joueurs sont de nouveau visibles avec la politique de sécurité du navigateur.
+- Les fiches de l’accueil conservent la même hauteur et alignent leurs KPIs et leur bouton, même lorsque les équipes affichées diffèrent.
+
+### Modifié
+
+- Les KPIs des fiches mettent maintenant en avant la collection, l’équipe active et les campements dans une présentation plus sobre.
+- La section des destinations de l’accueil emploie un libellé plus clair.
+- La page Informations adopte un ton plus naturel et rejoint Confidentialité dans les liens secondaires du pied de page.
+
 ## [1.0.2] - 2026-09-02
 
 ### Modifié
@@ -48,7 +61,8 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 - Validation Go en mode `-mod=readonly`; les dépendances externes ne sont plus chargées depuis un répertoire `vendor` local.
 
-[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.2...HEAD
+[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/MathieuLF/gaylemon/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/MathieuLF/gaylemon/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/MathieuLF/gaylemon/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/MathieuLF/gaylemon/releases/tag/v1.0.0

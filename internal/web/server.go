@@ -766,9 +766,9 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
-		csp := "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; script-src 'self'; connect-src 'self'"
+		csp := "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; connect-src 'self'"
 		if s.config.AnalyticsBaseURL != "" {
-			csp = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: " + s.config.AnalyticsBaseURL + "; script-src 'self' " + s.config.AnalyticsBaseURL + "; connect-src 'self' " + s.config.AnalyticsBaseURL
+			csp = "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: " + s.config.AnalyticsBaseURL + "; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self' " + s.config.AnalyticsBaseURL + "; connect-src 'self' " + s.config.AnalyticsBaseURL
 		}
 		w.Header().Set("Content-Security-Policy", csp)
 		next.ServeHTTP(w, r)

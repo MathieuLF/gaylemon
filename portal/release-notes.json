@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "1.0.3",
+      "title": "Fiches des aventuriers",
+      "summary": "L’accueil retrouve les couleurs de chaque joueur, aligne les fiches et leurs repères, puis simplifie les KPIs et les pages d’information."
+    },
+    {
       "version": "1.0.2",
       "title": "Audience auto-hébergée",
       "summary": "Le site public adopte une mesure GoatCounter minimale, sans identifiants bruts ni paramètres d’URL, et retire les anciens traceurs."
