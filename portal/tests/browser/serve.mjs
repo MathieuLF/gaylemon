@@ -3,8 +3,9 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 
 const root = normalize(join(import.meta.dirname, "../.."));
-const pages = new Map([["/", "index.html"], ["/resume", "resume.html"], ["/classements", "classements.html"], ["/carte", "carte.html"], ["/terminal", "terminal.html"], ["/informations", "informations.html"]]);
+const pages = new Map([["/", "index.html"], ["/resume", "resume.html"], ["/classements", "classements.html"], ["/carte", "carte.html"], ["/terminal", "terminal.html"], ["/informations", "informations.html"], ["/confidentialite", "confidentialite.html"]]);
 const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".woff2": "font/woff2" };
+const securityHeaders = { "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; connect-src 'self'" };
 createServer((request, response) => {
   const url = new URL(request.url, "http://127.0.0.1:4179");
   if (url.pathname === "/api/version") return json(response, { schema: "suite.version.v1", application: "gaylemon", version: "1.0.0", commit: "0123456789abcdef0123456789abcdef01234567", builtAt: "2026-08-26T12:00:00Z" });
@@ -21,11 +22,11 @@ createServer((request, response) => {
   let target = page ? join(root, page) : join(root, pathname.replace(/^\//, ""));
   target = normalize(target);
   if (!target.startsWith(root) || !existsSync(target)) { response.writeHead(404); response.end("not found"); return; }
-  response.writeHead(200, { "Content-Type": types[extname(target)] || "application/octet-stream", "Cache-Control": "no-cache" });
+  response.writeHead(200, { "Content-Type": types[extname(target)] || "application/octet-stream", "Cache-Control": "no-cache", ...securityHeaders });
   createReadStream(target).pipe(response);
 }).listen(4179, "127.0.0.1");
 
 function json(response, value) {
-  response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+  response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...securityHeaders });
   response.end(JSON.stringify(value));
 }

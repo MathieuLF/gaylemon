@@ -604,6 +604,14 @@ function isGitHubRoute() {
   return routeMatches("github");
 }
 
+function isInformationRoute() {
+  return routeMatches("informations");
+}
+
+function isPrivacyRoute() {
+  return routeMatches("confidentialite");
+}
+
 function isDashboardRoute() {
   return Boolean(document.getElementById("accueil") && savePlayers);
 }
@@ -895,6 +903,18 @@ function currentDocumentTitle() {
   if (isDailyDigestRoute()) {
     return "Résumé quotidien | Gaylémon Palworld";
   }
+  if (isLeaderboardRoute()) {
+    return "Classements des aventuriers | Gaylémon Palworld";
+  }
+  if (isMapRoute()) {
+    return "Carte de Palpagos | Gaylémon Palworld";
+  }
+  if (isInformationRoute()) {
+    return "Informations | Gaylémon Palworld";
+  }
+  if (isPrivacyRoute()) {
+    return "Confidentialité | Gaylémon Palworld";
+  }
   if (isGitHubRoute()) {
     return "Dépôt, Ops et pipeline | Gaylémon Palworld";
   }
@@ -926,6 +946,18 @@ function currentDocumentDescription() {
   }
   if (isDailyDigestRoute()) {
     return "Résumé quotidien des grandes lignes du serveur Gaylémon: captures, productions, fabrications, niveaux, découvertes et faits marquants par joueur.";
+  }
+  if (isLeaderboardRoute()) {
+    return "Compare les progressions, collections, combats et activités des aventuriers de Gaylémon.";
+  }
+  if (isMapRoute()) {
+    return "Explore la carte de Palpagos, les positions connues et les campements publics des aventuriers.";
+  }
+  if (isInformationRoute()) {
+    return "Découvre pourquoi le portail Gaylémon existe, ce qu’on y retrouve et comment il accompagne nos aventures sur Palpagos.";
+  }
+  if (isPrivacyRoute()) {
+    return "Comprends quelles informations de l’aventure sont publiées et ce qui reste privé sur le portail Gaylémon.";
   }
   if (isGitHubRoute()) {
     return "Architecture publique de Gaylémon: service Go, agent signé, projections filtrées, saisons et limites de publication.";
@@ -2336,6 +2368,16 @@ function updateAdventurerActivity() {
   });
 }
 
+function renderHomePlayerKpi(kind, label, value, detail = "") {
+  const displayValue = String(value ?? "--");
+  const textClass = displayValue.length > 8 ? " adventurer-card__kpi--text" : "";
+  return `
+    <span class="adventurer-card__kpi adventurer-card__kpi--${escapeHtml(kind)}${textClass}">
+      <small>${escapeHtml(label)}</small>
+      <span><strong>${escapeHtml(displayValue)}</strong>${detail ? `<em>${escapeHtml(detail)}</em>` : ""}</span>
+    </span>`;
+}
+
 function renderSaveSnapshot(payload, syncRoute = true) {
   if (!payload?.ok) {
     if (saveState) saveState.textContent = "En attente";
@@ -2408,10 +2450,10 @@ function renderSaveSnapshot(payload, syncRoute = true) {
             <span>La connexion est détectée. La progression apparaîtra après la première sauvegarde du personnage.</span>
           </div>
           <div class="adventurer-card__quickfacts" aria-label="Résumé de ${escapeHtml(player.name || "ce joueur")}">
-            <span><small>Présence</small><strong data-player-activity="lastSeen">${activity.lastSeen}</strong></span>
-            <span><small>Équipe</small><strong>À venir</strong></span>
+            ${renderHomePlayerKpi("trace", "Dernière trace", activity.lastSeen)}
+            ${renderHomePlayerKpi("team", "Équipe", "À venir")}
           </div>
-          <a class="adventurer-card__open" href="${playerRoute(player)}" data-player-index="${index}">Voir la fiche de ${escapeHtml(player.name || "ce joueur")}</a>
+          <a class="adventurer-card__open" href="${playerRoute(player)}" data-player-index="${index}" aria-label="Explorer la fiche de ${escapeHtml(player.name || "ce joueur")}">Explorer la fiche <span aria-hidden="true">→</span></a>
         </article>
       `;
     }
@@ -2423,10 +2465,10 @@ function renderSaveSnapshot(payload, syncRoute = true) {
       : "<span>Équipe non détectée dans l'index public</span>";
     const guildBases = player.guildBases != null ? Number(player.guildBases) : null;
     const quickFacts = [
-      `<span><small>Pals</small><strong>${Number(pals.total || 0).toLocaleString("fr-CA")}</strong></span>`,
-      `<span><small>Équipe</small><strong>${Number(pals.party || teamPals.length || 0).toLocaleString("fr-CA")}</strong></span>`,
-      guildBases != null ? `<span><small>Bases</small><strong>${guildBases.toLocaleString("fr-CA")}</strong></span>` : "",
-      `<span><small>Dernière vue</small><strong data-player-activity="lastSeen">${activity.lastSeen}</strong></span>`,
+      renderHomePlayerKpi("collection", "Collection", Number(pals.total || 0).toLocaleString("fr-CA"), "Pals"),
+      renderHomePlayerKpi("team", "Équipe active", Number(pals.party || teamPals.length || 0).toLocaleString("fr-CA"), "Pals"),
+      guildBases != null ? renderHomePlayerKpi("bases", "Campements", guildBases.toLocaleString("fr-CA"), guildBases === 1 ? "base" : "bases") : "",
+      renderHomePlayerKpi("trace", "Dernière trace", activity.lastSeen),
     ].filter(Boolean).slice(0, 3).join("");
 
     return `
@@ -2454,7 +2496,7 @@ function renderSaveSnapshot(payload, syncRoute = true) {
         <div class="adventurer-card__quickfacts" aria-label="Résumé de ${escapeHtml(player.name || "ce joueur")}">
           ${quickFacts}
         </div>
-        <a class="adventurer-card__open" href="${playerRoute(player)}" data-player-index="${index}">Voir la fiche de ${escapeHtml(player.name || "ce joueur")}</a>
+        <a class="adventurer-card__open" href="${playerRoute(player)}" data-player-index="${index}" aria-label="Explorer la fiche de ${escapeHtml(player.name || "ce joueur")}">Explorer la fiche <span aria-hidden="true">→</span></a>
       </article>
     `;
   }).join("");

@@ -145,6 +145,10 @@ func TestPortalAssetsAreContentAddressedAndRollbackSafe(t *testing.T) {
 	if !strings.Contains(indexResponse.Header().Get("Content-Security-Policy"), "https://analytics.example") {
 		t.Fatalf("origine analytics absente de la CSP: %q", indexResponse.Header().Get("Content-Security-Policy"))
 	}
+	csp := indexResponse.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "style-src 'self'; style-src-attr 'unsafe-inline'") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("styles dynamiques ou scripts CSP incorrects: %q", csp)
+	}
 	for _, asset := range manifest.Assets {
 		if len(asset.SHA256) != 64 || asset.Path == "/"+asset.Source || !strings.Contains(indexResponse.Body.String(), asset.Path) {
 			t.Fatalf("actif non lié au contenu: %+v body=%s", asset, indexResponse.Body.String())

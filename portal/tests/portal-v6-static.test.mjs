@@ -797,10 +797,30 @@ test("le socle hors ligne, la palette et les archives restent publics mais born�
   assert.match(worker, /slice\(0, 2\)/);
   assert.match(worker, /caches\.match\(request\)/);
   assert.doesNotMatch(worker, /ignoreSearch/);
-  assert.match(information, /Gaylémon suit l’aventure, sans diriger le jeu/);
+  assert.match(information, /Un carnet vivant de nos aventures sur Palpagos/);
+  assert.match(information, /Ce qu’on y retrouve/);
+  assert.match(information, /Voir les notes de version/);
   assert.match(information, /href="\/confidentialite"/);
   assert.match(privacy, /<html lang="fr-CA">/);
   assert.match(privacy, /Québec, au Canada/);
   assert.match(privacy, /Loi 25/);
   assert.equal(releaseNotes.schema, "gaylemon.release-notes.v1");
+});
+
+test("les informations et la confidentialité partagent le pied de page", async () => {
+  const pages = ["index.html", "terminal.html", "resume.html", "classements.html", "carte.html", "github.html", "informations.html", "confidentialite.html"];
+
+  for (const page of pages) {
+    const html = await portalFile(page);
+    const primaryNavigation = html.match(/<nav class="site-nav"[\s\S]*?<\/nav>/)?.[0] || "";
+    const footerNavigation = html.match(/<nav class="site-footer__meta-links"[\s\S]*?<\/nav>/)?.[0] || "";
+    assert.doesNotMatch(primaryNavigation, /href="\/informations"/, `${page}: Informations ne doit pas être dans la navigation principale`);
+    assert.match(footerNavigation, /href="\/informations"/, `${page}: lien Informations absent du pied de page`);
+    assert.match(footerNavigation, /href="\/confidentialite"/, `${page}: lien Confidentialité absent du pied de page`);
+  }
+
+  const home = await portalFile("index.html");
+  assert.match(home, /Poursuivre l’aventure/);
+  assert.match(home, /Retrouve ce que tu cherches/);
+  assert.doesNotMatch(home, /Pages spécialisées/);
 });

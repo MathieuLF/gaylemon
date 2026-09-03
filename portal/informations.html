@@ -12,11 +12,26 @@
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <header class="site-header" aria-label="Navigation principale"><div class="site-header__inner"><a class="site-brand" href="/"><span class="site-brand__emblem" aria-hidden="true">G</span><span><strong>Gaylémon</strong><small>Palworld</small></span></a><nav class="site-nav" aria-label="Sections du microsite"><a href="/">Accueil</a><a href="/resume">Résumé</a><a href="/classements">Classements</a><a href="/carte">Carte</a><a href="/terminal">Terminal</a><a href="/informations" class="is-active" aria-current="page">Informations</a></nav></div></header>
-  <main>
-    <section class="panel" aria-labelledby="information-title"><div class="panel__header"><div><p class="eyebrow">À propos</p><h1 id="information-title">Gaylémon suit l’aventure, sans diriger le jeu.</h1></div></div><p>Le microsite transforme des projections publiques filtrées en chroniques, classements et cartes lisibles. Le serveur Palworld demeure prioritaire : le site et l’agent ne le redémarrent jamais pendant une mise à jour du microsite.</p><p>À la fin d’une saison, ses projections deviennent une archive figée et consultable. Une nouvelle saison repart avec ses propres séquences sans écraser la précédente.</p><p>Les données d’exploitation et les sauvegardes privées ne sont jamais publiées. Seules les projections explicitement prévues pour le portail peuvent être servies.</p></section>
-    <section class="panel" aria-labelledby="release-title"><div class="panel__header"><div><p class="eyebrow">Évolution</p><h2 id="release-title">Notes de version</h2></div></div><div id="release-notes"><p>Chargement des notes de version…</p></div></section>
+  <header class="site-header" aria-label="Navigation principale"><div class="site-header__inner"><a class="site-brand" href="/" aria-label="Retour à l'accueil Gaylémon Palworld"><span class="site-brand__emblem" aria-hidden="true">G</span><span><strong>Gaylémon</strong><small>Palworld</small></span></a><nav class="site-nav" aria-label="Sections du microsite"><a href="/">Accueil</a><a href="/resume">Résumé</a><a href="/classements">Classements</a><a href="/carte">Carte</a><a href="/terminal">Terminal</a></nav></div></header>
+  <main class="information-page">
+    <section class="panel information-hero" aria-labelledby="information-title">
+      <div>
+        <p class="eyebrow">À propos du portail</p>
+        <h1 id="information-title">Un carnet vivant de nos aventures sur Palpagos.</h1>
+        <p class="information-hero__lede">On a créé Gaylémon pour retrouver facilement ce qui se passe sur le serveur : les joueurs, les Pals, les bases et les moments qui valent la peine d’être gardés.</p>
+      </div>
+      <a class="button" href="/">Retour à l’accueil</a>
+    </section>
+    <section class="information-cards" aria-label="Ce qu’il faut savoir sur Gaylémon">
+      <article class="panel"><p class="eyebrow">Ce qu’on y retrouve</p><h2>L’aventure, en un coup d’œil</h2><p>L’accueil donne les nouvelles du serveur. Les autres vues permettent de suivre une journée, comparer les progressions, parcourir les échos ou retrouver les bases sur la carte.</p></article>
+      <article class="panel"><p class="eyebrow">Au fil des parties</p><h2>Le portail évolue avec nous</h2><p>Les informations se mettent à jour au rythme de nos parties. Quand une saison se termine, elle reste consultable comme un souvenir de l’aventure.</p></article>
+      <article class="panel"><p class="eyebrow">Vie privée</p><h2>Seulement ce qui a sa place ici</h2><p>Le portail montre une version publique de l’aventure. Les sauvegardes complètes et les détails privés restent hors du site.</p><a class="information-card__link" href="/confidentialite">Lire la page Confidentialité <span aria-hidden="true">→</span></a></article>
+    </section>
+    <details class="panel information-changelog">
+      <summary><span><small>Pour les curieux</small><strong>Voir les notes de version</strong></span><span aria-hidden="true">+</span></summary>
+      <div class="information-changelog__content" id="release-notes"><p>Chargement des notes de version…</p></div>
+    </details>
   </main>
-  <footer class="site-footer"><div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>Une aventure qui sait aussi se souvenir.</span><small class="site-footer__version" data-microsite-version>Version en cours…</small><a class="site-footer__privacy" href="/confidentialite">Confidentialité</a></div></footer>
+  <footer class="site-footer"><div class="site-footer__brand"><strong>Gaylémon Palworld</strong><span>Une aventure qui sait aussi se souvenir.</span><small class="site-footer__version" data-microsite-version>Version en cours…</small><nav class="site-footer__meta-links" aria-label="À propos du microsite"><a href="/informations" aria-current="page">Informations</a><a href="/confidentialite">Confidentialité</a></nav></div></footer>
 </body>
 </html>
