@@ -65,8 +65,8 @@ func PublicMetrics(metrics, stats map[string]any) map[string]any {
 }
 
 // PublicUptime décrit le dernier contrôle direct de l'API Palworld. La durée
-// historique reste conservée dans les exécutions PostgreSQL; ce document sert
-// au statut immédiat affiché par le portail.
+// historique n'est pas agrégée ici. Les champs sur 24 h restent présents mais
+// valent null tant qu'une fenêtre complète n'est pas effectivement calculée.
 func PublicUptime(metrics map[string]any) map[string]any {
 	ok := boolean(metrics["ok"])
 	status := "down"
@@ -85,7 +85,7 @@ func PublicUptime(metrics map[string]any) map[string]any {
 	monitor := map[string]any{
 		"id": "palworld-rest-api", "name": "Serveur Palworld", "type": "rest-api", "status": status,
 		"statusCode": statusCode, "lastHeartbeatAt": updatedAt, "lastProbeAt": updatedAt, "ping": nil,
-		"uptime24h": chooseNumber(ok, 100, 0), "uptimeSeconds": values["uptimeSeconds"], "uptime": values["uptime"],
+		"uptime24h": nil, "uptimeSeconds": values["uptimeSeconds"], "uptime": values["uptime"],
 		"beats": []any{beat},
 	}
 	return map[string]any{
@@ -93,8 +93,8 @@ func PublicUptime(metrics map[string]any) map[string]any {
 		"updatedAtLocal": metrics["updatedAtLocal"], "title": "Palworld", "monitors": []any{monitor},
 		"summary": map[string]any{
 			"total": 1, "up": statusCode, "down": 1 - statusCode, "maintenance": 0, "status": status, "monitorStatus": status,
-			"probeFresh": true, "probeAgeSeconds": 0, "heartbeatAgeSeconds": 0, "uptime24hAverage": chooseNumber(ok, 100, 0),
-			"uptimeLast24h": chooseNumber(ok, 100, 0), "unavailableSecondsLast24h": 0, "averagePing": nil,
+			"probeFresh": true, "probeAgeSeconds": 0, "heartbeatAgeSeconds": 0, "uptime24hAverage": nil,
+			"uptimeLast24h": nil, "unavailableSecondsLast24h": nil, "averagePing": nil,
 			"players": values["players"], "maxPlayers": values["maxPlayers"], "fps": values["fps"],
 			"fpsAverage": values["fpsAverage"], "frameMs": values["frameMs"], "gameUptimeSeconds": values["uptimeSeconds"],
 		},
@@ -340,13 +340,6 @@ func number(value any) float64 {
 func integer(value any) int64 { return int64(number(value)) }
 
 func choose(condition bool, yes, no string) string {
-	if condition {
-		return yes
-	}
-	return no
-}
-
-func chooseNumber(condition bool, yes, no float64) float64 {
 	if condition {
 		return yes
 	}

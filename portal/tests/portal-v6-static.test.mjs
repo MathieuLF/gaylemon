@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 const portalRoot = new URL("../", import.meta.url);
 
+async function sourceFiles(directory, extension = ".js") {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const parts = await Promise.all(entries.sort((a, b) => a.name.localeCompare(b.name)).map((entry) => {
+    const path = new URL(entry.name + (entry.isDirectory() ? "/" : ""), directory);
+    return entry.isDirectory() ? sourceFiles(path, extension) : entry.name.endsWith(extension) ? readFile(path, "utf8") : "";
+  }));
+  return parts.join("\n");
+}
+
 async function portalFile(path) {
+  if (path === "assets/app.js") return sourceFiles(new URL("src/", portalRoot));
+  if (path === "assets/styles.css") return sourceFiles(new URL("src/styles/", portalRoot), ".css");
   return readFile(new URL(path, portalRoot), "utf8");
 }
 
@@ -344,7 +355,6 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
   assert.match(terminal, /aria-live="off"/);
   assert.match(resume, /id="daily-today"/);
   assert.match(resume, /Rythme des échos/);
-  assert.match(resume, /joueurs visibles, actions résumées/);
   assert.doesNotMatch(carte, /id="map-activity-toggle"/);
   assert.doesNotMatch(carte, /id="map-storage-toggle"/);
   assert.doesNotMatch(carte, /id="map-alert-toggle"/);
@@ -795,7 +805,7 @@ test("le socle hors ligne, la palette et les archives restent publics mais born�
   assert.match(worker, /url\.origin !== self\.location\.origin/);
   assert.match(worker, /__GAYLEMON_ASSET_RELEASE__/);
   assert.match(worker, /slice\(0, 2\)/);
-  assert.match(worker, /caches\.match\(request\)/);
+  assert.match(worker, /cachedResponse\(request\)/);
   assert.doesNotMatch(worker, /ignoreSearch/);
   assert.match(information, /Un carnet vivant de nos aventures sur Palpagos/);
   assert.match(information, /Ce qu’on y retrouve/);

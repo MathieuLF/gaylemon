@@ -38,7 +38,7 @@ Assert-Contract (@($profile.capabilities) -contains 'cache-safe-assets') 'Capaci
 Assert-Contract ($profile.release.releasePredicate -eq 'urn:gaylemon:attestation:release-manifest:v1') 'Prédicat de release indépendant du déploiement'
 Assert-Contract ($version -match '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') 'VERSION respecte SemVer'
 
-$tracked = @(& git -C $root ls-files)
+$tracked = @(& git -C $root ls-files --cached --others --exclude-standard)
 $forbiddenPaths = @($tracked | Where-Object {
     $_ -match '^(?:server|vps)/' -or
     $_ -in @('compose.production.yaml', '.env.production.example', 'Gaylemon Ops Console.ps1') -or
@@ -73,7 +73,7 @@ $portalPages = @(Get-ChildItem -LiteralPath (Join-Path $root 'portal') -Filter '
 $assetErrors = [Collections.Generic.List[string]]::new()
 foreach ($page in $portalPages) {
     $source = Get-Content -Raw -LiteralPath $page.FullName -Encoding UTF8
-    if ($page.Name -eq 'offline.html' -and $source -notmatch '/assets/(?:styles\.css|app\.js)') { continue }
+    if ($page.Name -eq 'offline.html' -and $source -match '/assets/styles\.css' -and $source -notmatch '<style') { continue }
     if ($source -notmatch '/assets/styles\.css' -or $source -notmatch '/assets/app\.js' -or $source -match '(?:styles\.css|app\.js)\?v=') {
         $assetErrors.Add($page.Name)
     }
@@ -81,7 +81,7 @@ foreach ($page in $portalPages) {
 $worker = Get-Content -Raw -LiteralPath (Join-Path $root 'portal/sw.js') -Encoding UTF8
 $assetDetails = if ($assetErrors.Count) { ': ' + ($assetErrors -join ', ') } else { '' }
 Assert-Contract ($assetErrors.Count -eq 0) "Pages prêtes pour les actifs hachés$assetDetails"
-Assert-Contract ($worker -match '__GAYLEMON_ASSET_RELEASE__' -and $worker -match 'slice\(0, 2\)' -and $worker -match 'caches\.match\(request\)' -and $worker -notmatch 'ignoreSearch') 'Service worker exact avec release précédente'
+Assert-Contract ($worker -match '__GAYLEMON_ASSET_RELEASE__' -and $worker -match 'slice\(0, 2\)' -and $worker -match 'cachedResponse\(request\)' -and $worker -notmatch 'ignoreSearch') 'Service worker exact avec release précédente'
 
 $jsonErrors = [Collections.Generic.List[string]]::new()
 foreach ($relative in @($tracked | Where-Object { $_ -like '*.json' })) {
@@ -102,7 +102,7 @@ if (-not $SansGo) {
 
 & node --check (Join-Path $root 'portal/assets/app.js')
 Assert-Contract ($LASTEXITCODE -eq 0) 'Syntaxe JavaScript'
-& node --test (Join-Path $root 'portal/tests/portal-v6-static.test.mjs')
+& node --test (Join-Path $root 'portal/tests/*.test.mjs')
 Assert-Contract ($LASTEXITCODE -eq 0) 'Contrats du portail'
 
 if (-not $SansTestsPython) {

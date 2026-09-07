@@ -15,7 +15,7 @@
       "lastHeartbeatAt": "2026-01-01T12:00:00Z",
       "lastProbeAt": "2026-01-01T12:00:00Z",
       "ping": 16.7,
-      "uptime24h": 100,
+      "uptime24h": null,
       "beats": [
         {
           "status": "up",
@@ -37,9 +37,9 @@
     "probeFresh": true,
     "probeAgeSeconds": 12,
     "heartbeatAgeSeconds": 12,
-    "uptime24hAverage": 100,
-    "uptimeLast24h": 100,
-    "unavailableSecondsLast24h": 0,
+    "uptime24hAverage": null,
+    "uptimeLast24h": null,
+    "unavailableSecondsLast24h": null,
     "averagePing": 16.7,
     "players": 2,
     "maxPlayers": 32,

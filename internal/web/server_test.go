@@ -485,7 +485,7 @@ func TestPortalDisplaysReleaseMetadataAsText(t *testing.T) {
 		}
 	}
 
-	appSource, err := os.ReadFile(filepath.Join("..", "..", "portal", "assets", "app.js"))
+	appSource, err := os.ReadFile(filepath.Join("..", "..", "portal", "src", "app.js"))
 	if err != nil {
 		t.Fatal(err)
 	}

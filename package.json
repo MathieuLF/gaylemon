@@ -3,11 +3,18 @@
   "private": true,
   "scripts": {
     "test": "npm run test:contracts",
-    "test:contracts": "node --test portal/tests/portal-v6-static.test.mjs",
-    "test:browser": "playwright test"
+    "test:contracts": "node --test portal/tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "dev": "node portal/tests/browser/serve.mjs",
+    "build": "node scripts/build-portal.mjs",
+    "build:check": "node scripts/build-portal.mjs --check",
+    "predev": "npm run build",
+    "pretest:browser": "npm run build:check"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
-    "@playwright/test": "1.62.1"
-  }
+    "@playwright/test": "1.62.1",
+    "esbuild": "0.28.2"
+  },
+  "type": "module"
 }

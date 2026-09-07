@@ -18,17 +18,15 @@ Le dépôt public contient le produit réutilisable. Les domaines, hôtes, chemi
 
 ## Développement local
 
-Prérequis : Go 1.27, Node.js et PostgreSQL 16.
+Pour explorer le portail avec les données fictives : Node.js 24, puis `npm ci` et `npm run dev`. Ouvrir `http://127.0.0.1:4179`. Ce serveur de développement utilise les exemples suivis dans Git, jamais les exports locaux réels.
+
+Pour démarrer Go avec PostgreSQL 16 : Go 1.27, PowerShell 7 et Docker, puis :
 
 ```powershell
-Copy-Item .env.example .env
-go test ./...
-npm ci
-npm test
-go run ./cmd/gaylemon-web
+.\scripts\start-local.ps1
 ```
 
-Les valeurs de `.env.example` sont fictives. Le service doit recevoir ses secrets et ses chemins réels par un mécanisme privé propre à l’environnement d’exécution.
+Le script prépare une base temporaire, des clés locales et le service sur `http://127.0.0.1:8080`. Ctrl+C arrête cette instance et retire sa base. L’option `-Check` vérifie le démarrage puis nettoie les processus. Le service Go ne charge pas automatiquement `.env`; copier `.env.example` ne suffit donc pas. Voir [Développement](docs/DEVELOPPEMENT.md) pour les deux parcours et leurs limites.
 
 ## Validation commune
 
@@ -42,7 +40,7 @@ Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seaso
 
 ## Cache et continuité
 
-Le service calcule une empreinte SHA-256 de `assets/app.js` et `assets/styles.css`, publie `/assets-manifest.json`, réécrit les pages vers leurs noms liés au contenu et réserve `immutable` à ces noms. HTML, manifeste PWA, service worker, version et manifeste d’actifs sont revalidés. Le service worker respecte l’identité exacte des requêtes et conserve la release d’actifs précédente pour permettre un retour arrière.
+Le service calcule une empreinte SHA-256 de `assets/app.js` et `assets/styles.css`, publie `/assets-manifest.json`, réécrit les pages vers leurs noms liés au contenu et réserve `immutable` à ces noms. HTML, manifeste PWA, service worker, version et manifeste d’actifs sont revalidés. Le service worker respecte l’identité exacte des requêtes, y compris les dates, pages et saisons. Chaque release conserve au plus 64 réponses dynamiques et 24 Mio, avec une limite de 8 Mio par réponse, en plus du socle de navigation. Deux releases sont conservées. Une erreur de stockage laisse passer la réponse réseau; hors ligne, seules les ressources déjà consultées et conservées sont disponibles.
 
 ## Frontière publique
 

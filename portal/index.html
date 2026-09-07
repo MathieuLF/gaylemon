@@ -231,7 +231,7 @@
         <div class="panel__header">
           <div>
             <p class="eyebrow">Chroniques de l'archipel</p>
-            <h2 id="save-title">Progression des aventuriers</h2>
+            <h2 id="save-title" tabindex="-1">Progression des aventuriers</h2>
           </div>
           <div class="panel__status">
             <span id="save-state">Chargement...</span>
@@ -316,7 +316,7 @@
                 <p class="eyebrow" id="expedition-player-guild">Carnet d'aventurier</p>
                 <h2 id="expedition-player-name">Aventurier</h2>
                 <p class="player-page-meta" id="expedition-player-meta"></p>
-                <p class="player-page-updated" id="expedition-player-updated"></p>
+                <details class="player-data-details"><summary>Actualisation de la fiche</summary><p class="player-page-updated" id="expedition-player-updated"></p></details>
               </div>
             </div>
           </div>
@@ -328,14 +328,14 @@
         </header>
 
         <nav class="detail-tabs" aria-label="Sections de la fiche" role="tablist">
-          <button class="detail-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="detail-panel-profile" data-detail-tab="profile"><span>01</span> Profil</button>
-          <button class="detail-tab" id="detail-tab-paldex" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-paldex" data-detail-tab="paldex"><span>02</span> Mon Paldex</button>
-          <button class="detail-tab" id="detail-tab-pals" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-pals" data-detail-tab="pals"><span>03</span> Mes Pals</button>
-          <button class="detail-tab" id="detail-tab-inventory" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-inventory" data-detail-tab="inventory"><span>04</span> Mon inventaire</button>
-          <button class="detail-tab" id="detail-tab-bases" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-bases" data-detail-tab="bases"><span>05</span> Bases et campements</button>
+          <button class="detail-tab is-active" id="detail-tab-profile" type="button" role="tab" aria-selected="true" aria-controls="detail-panel-profile" tabindex="0" data-detail-tab="profile"><span>01</span> Profil</button>
+          <button class="detail-tab" id="detail-tab-paldex" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-paldex" tabindex="-1" data-detail-tab="paldex"><span>02</span> Mon Paldex</button>
+          <button class="detail-tab" id="detail-tab-pals" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-pals" tabindex="-1" data-detail-tab="pals"><span>03</span> Mes Pals</button>
+          <button class="detail-tab" id="detail-tab-inventory" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-inventory" tabindex="-1" data-detail-tab="inventory"><span>04</span> Mon inventaire</button>
+          <button class="detail-tab" id="detail-tab-bases" type="button" role="tab" aria-selected="false" aria-controls="detail-panel-bases" tabindex="-1" data-detail-tab="bases"><span>05</span> Bases et campements</button>
         </nav>
 
-        <section class="detail-panel" id="detail-panel-profile" role="tabpanel" data-detail-panel="profile">
+        <section class="detail-panel" id="detail-panel-profile" role="tabpanel" aria-labelledby="detail-tab-profile" tabindex="0" data-detail-panel="profile">
           <div class="profile-layout">
             <div class="profile-column">
               <div class="detail-section-heading">
@@ -359,7 +359,7 @@
           </div>
         </section>
 
-        <section class="detail-panel" id="detail-panel-paldex" role="tabpanel" data-detail-panel="paldex" hidden>
+        <section class="detail-panel" id="detail-panel-paldex" role="tabpanel" aria-labelledby="detail-tab-paldex" tabindex="0" data-detail-panel="paldex" hidden>
           <div class="detail-page-intro">
             <div>
               <p class="eyebrow">Paldex personnel</p>
@@ -372,12 +372,10 @@
           </div>
         </section>
 
-        <section class="detail-panel" id="detail-panel-pals" role="tabpanel" data-detail-panel="pals" hidden>
+        <section class="detail-panel" id="detail-panel-pals" role="tabpanel" aria-labelledby="detail-tab-pals" tabindex="0" data-detail-panel="pals" hidden>
           <div class="detail-page-intro">
             <div>
-              <p class="eyebrow">Collection personnelle</p>
-              <h3>Les compagnons de l'aventure</h3>
-              <p>Explore l'équipe active, la Palbox et les talents de chaque Pal.</p>
+              <h3>Mes compagnons</h3>
             </div>
             <div class="collection-overview" id="pal-collection-overview"></div>
           </div>
@@ -402,7 +400,7 @@
           <button class="collection-load-more" id="pal-load-more" type="button">Afficher plus de Pals</button>
         </section>
 
-        <section class="detail-panel" id="detail-panel-inventory" role="tabpanel" data-detail-panel="inventory" hidden>
+        <section class="detail-panel" id="detail-panel-inventory" role="tabpanel" aria-labelledby="detail-tab-inventory" tabindex="0" data-detail-panel="inventory" hidden>
           <div class="detail-page-intro">
             <div>
               <p class="eyebrow">Équipement et ressources</p>
@@ -424,7 +422,7 @@
           <div class="inventory-sections" id="expedition-inventory"></div>
         </section>
 
-        <section class="detail-panel detail-panel--bases" id="detail-panel-bases" role="tabpanel" data-detail-panel="bases" hidden>
+        <section class="detail-panel detail-panel--bases" id="detail-panel-bases" role="tabpanel" aria-labelledby="detail-tab-bases" tabindex="0" data-detail-panel="bases" hidden>
           <div class="detail-page-intro">
             <div>
               <p class="eyebrow">Vie de la guilde</p>

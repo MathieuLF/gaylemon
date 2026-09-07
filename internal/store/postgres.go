@@ -962,13 +962,24 @@ func (p *Postgres) EnqueueCommand(ctx context.Context, commandID, agentID, kind 
 		arguments = json.RawMessage(`{}`)
 	}
 	var command model.Command
-	err := p.pool.QueryRow(ctx, `INSERT INTO gaylemon_ops.control_commands(command_id,agent_id,kind,arguments,requested_by,expires_at)
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return model.Command{}, err
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, `INSERT INTO gaylemon_ops.control_commands(command_id,agent_id,kind,arguments,requested_by,expires_at)
 		VALUES($1,$2,$3,$4::jsonb,$5,$6) RETURNING command_id,sequence,agent_id,kind,arguments::text,requested_at,expires_at,status`, commandID, agentID, kind, string(arguments), actor, expiresAt).
 		Scan(&command.ID, &command.Sequence, &command.AgentID, &command.Kind, &command.Arguments, &command.RequestedAt, &command.ExpiresAt, &command.Status)
 	if err != nil {
 		return model.Command{}, err
 	}
-	_, _ = p.pool.Exec(ctx, `INSERT INTO gaylemon_ops.audit_log(actor,action,target,details) VALUES($1,'command.enqueue',$2,jsonb_build_object('kind',$3,'commandId',$4))`, actor, agentID, kind, commandID)
+	_, err = tx.Exec(ctx, `INSERT INTO gaylemon_ops.audit_log(actor,action,target,details) VALUES($1,'command.enqueue',$2,jsonb_build_object('kind',$3::text,'commandId',$4::text))`, actor, agentID, kind, commandID)
+	if err != nil {
+		return model.Command{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Command{}, err
+	}
 	return command, nil
 }
 
