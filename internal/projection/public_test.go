@@ -43,3 +43,22 @@ func TestPublicUptimeUsesTheDirectPalworldStatus(t *testing.T) {
 		t.Fatalf("source inattendue: %v", payload["source"])
 	}
 }
+
+func TestPublicUptimeDoesNotInventHistoricalAvailability(t *testing.T) {
+	for _, up := range []bool{true, false} {
+		payload := PublicUptime(map[string]any{"ok": up, "updatedAt": "2026-09-05T12:00:00Z"})
+		monitor := objectSlice(payload["monitors"])[0]
+		summary := object(payload["summary"])
+		if value, exists := monitor["uptime24h"]; !exists || value != nil {
+			t.Fatalf("historique inventé: %#v", monitor)
+		}
+		for _, key := range []string{"uptime24hAverage", "uptimeLast24h", "unavailableSecondsLast24h"} {
+			if value, exists := summary[key]; !exists || value != nil {
+				t.Fatalf("%s doit être null: %#v", key, summary)
+			}
+		}
+		if (monitor["status"] == "up") != up {
+			t.Fatalf("statut immédiat perdu: %#v", monitor)
+		}
+	}
+}

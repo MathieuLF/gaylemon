@@ -39,7 +39,8 @@ try {
     Invoke-Check 'go-vet' { go vet ./... }
     Invoke-Check 'validation-receipt-contracts' { python -m unittest discover -s scripts/tests -p 'test_*.py' }
     Invoke-Check 'season-agent-contracts' { go test ./internal/agent ./internal/auth }
-    Invoke-Check 'portal-contracts' { node --test portal/tests/portal-v6-static.test.mjs }
+    Invoke-Check 'portal-assets' { npm run build:check }
+    Invoke-Check 'portal-contracts' { npm test }
     if ($Mode -eq 'Full') {
 		foreach ($requiredTool in 'govulncheck','docker','python','bash','tar') {
 			if (-not (Get-Command $requiredTool -ErrorAction SilentlyContinue)) { throw "Outil Full absent: $requiredTool" }

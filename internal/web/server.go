@@ -599,6 +599,7 @@ func (s *Server) handleGameAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 var portalRoutes = map[string]string{
+	"/offline.html":     "offline.html",
 	"/":                 "index.html",
 	"/terminal":         "terminal.html",
 	"/terminal/":        "terminal.html",

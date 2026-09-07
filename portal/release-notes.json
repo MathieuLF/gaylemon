@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "1.0.4",
+      "title": "Un portail plus accessible",
+      "summary": "La navigation au clavier, les contrastes et la lecture sur téléphone s'améliorent. Les données consultées restent disponibles hors ligne et les fiches conservent leur position après actualisation."
+    },
+    {
       "version": "1.0.3",
       "title": "Fiches des aventuriers",
       "summary": "L’accueil retrouve les couleurs de chaque joueur, aligne les fiches et leurs repères, puis simplifie les KPIs et les pages d’information."

@@ -4,6 +4,22 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 ## [Non publié]
 
+## [1.0.4] - 2026-09-07
+
+### Corrigé
+
+- La consultation hors ligne retrouve les données enregistrées et conserve les réponses réseau même si le stockage du navigateur échoue. Le cache est borné et la page de secours respecte la politique de sécurité.
+- Les boutons de la carte mobile, les progressions et les onglets des fiches disposent de noms et d'associations accessibles. Le focus reste stable après filtrage et actualisation.
+- Les textes colorés gagnent en contraste; les classements restent utilisables à 320 px et les introductions mobiles occupent moins d'espace.
+- La création d'une commande et son journal d'audit sont enregistrés dans une même transaction.
+- Les indicateurs historiques de disponibilité sont déclarés indisponibles tant qu'aucun historique ne permet de les calculer.
+
+### Modifié
+
+- Les sources du portail sont séparées progressivement par responsabilité et produisent des actifs minifiés vérifiés avant publication.
+- Les parcours navigateur utilisent des données fictives complètes et couvrent les filtres au clavier, les fiches, les actualisations et le rechargement hors ligne.
+- Le démarrage local prépare une base isolée et des clés de développement; la console d'exploitation possède des libellés explicites et annonce ses résultats.
+
 ## [1.0.3] - 2026-09-02
 
 ### Corrigé
@@ -61,7 +77,8 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 - Validation Go en mode `-mod=readonly`; les dépendances externes ne sont plus chargées depuis un répertoire `vendor` local.
 
-[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.3...HEAD
+[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/MathieuLF/gaylemon/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/MathieuLF/gaylemon/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/MathieuLF/gaylemon/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/MathieuLF/gaylemon/compare/v1.0.0...v1.0.1
