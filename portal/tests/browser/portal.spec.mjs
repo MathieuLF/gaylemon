@@ -119,9 +119,13 @@ test("informations et archive figée", async ({ page }) => {
 
 test("exploitation : champs nommés et résultats annoncés", async ({ page }) => {
   await loaded(page, "/ops");
+  await page.setViewportSize({ width: 320, height: 844 });
   for (const label of ["Titre de la saison", "Adresse de la saison", "Date de début", "Fréquence", "Message dans le jeu"]) await expect(page.getByLabel(label, { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Actualiser le statut" }).click();
   await expect(page.getByRole("status")).toHaveText("Aucun agent actif.");
+  const runs = page.getByRole("region", { name: "Exécutions récentes", exact: true });
+  await runs.press("ArrowRight");
+  await expect(runs).toBeFocused();
   await accessible(page);
   await noOverflow(page);
 });
