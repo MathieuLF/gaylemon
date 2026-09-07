@@ -51,11 +51,13 @@ jobs:
         run: go vet ./...
       - name: Code mort
         run: go tool deadcode -test ./...
-      - name: Tests du portail
-        run: node --test portal/tests/portal-v6-static.test.mjs
-      - name: Navigateur et accessibilité
+      - name: Sources et actifs du portail
         run: |
           npm ci --ignore-scripts
+          npm run build:check
+          npm test
+      - name: Navigateur et accessibilité
+        run: |
           npx playwright install --with-deps chromium
           npm run test:browser
       - name: Contrats Python publics
