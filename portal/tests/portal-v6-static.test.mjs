@@ -67,9 +67,7 @@ test("le terminal active v6 avant le repli v5 et valide chaque génération", as
   const app = await portalFile("assets/app.js");
   const preferredLoader = app.slice(
     app.indexOf("async function loadTerminalEventsPreferred"),
-    app.indexOf("async function loadHomeEchoes") > app.indexOf("async function loadTerminalEventsPreferred")
-      ? app.indexOf("async function loadHomeEchoes")
-      : app.indexOf("function primaryEventRevision"),
+    app.indexOf("function primaryEventRevision"),
   );
 
   assert.match(app, /data\/public-events-manifest-v6\.json/);
@@ -341,8 +339,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
     portalFile("assets/styles.css"),
   ]);
 
-  assert.match(index, /id="home-latest-echoes"/);
-  assert.match(index, /Les échos les plus récents/);
+  assert.doesNotMatch(index, /id="home-latest-echoes"/);
+  assert.match(index, /Accéder au terminal/);
+  assert.match(index, /Explorer le journal/);
+  assert.doesNotMatch(index, /Les échos les plus récents/);
   assert.doesNotMatch(index, /derniers échos vérifiés/i);
   assert.match(index, /id="player-visibility-toggle"/);
   assert.match(index, /aria-modal="true"/);
@@ -527,19 +527,11 @@ test("le résumé quotidien neutralise tous les champs persistants", async () =>
   }
 });
 
-test("l'accueil affiche les cinq échos réellement les plus récents", async () => {
+test("le bundle ne contient pas la vue d’aperçu d’accueil", async () => {
   const app = await portalFile("assets/app.js");
-  const renderer = app.slice(
-    app.indexOf("function renderHomeLatestEchoes"),
-    app.indexOf("function currentV6MaxCursor"),
-  );
-
-  assert.match(renderer, /payload\?\.events/);
-  assert.match(renderer, /slice\(0, 5\)/);
-  assert.doesNotMatch(renderer, /verifiedEchoes/);
-  assert.doesNotMatch(renderer, /confidence\s*===\s*["']confirmed["']/);
-  assert.match(renderer, /payload\?\.observedAt/);
-  assert.match(renderer, /flux vérifié/);
+  assert.doesNotMatch(app, /function renderHomeLatestEchoes/);
+  assert.doesNotMatch(app, /function loadHomeEchoes/);
+  assert.doesNotMatch(app, /home-latest-echoes/);
 });
 
 test("les événements compilés rendent leur tranche sans répétition", async () => {
@@ -733,19 +725,11 @@ test("le terminal affiche l'âge réel de la projection des échos", async () =>
   assert.doesNotMatch(renderer, /Synchro \$\{date\.toLocaleTimeString/);
 });
 
-test("l'accueil distingue le contrôle du flux du dernier écho", async () => {
-  const app = await portalFile("assets/app.js");
-  const renderer = app.slice(
-    app.indexOf("function renderHomeLatestEchoes"),
-    app.indexOf("function currentV6MaxCursor"),
-  );
-
-  assert.match(renderer, /payload\?\.observedAt/);
-  assert.match(renderer, /recent\[0\]\?\.occurredAt/);
-  assert.match(renderer, /flux vérifié/);
-  assert.match(renderer, /dernier écho/);
-  assert.match(renderer, /flux retardé/);
-  assert.doesNotMatch(renderer, /mis à jour/);
+test("l'accueil pointe exclusivement vers le terminal complet", async () => {
+  const index = await portalFile("index.html");
+  assert.match(index, /\/terminal"/);
+  assert.doesNotMatch(index, /id=\"home-latest-echoes\"/);
+  assert.doesNotMatch(index, /renderHomeLatestEchoes/);
 });
 
 test("toutes les pages confient le versionnement des actifs au service Go", async () => {
