@@ -60,8 +60,6 @@ const eventDateInput = document.querySelector("#event-date");
 const eventDatePrevious = document.querySelector("#event-date-previous");
 const eventDateNext = document.querySelector("#event-date-next");
 const eventDateToday = document.querySelector("#event-date-today");
-const homeLatestEchoes = document.querySelector("#home-latest-echoes");
-const homeEchoesStatus = document.querySelector("#home-echoes-status");
 const playerVisibilityToggle = document.querySelector("#player-visibility-toggle");
 const dailyDateInput = document.querySelector("#daily-date");
 const dailyPrevious = document.querySelector("#daily-previous");
@@ -2951,33 +2949,9 @@ function restoreV6State(state) {
   if (state.sourceUpdatedAt) sourceUpdatedAt.set("events", state.sourceUpdatedAt);
   else sourceUpdatedAt.delete("events");
   renderSourceFreshness();
-  if (eventsHeadV6) renderHomeLatestEchoes(eventsHeadV6);
   return complete;
 }
 
-function renderHomeLatestEchoes(payload) {
-  if (!homeLatestEchoes) return;
-  const candidates = Array.isArray(payload?.events) ? payload.events : [];
-  const recent = sortEventsNewestFirst(candidates, { canonical: Number(payload?.schemaVersion) === 6 }).slice(0, 5);
-  homeLatestEchoes.innerHTML = recent.length
-    ? recent.map((event, index) => renderEventLineHtml(event, index)).join("")
-    : '<li class="event-stream__empty">Aucun écho récent pour le moment.</li>';
-  if (homeEchoesStatus) {
-    const observedDate = parseDate(payload?.observedAt || payload?.updatedAt || payload?.generatedAt);
-    const latestEchoDate = parseDate(recent[0]?.occurredAt || payload?.sourceUpdatedAt || payload?.updatedAt);
-    const reportedStale = String(payload?.freshness || "").toLocaleLowerCase("fr-CA") === "stale";
-    const delayed = reportedStale || !observedDate || Date.now() - observedDate.getTime() > eventProjectionStaleMs;
-    if (!recent.length) {
-      homeEchoesStatus.textContent = observedDate && !delayed
-        ? `Flux vérifié ${formatRelativeAge(observedDate)} · aucun écho récent`
-        : "Les prochains échos apparaîtront ici.";
-    } else if (delayed) {
-      homeEchoesStatus.textContent = `${recent.length} écho${recent.length > 1 ? "s" : ""} · flux retardé${observedDate ? ` · dernier contrôle ${formatRelativeAge(observedDate)}` : ""}`;
-    } else {
-      homeEchoesStatus.textContent = `${recent.length} écho${recent.length > 1 ? "s" : ""} · flux vérifié ${formatRelativeAge(observedDate)} · dernier écho ${formatRelativeAge(latestEchoDate)}`;
-    }
-  }
-}
 
 function currentV6MaxCursor() {
   return Number(eventsManifestV6?.cursor?.maxId || eventsHeadV6?.cursor?.maxId || 0);
@@ -3153,7 +3127,6 @@ function commitEventsV6Candidate(candidate) {
   dataRevisions.eventsManifestV6 = generationId;
   dataRevisions.eventsHeadV6 = headRevision;
   registerPayloadDataUpdate("events", candidate.head);
-  renderHomeLatestEchoes(candidate.head);
   updateTerminalUnseen();
   return {
     ok: true,
@@ -3589,31 +3562,6 @@ async function selectEventDate(dateKey, updateUrl = true) {
     eventSelectedDateKey = previousDate;
     renderEventDateControls();
     announceDataUpdate("Cette journée n’a pas pu être chargée. La journée déjà ouverte reste affichée.");
-  }
-}
-
-async function loadHomeEchoes(silent = false) {
-	try {
-		const payload = await readJson("api/public/events/v1?limit=5&offset=0");
-		if (!payload?.ok || payload.source !== "postgresql" || !Array.isArray(payload.events)) {
-			throw new Error("invalid-database-events");
-		}
-		const changed = isNewDataRevision("events", payload);
-		renderHomeLatestEchoes(payload);
-		registerPayloadDataUpdate("events", payload);
-		return { ok: true, changed, mode: "database" };
-	} catch {
-		// Le petit export récent reste le seul repli JSON de continuité.
-	}
-	try {
-		const payload = await readJson("data/public-events-recent.json");
-		const changed = isNewDataRevision("events", payload);
-		renderHomeLatestEchoes(payload);
-		registerPayloadDataUpdate("events", payload);
-		return { ok: true, changed, mode: "recent-fallback" };
-  } catch {
-    if (!silent && homeEchoesStatus) homeEchoesStatus.textContent = "Les échos sont momentanément indisponibles.";
-    return { ok: false, changed: false };
   }
 }
 
@@ -7872,7 +7820,6 @@ async function refreshDataInBackground() {
   const results = flattenLoadResults(await Promise.all([
     loadPortalFreshnessSources({ includeEvents: false }),
     basesGenerationRequested ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
-    loadHomeEchoes(true),
   ]));
   const synchronizedSources = results.filter((result) => result.ok).length;
   const changedSources = results.filter((result) => result.changed).length;
@@ -7952,9 +7899,8 @@ if (isTerminalRoute()) {
   const initialBaseLoad = location.hash === "#carte"
     ? loadBases()
     : Promise.resolve({ ok: true, changed: false });
-  const initialEventsLoad = loadHomeEchoes(true);
 
-  Promise.all([loadPortalFreshnessSources({ includeEvents: false }), initialBaseLoad, initialEventsLoad]).then(() => {
+  Promise.all([loadPortalFreshnessSources({ includeEvents: false }), initialBaseLoad]).then(() => {
     document.documentElement.classList.add("data-loaded");
     setupLazyBaseData();
     openPlayerFromRoute();
