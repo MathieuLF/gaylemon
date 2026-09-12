@@ -4,7 +4,7 @@
 
 Gaylémon est un microsite saisonnier pour raconter une aventure Palworld à partir de projections publiques filtrées. Il présente l’état courant, les joueurs, les échos, les classements, la carte et les archives de saisons sans publier les sauvegardes brutes ni les identifiants techniques.
 
-Le dépôt public contient le produit réutilisable. Les domaines, hôtes, chemins d’installation, secrets, sauvegardes, reçus et procédures d’exploitation d’une instance réelle sont volontairement conservés hors de ce dépôt.
+Ce dépôt public documente le microsite, son contrat de développement local et les fichiers nécessaires pour repartir du projet. Il ne décrit pas l’état d’une instance hébergée, son infrastructure privée, ses secrets ou ses données réelles.
 
 ## Composants
 
@@ -38,21 +38,13 @@ Le script prépare une base temporaire, des clés locales et le service sur `htt
 
 Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seasonal-go-microsite`. `VERSION` est la source SemVer. Quick couvre les contrats Go, les migrations, le portail et la frontière publique; Full ajoute PostgreSQL isolé, navigateur/Axe, race, vulnérabilités, deux SBOM, image OCI et preuves de signature.
 
-## Cache et continuité
+## Données et confidentialité
 
-Le service calcule une empreinte SHA-256 de `assets/app.js` et `assets/styles.css`, publie `/assets-manifest.json`, réécrit les pages vers leurs noms liés au contenu et réserve `immutable` à ces noms. HTML, manifeste PWA, service worker, version et manifeste d’actifs sont revalidés. Le service worker respecte l’identité exacte des requêtes, y compris les dates, pages et saisons. Chaque release conserve au plus 64 réponses dynamiques et 24 Mio, avec une limite de 8 Mio par réponse, en plus du socle de navigation. Deux releases sont conservées. Une erreur de stockage laisse passer la réponse réseau; hors ligne, seules les ressources déjà consultées et conservées sont disponibles.
+Gaylémon est pensé pour publier une version racontable d’une saison Palworld, pas une sauvegarde de serveur. Le site affiche des données déjà préparées pour être vues : progression, joueurs, échos publics, classements, carte et archives.
 
-## Frontière publique
+Les exemples inclus dans `portal/data` sont fictifs et servent au développement local. Pour utiliser le projet avec votre propre monde, générez vos propres données publiques et adaptez les textes de confidentialité à votre communauté.
 
-Ne jamais versionner :
-
-- domaine, identifiant d’hôte ou chemin d’une instance réelle;
-- runbook, adaptateur de déploiement ou configuration d’infrastructure;
-- clé, jeton, certificat, mot de passe ou fichier d’environnement réel;
-- sauvegarde, base locale, journal, PID ou reçu d’exploitation;
-- export contenant des identifiants privés de joueur.
-
-Le script `scripts/valider-depot.ps1` bloque ces surfaces dans la branche active. Les détails d’installation et d’exploitation appartiennent à une autorité privée distincte.
+Les fichiers privés d’une installation, comme les secrets, sauvegardes, journaux et exports bruts, ne font pas partie du projet publié.
 
 ## Documentation
 
