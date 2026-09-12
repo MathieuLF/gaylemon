@@ -10,7 +10,7 @@ Gaylémon sépare chaque aventure en saison. Une saison active accepte des proje
 - `archived` : projections figées, ingestion refusée;
 - `failed` : transition incomplète à récupérer.
 
-Le journal de cycle de vie est append-only. Les commandes d’activation, d’archivage et de récupération sont typées, signées et acquittées avec des preuves structurées. Le dépôt public décrit le contrat, pas la procédure d’exploitation ni les chemins d’une instance.
+Le journal de cycle de vie est append-only. Les commandes d’activation, d’archivage et de récupération sont typées, signées et acquittées avec des preuves structurées.
 
 ## API publique
 

@@ -7,10 +7,9 @@ Ce répertoire contient les manifestes et verrous reproductibles, pas les logici
 PalworldSaveTools conserve son historique Git, ses auteurs et ses licences dans un dépôt séparé. Gaylémon suit:
 
 - le dépôt amont;
-- le fork utilisé en production;
 - la branche suivie;
-- la révision validée et active;
-- les chemins locaux et Ubuntu attendus.
+- la révision validée;
+- les fichiers copiés dans l'image de release.
 
 Le verrou est [palworld-save-tools.lock.json](palworld-save-tools.lock.json).
 
@@ -20,4 +19,4 @@ Le clone local sous `vendor/PalworldSaveTools/` reste exclu de Git. L'intégrer 
 
 ## SteamCMD, Palworld et images Docker
 
-Les binaires de SteamCMD, Palworld et les images Docker ne sont pas redistribués. Le dépôt conserve les scripts d'installation, les fichiers Compose et les versions d'image nécessaires pour les réinstaller.
+Les binaires de SteamCMD, Palworld et les images Docker ne sont pas redistribués. Les versions et références suivies servent à reconstruire l’environnement de développement ou une release selon les besoins du fork.

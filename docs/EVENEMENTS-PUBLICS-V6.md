@@ -1,8 +1,8 @@
 # Échos publics v6
 
-Le contrat v6 publie les échos par journée sans exposer la base SQLite ni imposer le téléchargement de l'historique complet. Le collecteur produit la projection canonique; la synchronisation Windows la valide et la copie, sans recréer les événements métier.
+Le contrat v6 publie les échos par journée sans exposer la base source ni imposer le téléchargement de l'historique complet. Le collecteur produit la projection canonique; la synchronisation la valide et la copie, sans recréer les événements métier.
 
-Le canal public active v6. Les contrats v5 restent publiés temporairement comme repli d'exploitation; le portail revient à v5 seulement si le canal est explicitement replié ou si l'activation v6 ne peut pas être validée.
+Le canal public active v6. Les contrats v5 restent publiés temporairement comme repli de compatibilité; le portail revient à v5 seulement si le canal est explicitement replié ou si l'activation v6 ne peut pas être validée.
 
 ## Fichiers servis
 
@@ -12,7 +12,7 @@ Le canal public active v6. Les contrats v5 restent publiés temporairement comme
 - `public-events-v6/{generationId}/head.json`: sept échos les plus récents et sous-ensemble de compatibilité `verifiedEchoes`, avec curseur global et plage de la fenêtre chaude;
 - `public-events-v6/{fragmentGenerationId}/{jour}.json`: échos canoniques d'une journée;
 - `public-daily/{dailyGenerationId}/{jour}.json`: résumé quotidien précalculé, sans copie du tableau complet des événements;
-- `public-events-manifest-v6.previous.json`: dernier manifeste cohérent conservé localement pour le repli d'exploitation.
+- `public-events-manifest-v6.previous.json`: dernier manifeste cohérent conservé localement pour le repli de compatibilité.
 - `/public-events-channel.json`: canal actif `v5` ou `v6`, revalidé avec ETag et remplacé atomiquement lors d'une promotion ou d'un repli.
 
 Chaque entrée journalière du manifeste porte son propre `fragmentGenerationId`, `dailyGenerationId` et un index public léger des types, joueurs, guildes et bases présents dans la journée. Une correction historique ne réécrit donc que la journée concernée. Les journées inchangées continuent de pointer vers leur fragment immuable existant, avec leur index recalculé au besoin depuis le fragment validé.
@@ -44,13 +44,13 @@ L'export récent décrit aussi une `projectionWindow` de type `replace-tail`: bo
 
 Une réparation exige l'observation de la même structure endommagée puis saine. Une disparition ne produit pas de réparation. Les objets transitoires du monde sont exclus des structures. Une attribution de recherche estimée porte `confidence=derived`; l'interface l'affiche comme un joueur estimé, jamais comme une confirmation individuelle.
 
-La normalisation peut masquer un événement de la projection publique, mais ne supprime jamais l'observation privée qui permet l'audit ou une reprojection ultérieure. Une mutation déjà matérialisée ou un backfill ancien place la projection en `reprojection-required`: les fichiers publics précédents restent intacts jusqu'à une demande de reprojection contrôlée. Le poste Windows peut déposer cette demande automatiquement quand il constate que la tête chaude est plus avancée que l'export complet froid; l'exploitant peut aussi la déposer manuellement comme décrit dans [les opérations](OPERATIONS.md#reprojection-publique-contrôlée). Cette demande est consommée uniquement après la reconstruction et l'export complet réussis.
+La normalisation peut masquer un événement de la projection publique, mais ne supprime jamais l'observation source qui permet une reprojection ultérieure. Une mutation déjà matérialisée ou un backfill ancien place la projection en `reprojection-required`: les fichiers publics précédents restent intacts jusqu'à une nouvelle projection complète. Cette demande est consommée uniquement après la reconstruction et l'export complet réussis.
 
 ## Cache et rafraîchissement
 
 Le canal actif, le pointeur et la copie de compatibilité du manifeste utilisent `no-cache` avec ETag: une lecture inchangée peut répondre `304` sans retransférer le contenu. Le manifeste immuable, la tête, les fragments et les résumés référencés sont servis un an avec `immutable`. Le monolithe v5 reste un export froid de compatibilité, produit au plus toutes les 15 minutes ou sur demande, et n'est pas chargé par une route normale du portail v6.
 
-Le watcher exécute la synchronisation légère régulièrement et une réconciliation complète espacée. Les verrous existants empêchent le chevauchement des collecteurs et des copies.
+Une installation peut exécuter la synchronisation légère régulièrement et une réconciliation complète espacée. Les deux doivent éviter de produire deux générations concurrentes.
 
 ## Provenance et confidentialité
 
