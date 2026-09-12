@@ -2,16 +2,14 @@
 
 Gaylémon sépare quatre responsabilités :
 
-1. une source privée produit des observations;
-2. une projection retire les données techniques et privées;
-3. un agent signé transmet seulement les documents publics avec une file durable;
+1. le monde de jeu produit des observations;
+2. une projection garde seulement les données utiles au site;
+3. un agent transmet les documents publics avec une file durable;
 4. le service Go stocke les générations cohérentes et sert le portail.
 
 ```text
-source privée → projection filtrée → agent signé → PostgreSQL → portail public
+monde de jeu → projection filtrée → agent → PostgreSQL → portail public
 ```
-
-Le dépôt ne fixe aucun domaine, hôte, chemin d’installation ni moteur de déploiement d’une instance réelle.
 
 ## Service web
 
@@ -27,10 +25,6 @@ Les actifs CSS et JavaScript sont nommés selon leur SHA-256 à l’exécution. 
 
 Une saison suit `draft → active → finalizing → archived`, avec `failed` pour une transition incomplète. Une archive est en lecture seule, garde son manifeste déterministe et cesse tout sondage périodique côté navigateur. Voir [Saisons et archives](SAISONS.md).
 
-## Données et certitude
+## Données publiées
 
-Les projections publiques excluent les sauvegardes brutes, adresses, coordonnées sensibles, identifiants techniques et secrets. Une observation dérivée doit rester formulée comme telle. Les exemples JSON du dépôt sont fictifs.
-
-## Exploitation privée
-
-Les fichiers d’installation, unités de service, tâches planifiées, chemins, sauvegardes, adaptateurs de déploiement et procédures d’urgence ne font pas partie du dépôt public. Leur validation reste une responsabilité distincte de l’exploitation de l’instance.
+Les projections publiques excluent les sauvegardes brutes, adresses, coordonnées sensibles, identifiants techniques et secrets. Une observation dérivée reste formulée comme telle. Les exemples JSON du dépôt sont fictifs et servent au développement local.

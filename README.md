@@ -36,7 +36,7 @@ Le script prépare une base temporaire, des clés locales et le service sur `htt
 .\scripts\verify-local.ps1 -Mode Full
 ```
 
-Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seasonal-go-microsite`. `VERSION` est la source SemVer. Quick couvre les contrats Go, les migrations, le portail et la frontière publique; Full ajoute PostgreSQL isolé, navigateur/Axe, race, vulnérabilités, deux SBOM, image OCI et preuves de signature.
+Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seasonal-go-microsite`. `VERSION` est la source SemVer. Quick couvre les contrats Go, les migrations et le portail; Full ajoute PostgreSQL isolé, navigateur/Axe, race, vulnérabilités, SBOM et image de release.
 
 ## Données et confidentialité
 
@@ -50,6 +50,7 @@ Les fichiers privés d’une installation, comme les secrets, sauvegardes, journ
 
 - [Sommaire](docs/README.md)
 - [Architecture publique](docs/ARCHITECTURE.md)
+- [Données publiques](docs/DONNEES-PUBLIQUES.md)
 - [Saisons et archives](docs/SAISONS.md)
 - [Développement](docs/DEVELOPPEMENT.md)
 - [Échos publics v6](docs/EVENEMENTS-PUBLICS-V6.md)
