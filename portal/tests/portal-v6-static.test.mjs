@@ -339,11 +339,10 @@ test("les parcours publics exposent les nouveaux contrôles accessibles", async 
     portalFile("assets/styles.css"),
   ]);
 
-  assert.doesNotMatch(index, /id="home-latest-echoes"/);
-  assert.match(index, /Accéder au terminal/);
+  assert.match(index, /id="home-latest-echoes"/);
+  assert.match(index, /id="home-echoes-status"/);
+  assert.match(index, /Dernières entrées du terminal/);
   assert.match(index, /Explorer le journal/);
-  assert.doesNotMatch(index, /Les échos les plus récents/);
-  assert.doesNotMatch(index, /derniers échos vérifiés/i);
   assert.match(index, /id="player-visibility-toggle"/);
   assert.match(index, /aria-modal="true"/);
   assert.match(index, /id="expedition-export"[^>]+data-player-export/);
@@ -527,11 +526,14 @@ test("le résumé quotidien neutralise tous les champs persistants", async () =>
   }
 });
 
-test("le bundle ne contient pas la vue d’aperçu d’accueil", async () => {
+test("le bundle rend les dernières entrées de l’accueil avec la source du terminal", async () => {
   const app = await portalFile("assets/app.js");
-  assert.doesNotMatch(app, /function renderHomeLatestEchoes/);
-  assert.doesNotMatch(app, /function loadHomeEchoes/);
-  assert.doesNotMatch(app, /home-latest-echoes/);
+  assert.match(app, /const homeLatestEchoes = document\.querySelector\("#home-latest-echoes"\)/);
+  assert.match(app, /function renderHomeLatestEchoes/);
+  assert.match(app, /async function loadHomeLatestEchoes/);
+  assert.match(app, /loadTerminalEventsPreferred\(true\)/);
+  assert.match(app, /events\.slice\(0, dashboardEventPageSize\)/);
+  assert.doesNotMatch(app, /home-latest-echoes[\s\S]{0,800}event-pagination/);
 });
 
 test("les événements compilés rendent leur tranche sans répétition", async () => {
@@ -725,11 +727,17 @@ test("le terminal affiche l'âge réel de la projection des échos", async () =>
   assert.doesNotMatch(renderer, /Synchro \$\{date\.toLocaleTimeString/);
 });
 
-test("l'accueil pointe exclusivement vers le terminal complet", async () => {
-  const index = await portalFile("index.html");
+test("l'accueil garde un aperçu court et un accès simple au terminal complet", async () => {
+  const [index, app] = await Promise.all([
+    portalFile("index.html"),
+    portalFile("assets/app.js"),
+  ]);
   assert.match(index, /\/terminal"/);
-  assert.doesNotMatch(index, /id=\"home-latest-echoes\"/);
-  assert.doesNotMatch(index, /renderHomeLatestEchoes/);
+  assert.match(index, /id=\"home-latest-echoes\"/);
+  assert.match(index, /Explorer le journal/);
+  assert.doesNotMatch(index, /event-pagination/);
+  assert.doesNotMatch(index, /Page suivante|Page précédente|Précédente|Suivante/);
+  assert.match(app, /loadHomeLatestEchoes\(\)/);
 });
 
 test("toutes les pages confient le versionnement des actifs au service Go", async () => {
