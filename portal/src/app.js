@@ -55,6 +55,8 @@ const eventStream = document.querySelector("#event-stream");
 const eventPagination = document.querySelector("#event-pagination");
 const eventControls = document.querySelector("#event-controls");
 const eventSyncStatus = document.querySelector("#event-sync-status");
+const homeLatestEchoes = document.querySelector("#home-latest-echoes");
+const homeEchoesStatus = document.querySelector("#home-echoes-status");
 const eventDateNavigation = document.querySelector("#event-date-navigation");
 const eventDateInput = document.querySelector("#event-date");
 const eventDatePrevious = document.querySelector("#event-date-previous");
@@ -3666,6 +3668,46 @@ async function loadTerminalEventsPreferred(silent = false) {
   return { ...fallback, mode: "v5" };
 }
 
+async function loadHomeLatestEchoes(silent = false) {
+  if (!homeLatestEchoes) return { ok: true, changed: false };
+  if (!silent && homeEchoesStatus) homeEchoesStatus.textContent = "Chargement des dernières entrées...";
+  const previousPage = eventCurrentPage;
+  const previousCursor = eventCursor;
+  eventCurrentPage = 1;
+  eventCursor = "";
+  try {
+    const result = await loadTerminalEventsPreferred(true);
+    if (!eventsSnapshot?.events?.length && eventsIndexSnapshot && eventIndexTotalEvents()) {
+      const page = await loadEventExportPage(1);
+      const events = mergeV5PagedTailEvents(page.events || [], eventsIndexSnapshot, eventsRecentSnapshot);
+      eventsSnapshot = {
+        ...page,
+        recent: true,
+        updatedAt: page.updatedAt || eventsIndexSnapshot.updatedAt,
+        events,
+        summary: {
+          ...(eventsIndexSnapshot.summary || page.summary || {}),
+          events: events.length,
+          totalEvents: eventIndexDisplayTotalEvents(),
+          firstAt: events.at(-1)?.occurredAt || null,
+          lastAt: events[0]?.occurredAt || null,
+        },
+      };
+    }
+    renderHomeLatestEchoes({ preserveDom: Boolean(silent) });
+    return result;
+  } catch {
+    if (!silent) {
+      homeLatestEchoes.innerHTML = '<li class="event-stream__empty">Les dernières entrées sont momentanément indisponibles.</li>';
+      if (homeEchoesStatus) homeEchoesStatus.textContent = "Nouvel essai automatique dans quelques instants.";
+    }
+    return { ok: false, changed: false };
+  } finally {
+    eventCurrentPage = previousPage;
+    eventCursor = previousCursor;
+  }
+}
+
 function primaryEventRevision(payload) {
   if (!payload || payload.recent) return "";
   return String(payload.sourceRevision || payload.revision || "").split("+")[0];
@@ -4113,6 +4155,48 @@ function renderEventStreamItems(visible, terminal, refinePageSize, options = {})
     });
   }
   return Boolean(terminal && eventsContractMode !== "v6" && refinePageSize && refineRenderedTerminalPageSize());
+}
+
+function homeTerminalEvents() {
+  const events = dedupeSessionFallbackEvents(eventsSnapshot?.events);
+  return events.slice(0, dashboardEventPageSize);
+}
+
+function renderHomeLatestEchoes(options = {}) {
+  if (!homeLatestEchoes) return false;
+  const visible = homeTerminalEvents();
+  if (!visible.length) {
+    homeLatestEchoes.innerHTML = '<li class="event-stream__empty">Les dernières entrées arriveront au prochain passage du journal.</li>';
+    if (homeEchoesStatus) homeEchoesStatus.textContent = "Le terminal complet reprend toutes les entrées, avec recherche, filtres et pagination.";
+    return false;
+  }
+
+  const rendered = visible.map((event, index) => ({
+    key: eventIdentity(event) || `home:${index}`,
+    signature: eventRenderSignature(event),
+    html: renderEventLineHtml(event, index),
+  }));
+
+  if (!options.preserveDom) {
+    homeLatestEchoes.innerHTML = rendered.map((item) => item.html).join("");
+  } else {
+    const existingLines = new Map(
+      [...homeLatestEchoes.querySelectorAll(".event-line[data-event-key]")].map((line) => [line.dataset.eventKey, line]),
+    );
+    homeLatestEchoes.replaceChildren(...rendered.map((item) => {
+      const existing = existingLines.get(item.key);
+      if (existing && existing.dataset.eventRender === item.signature) return existing;
+      return elementFromHtml(item.html);
+    }).filter(Boolean));
+  }
+
+  const totalEvents = Number(eventsSnapshot?.summary?.totalEvents || eventsDatabasePage?.total || visible.length);
+  const status = [`${dailyPlural(visible.length, "entrée récente", "entrées récentes")}`];
+  if (totalEvents > visible.length) status.push(`${formatInteger(totalEvents)} au terminal`);
+  const updatedAt = parseDate(eventsSnapshot?.updatedAt || eventsDatabasePage?.updatedAt);
+  if (updatedAt) status.push(`mis à jour ${formatRelativeAge(updatedAt)}`);
+  if (homeEchoesStatus) homeEchoesStatus.textContent = `${status.join(" · ")}.`;
+  return true;
 }
 
 function closeOpenEventDetails(exceptLine = null) {
@@ -7819,6 +7903,7 @@ async function refreshDataInBackground() {
   }
   const results = flattenLoadResults(await Promise.all([
     loadPortalFreshnessSources({ includeEvents: false }),
+    homeLatestEchoes ? loadHomeLatestEchoes(true) : Promise.resolve({ ok: true, changed: false }),
     basesGenerationRequested ? loadBases(true) : Promise.resolve({ ok: true, changed: false }),
   ]));
   const synchronizedSources = results.filter((result) => result.ok).length;
@@ -7900,7 +7985,11 @@ if (isTerminalRoute()) {
     ? loadBases()
     : Promise.resolve({ ok: true, changed: false });
 
-  Promise.all([loadPortalFreshnessSources({ includeEvents: false }), initialBaseLoad]).then(() => {
+  Promise.all([
+    loadPortalFreshnessSources({ includeEvents: false }),
+    loadHomeLatestEchoes(),
+    initialBaseLoad,
+  ]).then(() => {
     document.documentElement.classList.add("data-loaded");
     setupLazyBaseData();
     openPlayerFromRoute();
