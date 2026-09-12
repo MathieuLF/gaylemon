@@ -4,6 +4,12 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 ## [Non publié]
 
+## [1.0.5] - 2026-09-12
+
+### Corrigé
+
+- L'accueil affiche de nouveau les dernières entrées du terminal avec la même source publique que la page complète, sans pagination locale.
+
 ## [1.0.4] - 2026-09-07
 
 ### Corrigé
@@ -77,7 +83,8 @@ Ce fichier suit le format Keep a Changelog. Les versions publiées suivent SemVe
 
 - Validation Go en mode `-mod=readonly`; les dépendances externes ne sont plus chargées depuis un répertoire `vendor` local.
 
-[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.4...HEAD
+[Non publié]: https://github.com/MathieuLF/gaylemon/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/MathieuLF/gaylemon/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/MathieuLF/gaylemon/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/MathieuLF/gaylemon/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/MathieuLF/gaylemon/compare/v1.0.1...v1.0.2

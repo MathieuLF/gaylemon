@@ -2,6 +2,11 @@
   "schema": "gaylemon.release-notes.v1",
   "releases": [
     {
+      "version": "1.0.5",
+      "title": "Dernières entrées du terminal",
+      "summary": "L’accueil reprend les plus récentes entrées du terminal avec la même source publique. Le journal complet reste accessible par le bouton Terminal, avec recherche, filtres et pagination."
+    },
+    {
       "version": "1.0.4",
       "title": "Un portail plus accessible",
       "summary": "La navigation au clavier, les contrastes et la lecture sur téléphone s'améliorent. Les données consultées restent disponibles hors ligne et les fiches conservent leur position après actualisation."
