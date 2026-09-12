@@ -13,8 +13,8 @@
 ## Validation
 
 - [ ] `.\scripts\valider-depot.ps1`
-- [ ] aucun secret ou fichier d'exploitation ajouté
-- [ ] aucun détail d’instance ou runbook privé ajouté
+- [ ] données d’exemple ou anonymisées seulement
+- [ ] aucun secret ou fichier d’environnement ajouté
 - [ ] documentation et exemples actualisés
 
 ## Compatibilité

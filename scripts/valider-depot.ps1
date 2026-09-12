@@ -22,7 +22,7 @@ Write-Host 'Aucun hôte, service distant ou déploiement ne sera contacté.' -Fo
 $required = @(
     '.env.example', 'CHANGELOG.md', 'README.md', 'VERSION', 'go.mod', 'go.sum',
     'config/suite-profile-v2.json', 'db/migrations/embed.go', 'docs/ARCHITECTURE.md',
-    'docs/PUBLIC-REPOSITORY.md', 'docs/SAISONS.md', 'portal/index.html',
+    'docs/DONNEES-PUBLIQUES.md', 'docs/SAISONS.md', 'portal/index.html',
     'portal/assets/app.js', 'portal/assets/styles.css', 'portal/sw.js',
     'scripts/upgrade-preflight.ps1', 'scripts/verify-local.ps1', 'scripts/release.ps1',
     'security/cosign.pub'
@@ -45,7 +45,7 @@ $forbiddenPaths = @($tracked | Where-Object {
     $_ -match '^docs/(?:OPERATIONS|DEPLOIEMENT|hébergement-|LAN-ACCESS|SECURITE-EXPLOITATION|SOURCE-DE-VERITE)\.md$'
 })
 $forbiddenPathDetails = if ($forbiddenPaths.Count) { ': ' + ($forbiddenPaths -join ', ') } else { '' }
-Assert-Contract ($forbiddenPaths.Count -eq 0) "Aucun adaptateur ou runbook d’instance suivi$forbiddenPathDetails"
+Assert-Contract ($forbiddenPaths.Count -eq 0) "Aucun fichier local non publiable suivi$forbiddenPathDetails"
 
 $textExtensions = @('.css', '.env', '.example', '.go', '.html', '.js', '.json', '.md', '.mjs', '.ps1', '.py', '.sh', '.svg', '.txt', '.yaml', '.yml')
 $privateSurfaceErrors = [Collections.Generic.List[string]]::new()
@@ -67,7 +67,7 @@ foreach ($relative in $tracked) {
     }
 }
 $privateSurfaceDetails = if ($privateSurfaceErrors.Count) { ': ' + (($privateSurfaceErrors | Sort-Object -Unique) -join ', ') } else { '' }
-Assert-Contract ($privateSurfaceErrors.Count -eq 0) "Aucun détail privé dans les fichiers suivis$privateSurfaceDetails"
+Assert-Contract ($privateSurfaceErrors.Count -eq 0) "Aucun contenu privé dans les fichiers suivis$privateSurfaceDetails"
 
 $portalPages = @(Get-ChildItem -LiteralPath (Join-Path $root 'portal') -Filter '*.html' -File)
 $assetErrors = [Collections.Generic.List[string]]::new()

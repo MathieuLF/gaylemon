@@ -8,7 +8,7 @@ Set-Location .\gaylemon
 npm ci
 ```
 
-Les exemples sous `portal/data` sont fictifs. Les données réelles, secrets, domaines, chemins et fichiers d’exploitation restent hors du dépôt.
+Les exemples sous `portal/data` sont fictifs. Ils suffisent pour explorer le portail sans disposer d’un serveur Palworld.
 
 ## Valider
 
@@ -18,7 +18,7 @@ Les exemples sous `portal/data` sont fictifs. Les données réelles, secrets, do
 .\scripts\verify-local.ps1 -Mode Full
 ```
 
-Quick exécute les tests Go, le contrat du portail, la frontière publique et le reçu local. Full ajoute PostgreSQL 16 isolé, navigateur/Axe, race, deadcode, vulnérabilités, SBOM et image signée.
+Quick exécute les tests Go, les migrations, les contrats du portail et le reçu local. Full ajoute PostgreSQL 16 isolé, navigateur/Axe, race, deadcode, vulnérabilités, SBOM et image de release.
 
 ## Explorer le portail
 
@@ -40,9 +40,9 @@ Prérequis : Go 1.27, PowerShell 7 et Docker. Depuis le dépôt :
 
 Le script génère deux paires Ed25519 dédiées à la session, démarre PostgreSQL 16 sur un port de boucle locale aléatoire, exporte explicitement les variables nécessaires et lance Go sur le port demandé. Les migrations du produit sont appliquées au démarrage. OAuth et l’analytique sont désactivés. Aucune commande n’est envoyée à un agent réel.
 
-La base est vide : le portail Go montre donc ses états en attente jusqu’à l’ingestion de projections signées. Pour travailler sur les écrans remplis, utiliser le parcours fictif ci-dessus. Ctrl+C arrête le processus créé et supprime uniquement le conteneur dont le script a vérifié l’identité. Les clés et journaux de cette session restent sous `runtime/local`, ignoré par Git. Ne pas réutiliser ces clés dans une instance réelle.
+La base est vide : le portail Go montre donc ses états en attente jusqu’à l’ingestion de projections signées. Pour travailler sur les écrans remplis, utiliser le parcours fictif ci-dessus. Ctrl+C arrête le processus créé et supprime uniquement le conteneur dont le script a vérifié l’identité. Les clés et journaux de cette session restent sous `runtime/local`, ignoré par Git, et ne servent qu’au développement local.
 
-Le programme lit l’environnement du processus, **pas** un fichier `.env`. Pour une base persistante gérée séparément, fournir au minimum `GAYLEMON_DATABASE_URL`, `GAYLEMON_AGENT_PUBLIC_KEYS` au format `identifiant:cle-publique-base64`, `GAYLEMON_WEB_LISTEN` et `GAYLEMON_PUBLIC_BASE_URL`, puis lancer `go run ./cmd/gaylemon-web`. Une URL HTTPS exige aussi `GAYLEMON_RESPONSE_PRIVATE_KEY`. `go run ./cmd/gaylemon keygen --private chemin.key` génère une paire; les mécanismes privés de l’instance restent hors du dépôt.
+Le programme lit l’environnement du processus, **pas** un fichier `.env`. Pour une base persistante gérée séparément, fournir au minimum `GAYLEMON_DATABASE_URL`, `GAYLEMON_AGENT_PUBLIC_KEYS` au format `identifiant:cle-publique-base64`, `GAYLEMON_WEB_LISTEN` et `GAYLEMON_PUBLIC_BASE_URL`, puis lancer `go run ./cmd/gaylemon-web`. Une URL HTTPS exige aussi `GAYLEMON_RESPONSE_PRIVATE_KEY`. `go run ./cmd/gaylemon keygen --private chemin.key` génère une paire de clés.
 
 ## Modifier le frontend
 
