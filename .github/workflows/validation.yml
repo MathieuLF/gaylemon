@@ -62,7 +62,7 @@ jobs:
           npm run test:browser
       - name: Contrats Python publics
         run: python -m unittest discover -s scripts/tests -p 'test_*.py'
-      - name: Frontière du dépôt public
+      - name: Dépôt public
         shell: pwsh
         run: ./scripts/valider-depot.ps1 -SansDocker -SansGo
       - name: Image de production
