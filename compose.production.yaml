@@ -5,18 +5,18 @@ services:
     image: ${GAYLEMON_IMAGE_REFERENCE:?GAYLEMON_IMAGE_REFERENCE avec digest requis}
     restart: unless-stopped
     labels:
-      dockpanel.managed: "true"
-      dockpanel.app.template: compose
-      dockpanel.app.management: external-compose
-      dockpanel.app.environment: production
-      dockpanel.app.primary: "true"
-      dockpanel.app.domain: gaylemon.nethercore.dev
-      nethercore.runtime.contract: compose-v1
-      nethercore.suite.contract: suite-foundation-v2
-      nethercore.service: gaylemon
-      nethercore.component: application
-      nethercore.backup.required-volumes: ""
-      nethercore.backup.excluded-volumes: ""
+      - dockpanel.managed=true
+      - dockpanel.app.template=compose
+      - dockpanel.app.management=external-compose
+      - dockpanel.app.environment=production
+      - dockpanel.app.primary=true
+      - dockpanel.app.domain=gaylemon.nethercore.dev
+      - nethercore.runtime.contract=compose-v1
+      - nethercore.suite.contract=suite-foundation-v2
+      - nethercore.service=gaylemon
+      - nethercore.component=application
+      - nethercore.backup.required-volumes=
+      - nethercore.backup.excluded-volumes=
     environment:
       GAYLEMON_DATABASE_URL: ${GAYLEMON_DATABASE_URL:?GAYLEMON_DATABASE_URL requis}
       GAYLEMON_AGENT_PUBLIC_KEYS: ${GAYLEMON_AGENT_PUBLIC_KEYS:?GAYLEMON_AGENT_PUBLIC_KEYS requis}
