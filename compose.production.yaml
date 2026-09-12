@@ -3,6 +3,7 @@ name: gaylemon
 services:
   web:
     image: ${GAYLEMON_IMAGE_REFERENCE:?GAYLEMON_IMAGE_REFERENCE avec digest requis}
+    pull_policy: never
     restart: unless-stopped
     labels:
       - dockpanel.managed=true
