@@ -2,6 +2,8 @@
   "name": "gaylemon-validation",
   "private": true,
   "scripts": {
+    "check:dev": "python3 -B scripts/project.py check-dev",
+    "check:integration": "python3 -B scripts/project.py check-integration",
     "test": "npm run test:contracts",
     "test:contracts": "node --test portal/tests/*.test.mjs",
     "test:browser": "playwright test",

@@ -50,4 +50,5 @@ Write-Host ""
 Write-Host "Initialisation terminee." -ForegroundColor Cyan
 Write-Host "Configuration locale: $envLocal"
 Write-Host "Validation: .\scripts\valider-depot.ps1"
-Write-Host "Démarrage local: go run ./cmd/web"
+Write-Host "Démarrage local: python -B scripts/project.py start --postgres docker"
+Write-Host "Le service Go lit l'environnement du processus; il ne charge pas .env."

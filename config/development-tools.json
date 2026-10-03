@@ -1,0 +1,7 @@
+{
+  "go": "1.27.0",
+  "node": "24.19.0",
+  "pythonMinimum": "3.12",
+  "ubuntu": "24.04",
+  "postgresql": "16"
+}

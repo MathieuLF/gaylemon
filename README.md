@@ -30,13 +30,25 @@ Le script prépare une base temporaire, des clés locales et le service sur `htt
 
 ## Validation commune
 
+Après le setup Ubuntu `bash scripts/setup-cloud.sh`, utiliser le contrôle quotidien :
+
+```bash
+python3 -B scripts/project.py check-dev
+```
+
+Il réutilise les dépendances installées et couvre unités Go/Python/JavaScript, vet, format Go, cohérence des actifs et compilation des deux exécutables. Il vérifie que les fichiers suivis et l'état Git restent identiques, sans restauration automatique. Relancer le setup après un changement de lockfile.
+
+Les intégrations sont explicites : `python3 -B scripts/project.py check-integration` prépare une base PostgreSQL 16 native temporaire; `python3 -B scripts/project.py check-browser` exécute Playwright/Axe. Pour explorer le portail Ubuntu avec les outils préparés : `python3 -B scripts/project.py portal`. Pour lancer le backend Ubuntu : `python3 -B scripts/project.py start`; ajouter `--check` pour vérifier `/health/ready` et les actifs puis arrêter. Sous Windows, utiliser `python` et `--postgres docker` pour le backend et l'intégration.
+
+Ce profil quotidien ne couvre ni PostgreSQL, ni navigateur, ni race, ni audits ou signatures. Il ne constitue pas une certification de release. Les règles communes sont dans [Développement](docs/DEVELOPPEMENT.md).
+
 ```powershell
 .\scripts\upgrade-preflight.ps1 -Mode Inventory
 .\scripts\verify-local.ps1 -Mode Quick
 .\scripts\verify-local.ps1 -Mode Full
 ```
 
-Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seasonal-go-microsite`. `VERSION` est la source SemVer. Quick couvre les contrats Go, les migrations et le portail; Full ajoute PostgreSQL isolé, navigateur/Axe, race, vulnérabilités, SBOM et image de release.
+Gaylémon suit la révision 2.3.0 de `suite-foundation-v2` avec le profil `seasonal-go-microsite`. `VERSION` est la source SemVer. Quick couvre les contrats Go et le portail, sans exécuter les migrations sur PostgreSQL. Full ajoute PostgreSQL isolé, navigateur/Axe, race, vulnérabilités, SBOM et image de release signée; il exige les outils et clés de release autorisés.
 
 ## Données et confidentialité
 

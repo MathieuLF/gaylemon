@@ -32,6 +32,7 @@ venv/
 .mypy_cache/
 .ruff_cache/
 node_modules/
+vendor/
 coverage/
 test-results/
 playwright-report/
