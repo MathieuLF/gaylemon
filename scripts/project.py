@@ -65,6 +65,7 @@ def check_dev() -> None:
     if run("gofmt", "-l", "cmd", "internal", "db", capture=True):
         raise RuntimeError("Sources Go non formatées.")
     run(sys.executable, "-B", "-m", "unittest", "discover", "-s", "scripts/tests", "-p", "test_*.py")
+    run(sys.executable, "-B", "scripts/check_production_compose.py")
     run("npm", "run", "build:check")
     run("npm", "test")
     output = ROOT / "runtime/development-build"

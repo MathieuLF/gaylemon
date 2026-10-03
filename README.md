@@ -6,6 +6,8 @@ Gaylémon est un microsite saisonnier pour raconter une aventure Palworld à par
 
 Ce dépôt public documente le microsite, son contrat de développement local et les fichiers nécessaires pour repartir du projet. Il ne décrit pas l’état d’une instance hébergée, son infrastructure privée, ses secrets ou ses données réelles.
 
+Le manifeste `compose.production.yaml` versionné appartient au parcours d'exploitation. Il n'est pas utilisé par le setup ni le développement synthétique; toute activation exige une instruction explicite et une configuration sensible externe.
+
 ## Composants
 
 - `cmd/gaylemon-web` et `internal/web` : service HTTP Go et portail public;

@@ -70,6 +70,8 @@ Installation : `bash scripts/setup-cloud.sh`. Instructions de démarrage : porta
 
 Ajouter de nouvelles migrations plutôt que réécrire celles appliquées. Le démarrage applique les SQL embarqués et les migrations River. Rétention, archivage, suppression de données, clés de confiance, publication, réseau, services et sauvegardes d'une installation nécessitent une instruction explicite. Les lockfiles et bundles se changent avec leurs sources et les validations correspondantes.
 
+`compose.production.yaml` est un manifeste d'exploitation versionné, distinct du développement synthétique. Le contrôle quotidien vérifie statiquement que ses paramètres sensibles restent externes et que ses protections sont présentes; il ne démarre pas ce manifeste. `GAYLEMON_IMAGE_REFERENCE` et `GAYLEMON_WEB_PORT` appartiennent seulement à ce parcours. Ne pas les utiliser pour tester une instance réelle sans instruction explicite.
+
 ## Explorer le portail
 
 ```powershell
