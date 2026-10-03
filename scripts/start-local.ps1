@@ -56,10 +56,12 @@ try {
         $previousEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
         [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process')
     }
-    $binary = Join-Path $runRoot 'gaylemon-web.exe'
+    $binary = Join-Path $runRoot $(if ($IsWindows) { 'gaylemon-web.exe' } else { 'gaylemon-web' })
     & go build -o $binary ./cmd/gaylemon-web
     if ($LASTEXITCODE -ne 0) { throw 'La compilation du service a échoué.' }
-    $webProcess = Start-Process -FilePath $binary -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $runRoot 'web.log') -RedirectStandardError (Join-Path $runRoot 'web-error.log')
+    $startArguments = @{ FilePath=$binary; WorkingDirectory=$projectRoot; PassThru=$true; RedirectStandardOutput=(Join-Path $runRoot 'web.log'); RedirectStandardError=(Join-Path $runRoot 'web-error.log') }
+    if ($IsWindows) { $startArguments.WindowStyle = 'Hidden' }
+    $webProcess = Start-Process @startArguments
     $healthy = $false
     foreach ($attempt in 1..40) {
         if ($webProcess.HasExited) { throw "Le service s'est arrêté. Consulter $runRoot." }

@@ -21,7 +21,7 @@ import (
 func TestPostgresIngestionLifecycle(t *testing.T) {
 	databaseURL := os.Getenv("GAYLEMON_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("GAYLEMON_TEST_DATABASE_URL absent")
+		t.Fatal("GAYLEMON_TEST_DATABASE_URL absent : une base isolée est requise pour l'intégration")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -182,7 +182,7 @@ func TestPostgresIngestionLifecycle(t *testing.T) {
 func TestSeasonArchivePreservesProjectionsAndIsolatesNextSequences(t *testing.T) {
 	databaseURL := os.Getenv("GAYLEMON_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("GAYLEMON_TEST_DATABASE_URL absent")
+		t.Fatal("GAYLEMON_TEST_DATABASE_URL absent : une base isolée est requise pour l'intégration")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

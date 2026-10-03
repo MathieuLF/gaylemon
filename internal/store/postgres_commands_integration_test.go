@@ -12,7 +12,7 @@ import (
 func TestCommandAndAuditAreAtomic(t *testing.T) {
 	url := os.Getenv("GAYLEMON_TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("GAYLEMON_TEST_DATABASE_URL absent")
+		t.Fatal("GAYLEMON_TEST_DATABASE_URL absent : une base isolée est requise pour l'intégration")
 	}
 	ctx := context.Background()
 	repo, err := OpenPostgres(ctx, url)

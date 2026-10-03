@@ -16,6 +16,10 @@ $commit = (& git -C $ParserRoot rev-parse HEAD | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
     throw "Impossible d'identifier la version locale de PalworldSaveTools."
 }
+$lock = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../dependencies/palworld-save-tools.lock.json') | ConvertFrom-Json
+if ($commit -ne $lock.commit) {
+    throw 'La révision des ressources diffère du verrou PalworldSaveTools. Préparer la révision verrouillée avant la synchronisation.'
+}
 
 $marker = Join-Path $Destination ".source-commit"
 $markerValue = "$commit sync-v$SyncVersion"

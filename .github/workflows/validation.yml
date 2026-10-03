@@ -39,29 +39,22 @@ jobs:
           cache: true
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "24.19.0"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - name: Tests Go
-        run: go test ./...
+      - name: Préparer les dépendances du portail
+        run: npm ci --ignore-scripts
+      - name: Contrôle quotidien commun
+        run: python3 -B scripts/project.py check-dev
       - name: PostgreSQL 16
         run: go test -tags=integration ./internal/store ./internal/background -v
-      - name: Analyse Go
-        run: go vet ./...
       - name: Code mort
         run: go tool deadcode -test ./...
-      - name: Sources et actifs du portail
-        run: |
-          npm ci --ignore-scripts
-          npm run build:check
-          npm test
       - name: Navigateur et accessibilité
         run: |
           npx playwright install --with-deps chromium
           npm run test:browser
-      - name: Contrats Python publics
-        run: python -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: Dépôt public
         shell: pwsh
         run: ./scripts/valider-depot.ps1 -SansDocker -SansGo

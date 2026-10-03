@@ -41,7 +41,7 @@ Assert-Contract ($version -match '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-
 $tracked = @(& git -C $root ls-files --cached --others --exclude-standard)
 $forbiddenPaths = @($tracked | Where-Object {
     $_ -match '^(?:server|vps)/' -or
-    $_ -in @('compose.production.yaml', '.env.production.example', 'Gaylemon Ops Console.ps1') -or
+    $_ -in @('.env.production.example', 'Gaylemon Ops Console.ps1') -or
     $_ -match '^docs/(?:OPERATIONS|DEPLOIEMENT|hébergement-|LAN-ACCESS|SECURITE-EXPLOITATION|SOURCE-DE-VERITE)\.md$'
 })
 $forbiddenPathDetails = if ($forbiddenPaths.Count) { ': ' + ($forbiddenPaths -join ', ') } else { '' }
@@ -54,6 +54,8 @@ $privateHostB = -join @(100,111,99,107,112,97,110,101,108 | ForEach-Object { [ch
 $providerA = -join @(71,111,111,103,108,101,32,68,114,105,118,101 | ForEach-Object { [char]$_ })
 $providerB = -join @(67,108,111,117,100,102,108,97,114,101,32,82,50 | ForEach-Object { [char]$_ })
 foreach ($relative in $tracked) {
+    # Le manifeste d'exploitation est versionné; ses paramètres sensibles sont contrôlés séparément.
+    if ($relative -eq 'compose.production.yaml') { continue }
     $path = Join-Path $root $relative
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
     $extension = [IO.Path]::GetExtension($relative).ToLowerInvariant()
@@ -67,7 +69,10 @@ foreach ($relative in $tracked) {
     }
 }
 $privateSurfaceDetails = if ($privateSurfaceErrors.Count) { ': ' + (($privateSurfaceErrors | Sort-Object -Unique) -join ', ') } else { '' }
-Assert-Contract ($privateSurfaceErrors.Count -eq 0) "Aucun contenu privé dans les fichiers suivis$privateSurfaceDetails"
+Assert-Contract ($privateSurfaceErrors.Count -eq 0) "Aucun contenu privé hors manifeste d'exploitation$privateSurfaceDetails"
+
+& python -B (Join-Path $PSScriptRoot 'check_production_compose.py')
+Assert-Contract ($LASTEXITCODE -eq 0) 'Manifeste versionné sans configuration sensible intégrée'
 
 $portalPages = @(Get-ChildItem -LiteralPath (Join-Path $root 'portal') -Filter '*.html' -File)
 $assetErrors = [Collections.Generic.List[string]]::new()
